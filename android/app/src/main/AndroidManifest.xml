@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Powiadomienia o nowych wiadomościach (Android 13+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.Mekamb">
+
+        <!--
+          allowBackup="false" jest wymogiem bezpieczeństwa, nie preferencją:
+          kopia zapasowa Androida wyniosłaby zaszyfrowany magazyn poza urządzenie,
+          podczas gdy klucz, który go otwiera, zostaje w Keystore i nigdy nie
+          opuszcza sprzętu. Przywrócona kopia byłaby bezużyteczna, a jednocześnie
+          rozsiewałaby materiał kryptograficzny.
+        -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

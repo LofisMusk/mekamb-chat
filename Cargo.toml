@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "transport", "core/bindings/wasm"]
+members = ["core", "transport", "core/bindings/wasm", "core/bindings/uniffi"]
 
 [workspace.package]
 version = "0.1.0"

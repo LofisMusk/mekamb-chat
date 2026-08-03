@@ -45,6 +45,7 @@ wersja natywna.
 
 ```
 core/       Rust — kryptografia: tożsamość, MLS, framing, koperty
+core/bindings/  WASM (przeglądarka) i UniFFI (Android) — jeden rdzeń, dwa wiązania
 transport/  Rust — sieć P2P: iroh QUIC, koperty, wybór drogi dostarczenia
 server/     Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów
 web/        PWA (iOS, desktop)
@@ -100,7 +101,7 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
 - [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
 - [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
-- [ ] **Faza 5** — klient Android
+- [~] **Faza 5** — Android: bindingi UniFFI, transport P2P, UI (zostaje logowanie)
 - [ ] Fazy 6–11 — grupy, załączniki, rozmowy, multi-device, hardening
 
 ## Licencja

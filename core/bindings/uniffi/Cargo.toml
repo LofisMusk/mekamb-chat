@@ -1,0 +1,29 @@
+[package]
+name = "mekamb-ffi"
+description = "Bindingi UniFFI rdzenia mekamb-chat dla klienta Android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# `cdylib` dla Androida (.so ładowane przez JNI), `lib` żeby dało się to
+# testować zwykłym `cargo test`.
+crate-type = ["cdylib", "lib"]
+name = "mekamb_ffi"
+
+[dependencies]
+mekamb-core = { path = "../.." }
+mekamb-transport = { path = "../../../transport" }
+uniffi = { version = "0.32.0", features = ["cli"] }
+iroh.workspace = true
+thiserror.workspace = true
+
+# Transport jest asynchroniczny, a API wystawiane do Kotlina jest blokujące —
+# uzasadnienie w komentarzu na górze `src/lib.rs`. Runtime tokio trzymamy więc
+# po stronie Rusta.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+uniffi = { version = "0.32.0", features = ["bindgen-tests"] }

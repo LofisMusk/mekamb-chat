@@ -12,6 +12,7 @@ obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
 | Treść załączników | AES-256-GCM po stronie klienta, świeży klucz na plik; klucz podróżuje w kanale MLS |
 | Nazwa pliku i jego typ | Podróżują w kanale MLS. Serwer widzi wyłącznie nieprzezroczysty blob |
 | Lokalizacja i dane aparatu w zdjęciach | Usuwane przed zaszyfrowaniem, domyślnie (EXIF, XMP, IPTC, chunki tekstowe PNG) |
+| Lokalizacja i dane urządzenia w wideo | Usuwane z MP4 i MOV, razem ze ścieżkami metadanych czasowych (trasy GPS z kamer sportowych) |
 | Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS |
 | Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
 | Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
@@ -59,15 +60,14 @@ Relay iroh (publiczne n0 albo TURN Cloudflare) widzi IP i wzorce ruchu obu
 stron. Nie widzi treści — wiadomości są zaszyfrowane MLS **pod** szyfrowaniem
 QUIC/TLS.
 
-### Metadanych w nagraniach wideo
+### Nietypowe warianty kontenerów
 
-Ze zdjęć usuwamy EXIF, XMP i IPTC. **Z wideo nie usuwamy niczego** — kontenery
-MP4 i MOV wymagają pełnego parsera boksów. Nagranie z telefonu niesie GPS
-i model urządzenia dokładnie tak samo jak zdjęcie.
+Czyszczenie metadanych obejmuje JPEG, PNG, MP4 i MOV. Plik w wariancie, którego
+parser nie rozpozna, **przechodzi bez zmian** — świadomie, bo zablokowanie
+wysyłki byłoby gorsze niż dostarczenie pliku z metadanymi. Interfejs mówi
+wtedy wprost, że czyszczenie się nie powiodło.
 
-To realna luka, nie drobiazg. Interfejs pyta o zgodę przed wysłaniem wideo,
-zamiast milczeć: aplikacja deklarująca prywatność musi powiedzieć, gdzie jej
-brakuje.
+Formaty spoza tej listy (HEIC, WebP, AVI) nie są czyszczone wcale.
 
 ### Ile plików i jak dużych
 

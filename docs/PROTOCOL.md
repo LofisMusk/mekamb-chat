@@ -210,10 +210,38 @@ Obie listy są **listami dozwolonych**, nie zakazanych. Przy odwrotnym podejści
 każdy nowy, nieznany typ segmentu przechodziłby domyślnie — czyli dokładnie ten
 przypadek, którego chcemy uniknąć.
 
-**Wideo nie jest czyszczone.** Kontenery MP4 i MOV trzymają metadane
-w zagnieżdżonych boksach `moov`/`udta`, a ich przepisanie wymaga pełnego parsera.
-Nagrania z telefonu też mają GPS, więc jest to realna luka — interfejs pyta
-o zgodę przed wysłaniem wideo, dopóki nie zostanie zamknięta.
+### Metadane wideo (MP4, MOV)
+
+Kontenery ISO BMFF czyścimy inaczej niż obrazy, i to jest istotne.
+
+MP4 trzyma w tablicach `stco` i `co64` **bezwzględne offsety** do danych obrazu
+w `mdat`. Wycięcie czegokolwiek przed `mdat` przesunęłoby wszystko, co jest za
+nim, a tablice wskazywałyby w próżnię — plik przestałby się odtwarzać.
+
+Dlatego boksy z metadanymi **nadpisujemy typem `free` i zerujemy ich
+zawartość**. Rozmiar zostaje ten sam, więc żaden offset się nie zmienia,
+a odtwarzacze pomijają `free` z definicji.
+
+| Poziom | Zostaje | Wylatuje |
+|---|---|---|
+| najwyższy | `ftyp`, `moov`, `mdat`, `moof`, `mfra`, `sidx` | `uuid` (XMP), `meta`, `free` |
+| `moov` | `mvhd`, `trak`, `mvex`, `iods` | `udta` (GPS, model), `meta`, `uuid` |
+| `trak` | `tkhd`, `mdia`, `edts`, `tref` | `udta`, `meta`, `uuid` |
+
+Osobno wykrywamy **ścieżki z metadanymi czasowymi**: `trak`, którego
+`mdia/hdlr` ma typ `meta` lub `mebx`. Formalnie to zwykła ścieżka, więc lista
+dozwolonych by jej nie odsiała — a kamery sportowe zapisują tam pełny przebieg
+trasy GPS, czyli największy możliwy wyciek.
+
+Zerujemy zawartość, a nie tylko przestawiamy typ boksu: same przestawienie
+zostawiłoby współrzędne w pliku, tyle że w miejscu pomijanym przez odtwarzacz.
+Pierwsze lepsze narzędzie do odzyskiwania danych by je znalazło.
+
+Koszt: plik nie chudnie. To rozsądna cena za pewność, że nagranie nadal działa.
+
+**Nieudane czyszczenie nie blokuje wysyłki.** Plik w nietypowym wariancie
+kontenera lepiej dostarczyć niż odrzucić — pod warunkiem, że interfejs powie,
+iż akurat ten poszedł z metadanymi.
 
 ## 7. Rozmowy audio/wideo
 

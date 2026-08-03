@@ -10,7 +10,7 @@ Otwartoźródłowy komunikator z szyfrowaniem end-to-end i architekturą **P2P-f
 - **Każda rozmowa zaszyfrowana E2EE** — MLS (RFC 9420), bez własnej kryptografii
 - **Ruch bezpośrednio między urządzeniami** — iroh przebija NAT w ~90–95% przypadków
 - **DM-y i grupy wieloosobowe** — DM to po prostu grupa MLS o rozmiarze 2
-- **Zdjęcia i wideo** — szyfrowane osobnym kluczem na plik; ze zdjęć usuwamy lokalizację i dane aparatu
+- **Zdjęcia i wideo** — szyfrowane osobnym kluczem na plik; usuwamy z nich lokalizację i dane urządzenia
 - **Rozmowy audio i wideo** — WebRTC mesh do 4 osób, bez serwera mediów
 - **Logowanie: nazwa + hasło + kod TOTP** — hasło przez OPAQUE, więc serwer go nie widzi
 - **Klucze tylko na urządzeniu** — serwer nie ma czego wydać ani zgubić

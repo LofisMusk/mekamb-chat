@@ -19,18 +19,37 @@
 //! wyłącznie te fragmenty, które są potrzebne do wyświetlenia — piksele
 //! zostają bit w bit takie same.
 //!
-//! # Czego ten moduł NIE robi
+//! # Wideo
 //!
-//! Nie czyści wideo. Kontenery MP4 i MOV trzymają metadane w zagnieżdżonych
-//! boksach `moov`/`udta`, a przepisanie ich wymaga pełnego parsera kontenera.
-//! Nagrania z telefonu **też mają GPS**, więc jest to realna luka, a nie
-//! drobiazg — interfejs musi o tym uprzedzić, dopóki nie zostanie zamknięta.
+//! Kontenery MP4 i MOV obsługuje [`crate::media_video`] — inna struktura pliku,
+//! ale ta sama zasada: usuwamy metadane, nie ruszając obrazu. [`strip_metadata`]
+//! kieruje ruch do właściwego modułu.
 
 use crate::error::{Error, Result};
 
 /// Czy dla danego typu potrafimy usunąć metadane.
 pub fn can_strip(mime_type: &str) -> bool {
-    matches!(mime_type, "image/jpeg" | "image/jpg" | "image/png")
+    matches!(
+        mime_type,
+        "image/jpeg" | "image/jpg" | "image/png" | "video/mp4" | "video/quicktime"
+    )
+}
+
+/// Usuwa metadane z pliku dowolnego obsługiwanego typu.
+///
+/// Jedno wejście dla obrazów i wideo — warstwa wyżej nie powinna wiedzieć,
+/// że są to zupełnie różne formaty kontenerów.
+///
+/// Dla typów nieobsługiwanych zwraca dane bez zmian. **Uszkodzony plik również
+/// przechodzi bez zmian**, a nie jest odrzucany: jeśli ktoś wysyła nagranie
+/// w wariancie, którego nasz parser nie rozumie, lepiej dostarczyć plik
+/// z metadanymi niż go zablokować — pod warunkiem, że interfejs o tym powie.
+pub fn strip_metadata(bytes: &[u8], mime_type: &str) -> Result<Vec<u8>> {
+    match mime_type {
+        "image/jpeg" | "image/jpg" | "image/png" => strip_image_metadata(bytes, mime_type),
+        "video/mp4" | "video/quicktime" => crate::media_video::strip_video_metadata(bytes),
+        _ => Ok(bytes.to_vec()),
+    }
 }
 
 /// Usuwa metadane z obrazu, zostawiając piksele nietknięte.
@@ -275,9 +294,22 @@ mod tests {
     #[test]
     fn nieobslugiwany_typ_przechodzi_bez_zmian() {
         let dane = b"dowolna zawartosc".to_vec();
-        assert_eq!(strip_image_metadata(&dane, "video/mp4").unwrap(), dane);
-        assert!(!can_strip("video/mp4"));
+        assert_eq!(strip_metadata(&dane, "application/pdf").unwrap(), dane);
+
         assert!(can_strip("image/jpeg"));
+        assert!(can_strip("video/mp4"));
+        assert!(can_strip("video/quicktime"));
+        assert!(!can_strip("application/pdf"));
+    }
+
+    /// Wspólne wejście musi kierować obrazy i wideo do właściwych parserów.
+    #[test]
+    fn wspolne_wejscie_kieruje_do_wlasciwego_parsera() {
+        let jpeg = jpeg_z_exifem(b"Exif\0\0GPS 52.2297N");
+        assert!(!zawiera(&strip_metadata(&jpeg, "image/jpeg").unwrap(), b"52.2297N"));
+
+        let png = png_z_tekstem(b"Comment\0lokalizacja 21.0122E");
+        assert!(!zawiera(&strip_metadata(&png, "image/png").unwrap(), b"21.0122E"));
     }
 
     /// Pliki od użytkownika bywają uszkodzone albo spreparowane — parser ma

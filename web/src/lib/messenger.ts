@@ -6,7 +6,7 @@ import init, {
   maxAttachmentBytes,
   openAttachment,
   sealAttachment,
-  stripImageMetadata,
+  stripMetadata,
 } from "../wasm/mekamb_wasm";
 import { api } from "./api";
 import type { Account } from "./vault";
@@ -236,7 +236,7 @@ export class Messenger {
    * widzi zawartości — nawet przez chwilę. Klucz idzie osobną drogą i nigdy
    * nie przechodzi przez endpoint załączników.
    */
-  async sendFile(groupId: Uint8Array, file: File): Promise<void> {
+  async sendFile(groupId: Uint8Array, file: File): Promise<{ stripped: boolean }> {
     if (file.size > maxAttachmentBytes()) {
       throw new Error(
         `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
@@ -249,16 +249,27 @@ export class Messenger {
     const mimeType = file.type || "application/octet-stream";
     const surowe = new Uint8Array(await file.arrayBuffer());
 
-    // Metadane usuwamy PRZED zaszyfrowaniem. EXIF włożony do środka
-    // szyfrogramu dociera do odbiorcy dokładnie tak samo jak treść — a stamtąd
-    // może trafić dalej razem z plikiem. Zdjęcie z telefonu niesie w EXIF-ie
+    // Metadane usuwamy PRZED zaszyfrowaniem. Dane włożone do środka szyfrogramu
+    // docierają do odbiorcy dokładnie tak samo jak treść — a stamtąd mogą
+    // powędrować dalej razem z plikiem. Zdjęcie i nagranie z telefonu niosą
     // współrzędne GPS z dokładnością do kilku metrów.
     //
-    // Dla typów, których nie umiemy oczyścić (wideo), zostawiamy plik bez
-    // zmian; ostrzeżeniem zajmuje się interfejs.
-    const plaintext = canStripMetadata(mimeType)
-      ? stripImageMetadata(surowe, mimeType)
-      : surowe;
+    // Nieudane czyszczenie NIE blokuje wysyłki: plik w nietypowym wariancie
+    // kontenera lepiej dostarczyć niż odrzucić. Wywołujący dowiaduje się
+    // z `stripped`, czy się powiodło, i może to pokazać użytkownikowi.
+    // Typ szerszy niż `surowe`: wasm-bindgen zwraca bufor bez zawężenia do
+    // ArrayBuffer, a oba warianty są tu równie dobre.
+    let plaintext: Uint8Array<ArrayBufferLike> = surowe;
+    let stripped = false;
+
+    if (canStripMetadata(mimeType)) {
+      try {
+        plaintext = stripMetadata(surowe, mimeType);
+        stripped = true;
+      } catch {
+        // Parser nie rozpoznał tego wariantu kontenera.
+      }
+    }
 
     const sealed = sealAttachment(plaintext, mimeType);
     const blobId = await api.uploadAttachment(this.token, sealed.ciphertext);
@@ -278,6 +289,8 @@ export class Messenger {
     await this.persist();
 
     await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
+
+    return { stripped };
   }
 
   /**

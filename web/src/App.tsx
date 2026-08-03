@@ -482,25 +482,22 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               e.target.value = "";
               if (!plik) return;
 
-              // Wideo z telefonu też niesie GPS, a tego jeszcze nie usuwamy.
-              // Milczenie w tym miejscu byłoby wprowadzaniem w błąd: aplikacja
-              // deklaruje prywatność, więc musi powiedzieć, gdzie jej brakuje.
-              if (plik.type.startsWith("video/")) {
-                const zgoda = confirm(
-                  "Z nagrań wideo nie usuwamy jeszcze metadanych — plik może zawierać " +
-                    "lokalizację GPS i model urządzenia. Wysłać mimo to?",
-                );
-                if (!zgoda) return;
-              }
-
               try {
-                await messenger.sendFile(groupId, plik);
+                const { stripped } = await messenger.sendFile(groupId, plik);
+
+                // Gdy czyszczenie się nie powiodło, mówimy o tym wprost.
+                // Milczenie byłoby wprowadzaniem w błąd: użytkownik ma prawo
+                // wiedzieć, że akurat ten plik poszedł z metadanymi.
+                const opis = stripped
+                  ? `wysłano: ${plik.name}`
+                  : `wysłano: ${plik.name} — nie udało się usunąć metadanych`;
+
                 setWiadomosci((p) => [
                   ...p,
                   {
                     id: crypto.randomUUID(),
                     autor: "Ty",
-                    tresc: `wysłano: ${plik.name}`,
+                    tresc: opis,
                     czas: Date.now(),
                     wlasna: true,
                   },
@@ -512,7 +509,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           />
           Dołącz zdjęcie lub wideo
           <span className="wskazowka-plik">
-            Ze zdjęć usuwamy lokalizację i dane aparatu
+            Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia
           </span>
         </label>
       )}

@@ -46,6 +46,7 @@ wersja natywna.
 
 ```
 core/       Rust — kryptografia: tożsamość, MLS, framing, koperty
+opaque/     Rust — OPAQUE (RFC 9807), jedna implementacja dla serwera i klientów
 core/bindings/  WASM (przeglądarka) i UniFFI (Android) — jeden rdzeń, dwa wiązania
 transport/  Rust — sieć P2P: iroh QUIC, koperty, wybór drogi dostarczenia
 server/     Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów

@@ -1,0 +1,22 @@
+[package]
+name = "mekamb-opaque"
+description = "OPAQUE (RFC 9807) dla mekamb-chat — jedna implementacja dla serwera i wszystkich klientów"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# RFC 9807. Świadomie jedna implementacja po obu stronach: dwie niezależne
+# implementacje tego samego protokołu nie są automatycznie zgodne na poziomie
+# bajtów, a rozjazd daje nie "słabsze bezpieczeństwo", tylko logowanie, które
+# nigdy nie przechodzi.
+opaque-ke = { version = "4.0.1", features = ["ristretto255"] }
+
+# Wersje przypięte do tych, których używa opaque-ke. Workspace ma nowszą sha2,
+# ale wciągnięcie jej tutaj daje dwie niezgodne wersje `digest` w jednym
+# drzewie i typy przestają do siebie pasować.
+sha2 = "0.10"
+rand = { version = "0.8", features = ["getrandom"] }
+thiserror.workspace = true

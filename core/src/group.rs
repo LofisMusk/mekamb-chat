@@ -21,13 +21,13 @@
 //! zostałby w epoce, której reszta grupy nie zna, i wypadłby z rozmowy.
 
 use openmls::prelude::{
-    Ciphersuite, GroupId, KeyPackage, KeyPackageBundle, LeafNodeIndex, MlsGroup,
+    Ciphersuite, GroupId, KeyPackage, KeyPackageBundle, KeyPackageIn, LeafNodeIndex, MlsGroup,
     MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn, MlsMessageOut,
-    OpenMlsProvider as _, ProcessedMessageContent, ProtocolMessage, StagedWelcome,
+    OpenMlsProvider as _, ProcessedMessageContent, ProtocolMessage, ProtocolVersion,
+    StagedWelcome,
     tls_codec::{Deserialize as _, Serialize as _},
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_rust_crypto::OpenMlsRustCrypto;
 
 use crate::error::{Error, Result};
 use crate::framing::ChatMessage;
@@ -35,10 +35,10 @@ use crate::identity::{DeviceIdentity, parse_credential_identity};
 
 /// Dostawca kryptografii i magazynu.
 ///
-/// Na razie magazyn w pamięci. Trwałe implementacje (SQLite na Androidzie,
-/// IndexedDB w przeglądarce) podmieniają wyłącznie tę część — logika grup
-/// pozostaje wspólna, bo OpenMLS abstrahuje magazyn traitem `StorageProvider`.
-pub type Provider = OpenMlsRustCrypto;
+/// Stan żyje w pamięci, ale daje się zrzucić i odtworzyć — patrz
+/// [`crate::storage::MekambProvider`]. Dzięki temu przeglądarka przeżywa
+/// odświeżenie strony, a telefon ubicie procesu.
+pub type Provider = crate::storage::MekambProvider;
 
 /// Ciphersuite używany w całym projekcie.
 ///
@@ -348,4 +348,27 @@ fn serialize_message(message: &MlsMessageOut) -> Result<Vec<u8>> {
     message
         .tls_serialize_detached()
         .map_err(|e| Error::Group(format!("nie udało się zserializować wiadomości: {e}")))
+}
+
+/// Serializuje key package do publikacji na serwerze.
+pub fn serialize_key_package(key_package: &KeyPackage) -> Result<Vec<u8>> {
+    key_package
+        .tls_serialize_detached()
+        .map_err(|e| Error::Group(format!("nie udało się zserializować key package: {e}")))
+}
+
+/// Parsuje i **weryfikuje** key package pobrany z serwera.
+///
+/// Weryfikacja nie jest formalnością. Key package przychodzi z serwera, który
+/// nie jest zaufanym źródłem; bez sprawdzenia podpisu liścia, okresu ważności
+/// i obsługiwanych rozszerzeń dałoby się wprowadzić do grupy spreparowane
+/// urządzenie. Dlatego surowy [`KeyPackageIn`] nigdy nie opuszcza tej funkcji —
+/// na zewnątrz wychodzi wyłącznie [`KeyPackage`] po walidacji.
+pub fn deserialize_key_package(provider: &Provider, bytes: &[u8]) -> Result<KeyPackage> {
+    let incoming = KeyPackageIn::tls_deserialize_exact(bytes)
+        .map_err(|_| Error::Group("nieprawidłowy format key package".into()))?;
+
+    incoming
+        .validate(provider.crypto(), ProtocolVersion::Mls10)
+        .map_err(|e| Error::Group(format!("key package nie przeszedł weryfikacji: {e}")))
 }

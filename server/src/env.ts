@@ -26,6 +26,16 @@ export interface Env {
 
   /** Ziarno klucza AKE serwera OPAQUE (base64). Zmiana też unieważnia konta. */
   OPAQUE_AKE_SEED: string;
+
+  /**
+   * Lista źródeł, którym wolno wołać to API, rozdzielona przecinkami.
+   *
+   * Świadomie lista, a nie `*`. Klient webowy stoi pod innym adresem niż API
+   * (GitHub Pages kontra workers.dev), więc cross-origin jest tu normalnym
+   * przypadkiem — a to znaczy, że kontrola źródła jest jedyną barierą przed
+   * wołaniem tego API z dowolnej cudzej strony.
+   */
+  ALLOWED_ORIGINS: string;
 }
 
 /** Ile dni koperta czeka w skrzynce, zanim zostanie usunięta. */

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>mekamb-chat</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#101014" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!--
+      GitHub Pages nie pozwala ustawiać nagłówków HTTP, więc politykę
+      bezpieczeństwa treści deklarujemy w znaczniku. To słabsze niż nagłówek
+      (nie obejmuje frame-ancestors), ale bez tego nie byłoby jej wcale.
+
+      'wasm-unsafe-eval' jest konieczne — bez niego przeglądarka nie uruchomi
+      naszego modułu WebAssembly.
+
+      Symbol zastępczy w connect-src jest podstawiany adresem backendu przy
+      budowaniu (patrz wtyczka csp-connect-src w vite.config.ts). Świadomie NIE
+      wpisujemy tu blankietowego `https:`: lista z jednym adresem sprawia, że
+      nawet po wstrzyknięciu skryptu nie da się wysłać danych gdziekolwiek
+      indziej niż do naszego API.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src %CONNECT_SRC%; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

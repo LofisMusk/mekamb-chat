@@ -1,0 +1,113 @@
+:root {
+  color-scheme: dark;
+  --tlo: #101014;
+  --karta: #1a1a22;
+  --tekst: #e8e8ef;
+  --przygaszony: #9a9aa8;
+  --akcent: #6c8cff;
+  --alarm: #ff6b6b;
+  --ostrzezenie: #ffb84d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--tlo);
+  color: var(--tekst);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Wcięcia bezpieczne dla iPhone'ów z wcięciem w ekranie. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+.aplikacja { max-width: 34rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+h1 { font-size: 1.4rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+.podtytul { color: var(--przygaszony); font-size: .875rem; margin: .25rem 0 1.5rem; }
+
+.karta {
+  background: var(--karta);
+  border-radius: .75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+  margin-bottom: 1rem;
+}
+
+label { display: flex; flex-direction: column; gap: .3rem; font-size: .875rem; color: var(--przygaszony); }
+
+input {
+  background: #24242e;
+  border: 1px solid #33333f;
+  border-radius: .5rem;
+  color: var(--tekst);
+  padding: .6rem .75rem;
+  font-size: 1rem;
+}
+input:focus { outline: 2px solid var(--akcent); outline-offset: 1px; }
+
+button {
+  background: #2a2a36;
+  border: none;
+  border-radius: .5rem;
+  color: var(--tekst);
+  padding: .65rem 1rem;
+  font-size: .95rem;
+  cursor: pointer;
+}
+button.glowny { background: var(--akcent); color: #0b0b10; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+
+.wskazowka { color: var(--przygaszony); font-size: .8rem; margin: 0; }
+.wskazowka a { color: var(--akcent); }
+
+.blad {
+  background: rgba(255, 107, 107, .12);
+  border-left: 3px solid var(--alarm);
+  padding: .75rem 1rem;
+  border-radius: .4rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.blad button { background: none; padding: 0 .3rem; }
+
+.ostrzezenie {
+  background: rgba(255, 184, 77, .1);
+  border-left: 3px solid var(--ostrzezenie);
+  padding: .9rem 1rem;
+  border-radius: .4rem;
+  margin-bottom: 1rem;
+  font-size: .875rem;
+}
+.ostrzezenie p { margin: .5rem 0; color: var(--przygaszony); }
+
+.sekret {
+  display: block;
+  background: #24242e;
+  padding: .75rem;
+  border-radius: .5rem;
+  word-break: break-all;
+  font-family: ui-monospace, monospace;
+  letter-spacing: .05em;
+}
+
+.pasek { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.tryb {
+  font-size: .75rem;
+  color: var(--przygaszony);
+  border: 1px solid #33333f;
+  border-radius: 1rem;
+  padding: .15rem .6rem;
+}
+.wyloguj { font-size: .8rem; background: none; color: var(--przygaszony); }
+
+.wiadomosci { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.wiadomosci li { background: var(--karta); border-radius: .6rem; padding: .6rem .8rem; }
+.wiadomosci li.wlasna { background: #23304f; align-self: flex-end; }
+.autor { display: block; font-size: .7rem; color: var(--przygaszony); }
+
+.pisanie { display: flex; gap: .5rem; }
+.pisanie input { flex: 1; }

@@ -140,7 +140,12 @@ export class UserInbox extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
-    ws.close(code, reason);
+    // Kodów z zakresu 1005-1015 nie wolno podać w `close()` — są zarezerwowane
+    // dla samej przeglądarki i próba ich użycia kończy się wyjątkiem.
+    // Zerwane połączenie (1006) zgłasza się właśnie tak, więc bez tego
+    // sprawdzenia każde nagłe rozłączenie klienta wywracało obsługę.
+    const dozwolony = code >= 1000 && code < 1005;
+    ws.close(dozwolony ? code : 1000, dozwolony ? reason : "");
   }
 
   /** Ustawia alarm czyszczący wygasłe koperty, jeśli jeszcze nie działa. */

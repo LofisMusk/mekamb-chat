@@ -23,8 +23,14 @@ import type { Env } from "./env";
  */
 type D1Blob = ArrayBuffer | Uint8Array | number[];
 
-/** Sprowadza dowolną postać BLOB-a z D1 do bajtów. */
-export function toBytes(value: D1Blob): Uint8Array {
+/**
+ * Sprowadza dowolną postać BLOB-a z D1 do bajtów.
+ *
+ * Przyjmuje `null`, bo urządzenia bez własnego adresu (przeglądarka) mają
+ * puste kolumny adresowe — to poprawny stan, nie brak danych.
+ */
+export function toBytes(value: D1Blob | null | undefined): Uint8Array | null {
+  if (value === null || value === undefined) return null;
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   return Uint8Array.from(value);
@@ -34,9 +40,10 @@ export interface DeviceRecord {
   deviceId: string;
   userId: string;
   mlsPublicKey: D1Blob;
-  irohNodeId: string;
-  addrRecord: string;
-  addrSignature: D1Blob;
+  /** `null` dla urządzeń osiągalnych wyłącznie przez skrzynkę. */
+  irohNodeId: string | null;
+  addrRecord: string | null;
+  addrSignature: D1Blob | null;
   lastSeenAt: number;
 }
 
@@ -123,4 +130,52 @@ export async function publishKeyPackages(
 
   await env.DB.batch(statements);
   return packages.length;
+}
+
+/**
+ * Rejestruje urządzenie użytkownika albo odświeża jego wpis.
+ *
+ * `irohNodeId` i rekord adresowy są opcjonalne: przeglądarka nie ma własnego
+ * adresu, bo sandbox nie pozwala jej przyjmować połączeń. Takie urządzenie
+ * odbiera wyłącznie przez skrzynkę i to jest poprawny, zamierzony stan — a nie
+ * brak konfiguracji.
+ */
+export async function registerDevice(
+  env: Env,
+  device: {
+    deviceId: string;
+    userId: string;
+    mlsPublicKey: Uint8Array;
+    irohNodeId?: string | null;
+    addrRecord?: string | null;
+    addrSignature?: Uint8Array | null;
+    displayName?: string | null;
+  },
+): Promise<void> {
+  const now = Date.now();
+
+  await env.DB.prepare(
+    `INSERT INTO devices
+       (id, user_id, mls_public_key, iroh_node_id, addr_record, addr_signature,
+        display_name, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       mls_public_key = excluded.mls_public_key,
+       iroh_node_id   = excluded.iroh_node_id,
+       addr_record    = excluded.addr_record,
+       addr_signature = excluded.addr_signature,
+       last_seen_at   = excluded.last_seen_at`,
+  )
+    .bind(
+      device.deviceId,
+      device.userId,
+      device.mlsPublicKey,
+      device.irohNodeId ?? null,
+      device.addrRecord ?? null,
+      device.addrSignature ?? null,
+      device.displayName ?? null,
+      now,
+      now,
+    )
+    .run();
 }

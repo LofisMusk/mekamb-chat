@@ -24,15 +24,15 @@
 //! w trybie relay: sandbox nie pozwala wysyłać pakietów UDP, więc przebijanie
 //! NAT jest niedostępne. Szyfrowanie pozostaje niezmienione.
 
-pub mod envelope;
-
 use iroh::{
     Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey,
     endpoint::{Connection, presets},
 };
 use mekamb_core::{Error, Result, identity::DeviceIdentity};
 
-pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
+// Koperta mieszka w rdzeniu, żeby bindingi WASM mogły jej użyć bez wciągania
+// całego stosu QUIC. Transport re-eksportuje ją dla wygody wywołujących.
+pub use mekamb_core::envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
 
 /// Identyfikator protokołu negocjowany w handshake QUIC.
 ///

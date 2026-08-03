@@ -1,0 +1,31 @@
+{
+  "name": "mekamb-web",
+  "version": "0.1.0",
+  "description": "Klient webowy mekamb-chat — obsługuje też iPhone'a jako PWA",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "wasm-pack build ../core/bindings/wasm --target web --out-dir ../../../web/src/wasm --release",
+    "dev": "npm run wasm && vite",
+    "build": "npm run wasm && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/opaque-ts": "^0.7.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.0",
+    "wasm-pack": "^0.15.0"
+  }
+}

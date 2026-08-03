@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 
 import auth from "./auth";
 import {
@@ -6,15 +7,35 @@ import {
   consumeKeyPackage,
   lookupDevices,
   publishKeyPackages,
+  registerDevice,
   toBytes,
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
+import { requireAuth } from "./middleware";
 
 export { GroupRelay } from "./group";
 export { RateLimiter } from "./ratelimit";
 export { UserInbox } from "./inbox";
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Kontrola źródła. Lista pochodzi z konfiguracji, bo adres klienta zmienia się
+// między środowiskami, a wpisanie `*` otworzyłoby API na wywołania z dowolnej
+// strony odwiedzonej przez użytkownika.
+app.use("*", async (c, next) =>
+  cors({
+    origin: (origin) => {
+      const dozwolone = (c.env.ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean);
+      return dozwolone.includes(origin) ? origin : null;
+    },
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86_400,
+  })(c, next),
+);
 
 app.route("/auth", auth);
 
@@ -49,11 +70,48 @@ app.get("/directory/:username", async (c) => {
       deviceId: device.deviceId,
       irohNodeId: device.irohNodeId,
       addrRecord: device.addrRecord,
-      addrSignature: toBase64(toBytes(device.addrSignature)),
-      mlsPublicKey: toBase64(toBytes(device.mlsPublicKey)),
+      // `null` oznacza urządzenie bez własnego adresu — osiągalne tylko przez
+      // skrzynkę. Klient musi to rozróżnić, żeby nie próbował się dodzwaniać.
+      addrSignature: toBase64OrNull(toBytes(device.addrSignature)),
+      mlsPublicKey: toBase64OrNull(toBytes(device.mlsPublicKey)),
       lastSeenAt: device.lastSeenAt,
     })),
   });
+});
+
+/**
+ * Rejestruje urządzenie zalogowanego użytkownika.
+ *
+ * Wywoływane po każdym logowaniu — odświeża też adres, bo ten zmienia się
+ * przy każdej zmianie sieci.
+ */
+app.post("/devices", requireAuth, async (c) => {
+  const body = await c.req.json<{
+    deviceId: string;
+    mlsPublicKey: string;
+    irohNodeId?: string;
+    addrRecord?: string;
+    addrSignature?: string;
+    displayName?: string;
+  }>();
+
+  if (!body.deviceId || !body.mlsPublicKey) {
+    return c.json({ error: "brak deviceId albo klucza publicznego" }, 400);
+  }
+
+  await registerDevice(c.env, {
+    deviceId: body.deviceId,
+    // Właściciela bierzemy z TOKENU, nie z ciała żądania. Zaufanie temu, co
+    // przysłał klient, pozwoliłoby dopisać urządzenie do cudzego konta.
+    userId: c.get("userId"),
+    mlsPublicKey: new Uint8Array(fromBase64(body.mlsPublicKey)),
+    irohNodeId: body.irohNodeId ?? null,
+    addrRecord: body.addrRecord ?? null,
+    addrSignature: body.addrSignature ? new Uint8Array(fromBase64(body.addrSignature)) : null,
+    displayName: body.displayName ?? null,
+  });
+
+  return c.json({ ok: true });
 });
 
 /** Pobiera jednorazowy key package, żeby dodać urządzenie do grupy. */
@@ -68,7 +126,7 @@ app.post("/key-packages/:deviceId/claim", async (c) => {
 });
 
 /** Publikuje zapas key packages. */
-app.post("/key-packages/:deviceId", async (c) => {
+app.post("/key-packages/:deviceId", requireAuth, async (c) => {
   const body = await c.req.json<{ keyPackages: string[] }>();
 
   if (!Array.isArray(body.keyPackages) || body.keyPackages.length === 0) {
@@ -169,6 +227,10 @@ function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
+}
+
+function toBase64OrNull(bytes: Uint8Array | null): string | null {
+  return bytes === null ? null : toBase64(bytes);
 }
 
 function fromBase64(value: string): ArrayBuffer {

@@ -1,0 +1,27 @@
+[package]
+name = "mekamb-wasm"
+description = "Bindingi WebAssembly rdzenia mekamb-chat dla klienta przeglądarkowego"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mekamb-core = { path = "../.." }
+wasm-bindgen = "0.2"
+
+# Bez tego panika w Rust objawia się w przeglądarce jako `unreachable executed`
+# bez śladu, skąd przyszła.
+console_error_panic_hook = "0.1"
+
+# wasm-opt pobiera binarkę binaryen z sieci przy każdym buildzie. Wyłączamy go,
+# żeby build był powtarzalny, działał offline i nie wymagał dodatkowego kroku w CI.
+#
+# Koszt: pakiet jest większy, niż mógłby być (obecnie ~1,3 MB, ~445 KB po gzip).
+# Kto chce mniejszy artefakt, instaluje binaryen lokalnie i przestawia tę flagę.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

@@ -44,7 +44,7 @@ wersja natywna.
 ## Struktura
 
 ```
-core/       Rust — kryptografia: tożsamość, MLS, framing
+core/       Rust — kryptografia: tożsamość, MLS, framing, koperty
 transport/  Rust — sieć P2P: iroh QUIC, koperty, wybór drogi dostarczenia
 server/     Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów
 web/        PWA (iOS, desktop)
@@ -69,6 +69,16 @@ Wymagane: Rust 1.85+.
 cargo test
 ```
 
+Uruchomienie całości lokalnie (backend + klient webowy):
+
+```bash
+cd server && npx wrangler d1 migrations apply mekamb --local && npx wrangler dev
+```
+
+```bash
+cd web && npm run dev
+```
+
 Sprawdzenie rdzenia pod przeglądarkę — działa wszędzie, bez dodatkowych narzędzi:
 
 ```bash
@@ -89,7 +99,7 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 1** — rdzeń: tożsamość, wyprowadzanie kluczy, grupy MLS, framing
 - [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
 - [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
-- [ ] **Faza 4** — PWA
+- [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
 - [ ] **Faza 5** — klient Android
 - [ ] Fazy 6–11 — grupy, załączniki, rozmowy, multi-device, hardening
 

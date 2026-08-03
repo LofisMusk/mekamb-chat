@@ -13,7 +13,7 @@
 //! To świadomie akceptowany wyciek: serwer i tak zna skład grup, bo przez niego
 //! przechodzą commity. Patrz `docs/THREAT_MODEL.md`.
 
-use mekamb_core::{Error, Result};
+use crate::error::{Error, Result};
 
 /// Wersja formatu koperty.
 pub const ENVELOPE_VERSION: u32 = 1;

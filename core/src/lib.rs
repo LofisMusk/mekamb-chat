@@ -12,6 +12,8 @@
 //! - [`identity`] — ziarno urządzenia i wyprowadzanie z niego rozdzielnych kluczy
 //! - [`group`] — rozmowy oparte na MLS (DM to grupa dwuosobowa)
 //! - [`framing`] — ładunek aplikacyjny przenoszony wewnątrz MLS
+//! - [`envelope`] — jawna koperta routingu na zewnątrz MLS
+//! - [`storage`] — dostawca kryptografii i zrzut stanu MLS
 //! - [`error`] — wspólny typ błędu
 //!
 //! # Czego rdzeń świadomie NIE robi
@@ -21,15 +23,19 @@
 //! bez żadnej infrastruktury — testy poniżej przepuszczają pełny handshake
 //! między dwiema tożsamościami w jednym procesie.
 
+pub mod envelope;
 pub mod error;
 pub mod framing;
 pub mod group;
 pub mod identity;
+pub mod storage;
 
+pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
 pub use error::{Error, Result};
 pub use framing::ChatMessage;
 pub use group::{CIPHERSUITE, Conversation, Incoming, PendingCommit, Provider};
 pub use identity::{DeviceIdentity, DeviceSeed};
+pub use storage::MekambProvider;
 
 /// Wersja protokołu obsługiwana przez tę wersję rdzenia.
 pub const PROTOCOL_VERSION: u32 = framing::PAYLOAD_VERSION;

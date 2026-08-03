@@ -328,3 +328,50 @@ fn ta_sama_tresc_daje_rozne_szyfrogramy() {
 
     assert_ne!(pierwszy, drugi);
 }
+
+/// Bez tego przeglądarka gubiłaby rozmowę przy każdym odświeżeniu strony,
+/// a telefon przy każdym ubiciu procesu.
+#[test]
+fn rozmowa_przezywa_zrzut_i_odtworzenie_stanu() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob = Uczestnik::nowy("bob", "laptop");
+    let (mut u_alice, mut u_boba) = zaloz_rozmowe(&alice, &bob);
+
+    // Alice wysyła wiadomość przed „zamknięciem aplikacji".
+    let przed = u_alice
+        .send(
+            &alice.provider,
+            &alice.tozsamosc,
+            &ChatMessage::text("przed restartem", 0),
+        )
+        .unwrap();
+    assert!(matches!(
+        u_boba.receive(&bob.provider, &przed).unwrap(),
+        Incoming::Message { .. }
+    ));
+
+    // Zrzut stanu, jak przy zapisie do IndexedDB.
+    let zrzut = alice.provider.export_state_containing_private_keys();
+    assert!(!zrzut.is_empty(), "zrzut stanu nie może być pusty");
+
+    // „Uruchomienie aplikacji od nowa": świeży provider z odtworzonego stanu.
+    let provider_po_restarcie = Provider::import_state(&zrzut).unwrap();
+    assert_eq!(provider_po_restarcie.entry_count(), alice.provider.entry_count());
+
+    // Rozmowa musi dać się prowadzić dalej — w obie strony.
+    let odpowiedz_boba = u_boba
+        .send(
+            &bob.provider,
+            &bob.tozsamosc,
+            &ChatMessage::text("po restarcie", 0),
+        )
+        .unwrap();
+
+    let Incoming::Message { message, .. } = u_alice
+        .receive(&provider_po_restarcie, &odpowiedz_boba)
+        .unwrap()
+    else {
+        panic!("oczekiwano wiadomości aplikacyjnej");
+    };
+    assert_eq!(message.as_text(), Some("po restarcie"));
+}

@@ -80,6 +80,36 @@ jobs:
       - name: Testy
         run: npm test
 
+  web:
+    name: Klient webowy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: wasm-pack
+        run: |
+          rustup target add wasm32-unknown-unknown
+          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - run: npm ci
+
+      # `build` buduje WASM, sprawdza typy i pakuje aplikację — jeśli przejdzie,
+      # klient da się wdrożyć.
+      - name: Build
+        run: npm run build
+
   audit:
     name: Audyt zależności
     runs-on: ubuntu-latest

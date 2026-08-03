@@ -387,13 +387,27 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
     gniazdo.current = socket;
 
     socket.onmessage = async (event) => {
+      const ramka = new Uint8Array(event.data as ArrayBuffer);
+
+      // Pierwsze osiem bajtów to identyfikator wpisu w kolejce serwera.
+      const id = new DataView(ramka.buffer, ramka.byteOffset, 8).getBigUint64(0);
+      const koperta = ramka.subarray(8);
+
       try {
-        const odebrana = await messenger.handleEnvelope(new Uint8Array(event.data as ArrayBuffer));
+        const odebrana = await messenger.handleEnvelope(koperta);
+
+        // Potwierdzamy DOPIERO po przetworzeniu i zapisaniu stanu. Wcześniejsze
+        // potwierdzenie kasowałoby kopertę, której jeszcze nie umiemy odtworzyć
+        // po odświeżeniu strony — czyli gubiłoby wiadomość bezpowrotnie.
+        socket.send(`ack:${id}`);
+
         if (odebrana) {
           dodaj(odebrana);
           if (!groupId) setGroupId(odebrana.groupId);
         }
       } catch (err) {
+        // Bez potwierdzenia koperta zostaje w kolejce i wróci przy następnym
+        // połączeniu — błąd przetwarzania nie może kasować danych.
         onBlad(err);
       }
     };

@@ -88,6 +88,21 @@ To jest sedno architektury.
 | Commity MLS | `GroupRelay` (Durable Object) | Wymagają jednego autorytatywnego porządku |
 | Wiadomości do offline'owych | `UserInbox` (Durable Object) | Ktoś musi je przechować |
 
+### Doręczanie przez skrzynkę wymaga potwierdzenia
+
+Koperta trafia do kolejki **zawsze**, także wtedy, gdy odbiorca ma otwarte
+połączenie. Wysyłka w gniazdo jest przyspieszeniem, nie doręczeniem: `send`
+kończy się powodzeniem, gdy bajty trafią do bufora, a nie gdy klient je
+przetworzy i zapisze.
+
+Wpis znika z kolejki dopiero po potwierdzeniu (`ack:<id>`), które klient wysyła
+**po** utrwaleniu stanu MLS. Bez tego wystarczyłoby zamknąć kartę między
+odebraniem a zapisem, żeby wiadomość przepadła — nadawca miałby ją za
+dostarczoną i nikt by jej nie powtórzył.
+
+Ceną jest możliwość otrzymania tej samej koperty dwa razy. To nieszkodliwe:
+`message_id` pozwala odsiać duplikat.
+
 ### Cykl życia commitu
 
 Commit zmienia epokę, więc dwa równoległe commity muszą zostać rozstrzygnięte.

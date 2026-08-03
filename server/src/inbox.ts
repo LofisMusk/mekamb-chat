@@ -25,6 +25,22 @@ import { MAILBOX_RETENTION_DAYS, MAX_ENVELOPE_BYTES, type Env } from "./env";
  * Koperty są nieprzezroczyste. Serwer zna ich rozmiar, czas i adresata —
  * i nic ponadto.
  */
+/**
+ * Skleja identyfikator kolejki z kopertą.
+ *
+ * Osiem bajtów big-endian na początku, potem oryginalne bajty. Klient odsyła
+ * ten identyfikator w potwierdzeniu, dzięki czemu serwer wie, co skasować.
+ */
+function withId(id: number, envelope: ArrayBuffer): ArrayBuffer {
+  const out = new Uint8Array(8 + envelope.byteLength);
+  new DataView(out.buffer).setBigUint64(0, BigInt(id));
+  out.set(new Uint8Array(envelope), 8);
+  return out.buffer;
+}
+
+/** Długość prefiksu z identyfikatorem koperty. */
+export const ENVELOPE_ID_BYTES = 8;
+
 export class UserInbox extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -43,39 +59,49 @@ export class UserInbox extends DurableObject<Env> {
   /**
    * Zostawia kopertę dla użytkownika.
    *
-   * Gdy któreś z urządzeń jest podłączone, koperta idzie od razu i nie ląduje
-   * w kolejce. Gdy nie ma nikogo — czeka i wyzwala powiadomienie budzące.
+   * # Koperta trafia do kolejki ZAWSZE
+   *
+   * Wysyłka do podłączonego gniazda jest tylko przyspieszeniem, nie
+   * doręczeniem. `socket.send` kończy się powodzeniem, gdy bajty trafią do
+   * bufora — a nie gdy klient je przetworzy i zapisze. Jeśli między jednym
+   * a drugim zamknie kartę albo straci sieć, wiadomość przepada bezpowrotnie,
+   * bo nadawca ma ją za dostarczoną i nikt jej już nie powtórzy.
+   *
+   * Dlatego wpis znika z kolejki dopiero po potwierdzeniu przez klienta
+   * (patrz [`webSocketMessage`]). Kosztem jest możliwość powtórzenia tej samej
+   * koperty — a to jest nieszkodliwe, bo `message_id` pozwala ją odsiać.
    */
   async deposit(envelope: ArrayBuffer): Promise<{ delivered: "live" | "queued" }> {
     if (envelope.byteLength > MAX_ENVELOPE_BYTES) {
       throw new Error(`koperta przekracza limit ${MAX_ENVELOPE_BYTES} bajtów`);
     }
 
-    const sockets = this.ctx.getWebSockets();
+    const wiersz = this.ctx.storage.sql
+      .exec<{ id: number }>(
+        "INSERT INTO queue (envelope, created_at) VALUES (?, ?) RETURNING id",
+        envelope,
+        Date.now(),
+      )
+      .toArray()[0];
 
-    if (sockets.length > 0) {
-      let delivered = false;
+    await this.scheduleCleanup();
+
+    const sockets = this.ctx.getWebSockets();
+    if (sockets.length > 0 && wiersz) {
+      let wyslane = false;
       for (const socket of sockets) {
         try {
-          socket.send(envelope);
-          delivered = true;
+          socket.send(withId(wiersz.id, envelope));
+          wyslane = true;
         } catch {
           // Gniazdo mogło paść między odczytem listy a wysyłką. Nie przerywamy
           // pętli — inne urządzenia tego użytkownika mogą działać.
         }
       }
-      if (delivered) {
+      if (wyslane) {
         return { delivered: "live" };
       }
     }
-
-    this.ctx.storage.sql.exec(
-      "INSERT INTO queue (envelope, created_at) VALUES (?, ?)",
-      envelope,
-      Date.now(),
-    );
-
-    await this.scheduleCleanup();
 
     // TODO(faza 5): wyzwolenie push (FCM / Web Push).
     // Ładunek musi być WYŁĄCZNIE budzący — bez nadawcy, bez treści, bez
@@ -106,19 +132,19 @@ export class UserInbox extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** Wysyła zakolejkowane koperty i czyści kolejkę. */
+  /**
+   * Wysyła zaległe koperty.
+   *
+   * **Nie kasuje ich z kolejki** — to robi dopiero potwierdzenie od klienta.
+   * Klient, który dostał bajty i zaraz potem padł, ma je zobaczyć ponownie.
+   */
   private async flushTo(socket: WebSocket): Promise<void> {
     const pending = this.ctx.storage.sql
-      .exec<{ id: number; envelope: ArrayBuffer }>(
-        "SELECT id, envelope FROM queue ORDER BY id",
-      )
+      .exec<{ id: number; envelope: ArrayBuffer }>("SELECT id, envelope FROM queue ORDER BY id")
       .toArray();
 
     for (const row of pending) {
-      socket.send(row.envelope);
-      // Kasujemy dopiero po udanej wysyłce. Gdyby `send` rzucił, reszta
-      // zostaje w kolejce i doczeka następnego połączenia.
-      this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", row.id);
+      socket.send(withId(row.id, row.envelope));
     }
   }
 
@@ -130,13 +156,35 @@ export class UserInbox extends DurableObject<Env> {
     return row?.n ?? 0;
   }
 
-  override async webSocketMessage(_ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    // Klient nie wysyła tym kanałem wiadomości do innych — do tego służy iroh
-    // albo endpoint HTTP ze skrzynką. Ten kanał jest jednokierunkowy, więc
-    // przyjmujemy tylko pingi podtrzymujące.
-    if (typeof message === "string" && message === "ping") {
-      _ws.send("pong");
+  /**
+   * Kanałem zwrotnym klient przysyła wyłącznie potwierdzenia i pingi.
+   *
+   * Wiadomości do innych osób idą przez iroh albo przez `POST /inbox/:userId` —
+   * ten kanał jest jednokierunkowy i nie przyjmuje treści.
+   */
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== "string") return;
+
+    if (message === "ping") {
+      ws.send("pong");
+      return;
     }
+
+    // `ack:<id>` — klient przetworzył i ZAPISAŁ kopertę, można ją usunąć.
+    const ack = /^ack:(\d+)$/.exec(message);
+    if (ack?.[1]) {
+      await this.acknowledge(Number(ack[1]));
+    }
+  }
+
+  /**
+   * Kasuje kopertę potwierdzoną przez klienta.
+   *
+   * Wywoływane z kanału WebSocket, ale wystawione jako osobna metoda, żeby dało
+   * się je sprawdzić bez zestawiania gniazda w teście.
+   */
+  async acknowledge(id: number): Promise<void> {
+    this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", id);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {

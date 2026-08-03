@@ -57,7 +57,11 @@ describe("UserInbox", () => {
     expect(await inbox("bob").pendingCount()).toBe(0);
   });
 
-  it("podłączenie przez WebSocket opróżnia kolejkę", async () => {
+  /**
+   * Sedno gwarancji dostarczenia: samo wysłanie bajtów w gniazdo NIE jest
+   * doręczeniem. Klient mógł je dostać i paść przed zapisaniem stanu.
+   */
+  it("podłączenie wysyła zaległości, ale ich nie kasuje", async () => {
     const skrzynka = inbox("odbierajacy");
     await skrzynka.deposit(koperta("zalegla-1"));
     await skrzynka.deposit(koperta("zalegla-2"));
@@ -70,8 +74,47 @@ describe("UserInbox", () => {
     expect(odpowiedz.status).toBe(101);
     expect(odpowiedz.webSocket).not.toBeNull();
 
-    // Zaległości poszły w gnieździe, więc kolejka musi być pusta.
-    expect(await skrzynka.pendingCount()).toBe(0);
+    // Nadal w kolejce — dopiero potwierdzenie klienta pozwala skasować.
+    expect(await skrzynka.pendingCount()).toBe(2);
+  });
+
+  it("potwierdzenie kasuje kopertę z kolejki", async () => {
+    const skrzynka = inbox("potwierdzajacy");
+    await skrzynka.deposit(koperta("pierwsza"));
+    await skrzynka.deposit(koperta("druga"));
+    expect(await skrzynka.pendingCount()).toBe(2);
+
+    // Identyfikatory rosną od jedynki — pierwszy wpis w tej skrzynce ma id 1.
+    await skrzynka.acknowledge(1);
+
+    expect(await skrzynka.pendingCount()).toBe(1);
+  });
+
+  it("potwierdzenie nieistniejącego wpisu jest nieszkodliwe", async () => {
+    const skrzynka = inbox("obce-potwierdzenie");
+    await skrzynka.deposit(koperta("moja"));
+
+    // Powtórzone albo spóźnione potwierdzenie nie może niczego zepsuć.
+    await skrzynka.acknowledge(99999);
+
+    expect(await skrzynka.pendingCount()).toBe(1);
+  });
+
+  it("koperta bez potwierdzenia wraca przy kolejnym połączeniu", async () => {
+    const skrzynka = inbox("bez-potwierdzenia");
+    await skrzynka.deposit(koperta("uparta"));
+
+    // Pierwsze połączenie: klient dostaje bajty, ale nie potwierdza — na
+    // przykład dlatego, że użytkownik zamknął kartę.
+    await skrzynka.fetch("https://inbox/connect", { headers: { Upgrade: "websocket" } });
+
+    // Drugie połączenie musi zastać kopertę na miejscu.
+    const drugie = await skrzynka.fetch("https://inbox/connect", {
+      headers: { Upgrade: "websocket" },
+    });
+
+    expect(drugie.status).toBe(101);
+    expect(await skrzynka.pendingCount()).toBe(1);
   });
 
   it("żądanie bez upgrade'u jest odrzucane", async () => {

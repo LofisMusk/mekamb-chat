@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core"]
+members = ["core", "transport"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,7 +15,11 @@ openmls_rust_crypto = "0.5.1"
 openmls_traits = "0.5.0"
 openmls_basic_credential = "0.5.0"
 openmls_memory_storage = "0.5.0"
-iroh = "1.0.3"
+# `default-features = false` jest wymagane, żeby iroh budowało się pod WASM.
+# `tls-ring` włączamy jawnie, bo Endpoint wymaga dostawcy kryptografii rustls —
+# tak samo robi oficjalny przykład przeglądarkowy iroh.
+iroh = { version = "1.0.3", default-features = false, features = ["tls-ring"] }
+tokio = "1"
 hkdf = "0.13.0"
 sha2 = "0.11.0"
 rand = "0.10.2"

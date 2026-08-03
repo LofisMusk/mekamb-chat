@@ -14,6 +14,37 @@ syntax = "proto3";
 
 package mekamb.chat.v1;
 
+// ---------------------------------------------------------------------------
+// Koperta transportowa — JAWNA, na zewnątrz szyfrowania MLS.
+//
+// Odbiorca musi wiedzieć, do której rozmowy skierować ładunek, zanim będzie
+// w stanie cokolwiek odszyfrować. Przy dostarczaniu bezpośrednim koperta jest
+// dodatkowo zamknięta w szyfrowaniu QUIC/TLS; przy doręczaniu przez skrzynkę
+// `group_id` jest widoczny dla serwera. Patrz docs/THREAT_MODEL.md.
+//
+// Implementacja: core/../transport/src/envelope.rs
+// ---------------------------------------------------------------------------
+
+message Envelope {
+  uint32 version = 1;
+  bytes group_id = 2;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    APPLICATION = 1;  // może iść bezpośrednio P2P
+    COMMIT = 2;       // wymaga kolejności z GroupRelay
+    WELCOME = 3;      // dla nowo dodanego członka
+  }
+  Kind kind = 3;
+
+  // Zserializowana wiadomość MLS. Nieczytelna poza grupą.
+  bytes payload = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Poniżej: ładunek WEWNĄTRZ szyfrowania MLS.
+// ---------------------------------------------------------------------------
+
 // Wiadomość widziana przez użytkownika.
 message ChatMessage {
   // Wersja protokołu ładunku. Odbiorca odrzuca nieznane wersje główne.

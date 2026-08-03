@@ -38,10 +38,22 @@ jobs:
       # Rdzeń musi budować się pod WASM, bo tego samego kodu używa klient
       # webowy. Sprawdzamy to na każdym PR, żeby nie odkryć problemu dopiero
       # przy integracji przeglądarki.
-      - name: Build pod wasm32
+      #
+      # Rdzeń nie potrzebuje do tego żadnego toolchainu C — to celowe, patrz
+      # komentarz w transport/Cargo.toml.
+      - name: Rdzeń pod wasm32
         run: |
           rustup target add wasm32-unknown-unknown
           cargo check -p mekamb-core --target wasm32-unknown-unknown
+
+      # Transport ciągnie `ring`, który kompiluje kod C i wymaga clanga
+      # potrafiącego celować w wasm32. Systemowy clang na macOS tego nie umie,
+      # więc ten krok jest sprawdzany wyłącznie tutaj, na Linuksie.
+      - name: Transport pod wasm32
+        env:
+          CC_wasm32_unknown_unknown: clang
+          AR_wasm32_unknown_unknown: llvm-ar
+        run: cargo check -p mekamb-transport --target wasm32-unknown-unknown
 
   audit:
     name: Audyt zależności

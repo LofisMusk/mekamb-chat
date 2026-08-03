@@ -44,17 +44,22 @@ wersja natywna.
 ## Struktura
 
 ```
-core/     Rust — kryptografia i transport, wspólne dla wszystkich klientów
-server/   Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów
-web/      PWA (iOS, desktop)
-android/  Kotlin
-docs/     Protokół i model zagrożeń
-proto/    Normatywny format ładunku
+core/       Rust — kryptografia: tożsamość, MLS, framing
+transport/  Rust — sieć P2P: iroh QUIC, koperty, wybór drogi dostarczenia
+server/     Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów
+web/        PWA (iOS, desktop)
+android/    Kotlin
+docs/       Protokół i model zagrożeń
+proto/      Normatywny format wiadomości
 ```
 
 Kryptografia jest napisana **raz**, w Rust. Interfejs użytkownika jest natywny,
 warstwa bezpieczeństwa nie — dwie równoległe implementacje MLS rozjechałyby się
 w najwrażliwszym miejscu systemu.
+
+`core` i `transport` są rozdzielone celowo: rdzeń kryptograficzny buduje się pod
+WASM bez żadnego toolchainu C, a ciężka zależność sieciowa nie obciąża kodu,
+który potrzebuje wyłącznie MLS.
 
 ## Budowanie
 
@@ -64,17 +69,25 @@ Wymagane: Rust 1.85+.
 cargo test
 ```
 
-Sprawdzenie buildu pod przeglądarkę:
+Sprawdzenie rdzenia pod przeglądarkę — działa wszędzie, bez dodatkowych narzędzi:
 
 ```bash
 cargo check -p mekamb-core --target wasm32-unknown-unknown
+```
+
+Transport pod WASM wymaga clanga potrafiącego celować w wasm32 (systemowy clang
+na macOS tego nie umie — potrzebny LLVM np. z Homebrew). CI sprawdza to
+na Linuksie:
+
+```bash
+CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p mekamb-transport --target wasm32-unknown-unknown
 ```
 
 ## Postęp
 
 - [x] **Faza 0** — szkielet repozytorium, CI, dokumentacja protokołu
 - [x] **Faza 1** — rdzeń: tożsamość, wyprowadzanie kluczy, grupy MLS, framing
-- [ ] **Faza 2** — transport iroh
+- [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
 - [ ] **Faza 3** — backend na Cloudflare Workers
 - [ ] **Faza 4** — PWA
 - [ ] **Faza 5** — klient Android

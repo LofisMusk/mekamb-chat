@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
@@ -469,6 +469,8 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         ))}
       </ol>
 
+      {groupId && <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />}
+
       {groupId && (
         <label className="dolacz-plik">
           <input
@@ -480,8 +482,19 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               e.target.value = "";
               if (!plik) return;
 
+              // Wideo z telefonu też niesie GPS, a tego jeszcze nie usuwamy.
+              // Milczenie w tym miejscu byłoby wprowadzaniem w błąd: aplikacja
+              // deklaruje prywatność, więc musi powiedzieć, gdzie jej brakuje.
+              if (plik.type.startsWith("video/")) {
+                const zgoda = confirm(
+                  "Z nagrań wideo nie usuwamy jeszcze metadanych — plik może zawierać " +
+                    "lokalizację GPS i model urządzenia. Wysłać mimo to?",
+                );
+                if (!zgoda) return;
+              }
+
               try {
-                await messenger.sendFile(groupId, plik, [rozmowca]);
+                await messenger.sendFile(groupId, plik);
                 setWiadomosci((p) => [
                   ...p,
                   {
@@ -498,6 +511,9 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
             }}
           />
           Dołącz zdjęcie lub wideo
+          <span className="wskazowka-plik">
+            Ze zdjęć usuwamy lokalizację i dane aparatu
+          </span>
         </label>
       )}
 
@@ -508,7 +524,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
             e.preventDefault();
             if (!tresc.trim()) return;
             try {
-              await messenger.sendText(groupId, tresc, [rozmowca]);
+              await messenger.sendText(groupId, tresc);
               setWiadomosci((p) => [
                 ...p,
                 {
@@ -595,5 +611,86 @@ function Zalacznik({
     <a className="zalacznik-pobierz" href={url} download={zalacznik.fileName ?? "zalacznik"}>
       Pobierz {zalacznik.fileName ?? "plik"}
     </a>
+  );
+}
+
+/**
+ * Lista uczestników i dodawanie kolejnych.
+ *
+ * Skład bierzemy z drzewa MLS, nie z własnej listy w interfejsie — to jedyne
+ * miejsce, które wie, kto naprawdę jest w grupie po wszystkich commitach.
+ * Własna lista rozjechałaby się przy pierwszej zmianie zrobionej przez kogoś
+ * innego.
+ */
+function Uczestnicy({
+  messenger,
+  groupId,
+  onBlad,
+}: {
+  messenger: Messenger;
+  groupId: Uint8Array;
+  onBlad: (e: unknown) => void;
+}) {
+  const [rozwiniete, setRozwiniete] = useState(false);
+  const [nowy, setNowy] = useState("");
+  const [dodaje, setDodaje] = useState(false);
+  // Licznik wymusza odczytanie składu na nowo po każdej udanej zmianie.
+  const [odswiezenie, setOdswiezenie] = useState(0);
+
+  const osoby = useMemo(
+    () => messenger.memberUserIds(groupId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messenger, groupId, odswiezenie],
+  );
+
+  return (
+    <section className="uczestnicy">
+      <button className="uczestnicy-naglowek" onClick={() => setRozwiniete((r) => !r)}>
+        {osoby.length === 2 ? "Rozmowa prywatna" : `Grupa · ${osoby.length} osób`}
+        {" "}
+        <span className="wskazowka">{rozwiniete ? "▾" : "▸"}</span>
+      </button>
+
+      {rozwiniete && (
+        <>
+          <ul className="lista-osob">
+            {osoby.map((osoba) => (
+              <li key={osoba}>{osoba}</li>
+            ))}
+          </ul>
+
+          <form
+            className="dodaj-osobe"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!nowy.trim()) return;
+
+              setDodaje(true);
+              try {
+                await messenger.addMember(groupId, nowy.trim());
+                setNowy("");
+                setOdswiezenie((n) => n + 1);
+              } catch (err) {
+                onBlad(err);
+              } finally {
+                setDodaje(false);
+              }
+            }}
+          >
+            <input
+              value={nowy}
+              onChange={(e) => setNowy(e.target.value)}
+              placeholder="Nazwa użytkownika"
+            />
+            <button disabled={dodaje}>{dodaje ? "Dodaję…" : "Dodaj"}</button>
+          </form>
+
+          <p className="wskazowka">
+            Nowa osoba zobaczy wiadomości wysłane od momentu dołączenia. Wcześniejszych
+            nie da się jej pokazać i jest to zamierzone.
+          </p>
+        </>
+      )}
+    </section>
   );
 }

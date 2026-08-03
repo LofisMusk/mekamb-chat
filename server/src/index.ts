@@ -151,21 +151,27 @@ app.post("/key-packages/:deviceId", requireAuth, async (c) => {
  * Odpowiedź 409 nie jest błędem klienta — znaczy „ktoś był pierwszy".
  * Klient ma porzucić swój commit, przetworzyć cudzy i spróbować ponownie.
  */
-app.post("/groups/:groupId/commit", async (c) => {
-  const body = await c.req.json<{ epoch: number; commit: string }>();
+app.post("/groups/:groupId/commit", requireAuth, async (c) => {
+  const body = await c.req.json<{ epoch: number; envelope: string; members: string[] }>();
 
   if (typeof body.epoch !== "number" || !Number.isInteger(body.epoch) || body.epoch < 0) {
     return c.json({ error: "nieprawidłowy numer epoki" }, 400);
   }
+  if (!Array.isArray(body.members) || body.members.length === 0) {
+    return c.json({ error: "oczekiwano niepustej listy członków" }, 400);
+  }
 
-  const commit = fromBase64(body.commit);
-  if (commit.byteLength > MAX_ENVELOPE_BYTES) {
+  const envelope = fromBase64(body.envelope);
+  if (envelope.byteLength > MAX_ENVELOPE_BYTES) {
     return c.json({ error: "commit przekracza limit rozmiaru" }, 413);
   }
 
   const groupId = c.req.param("groupId");
   const relay = c.env.GROUP_RELAY.get(c.env.GROUP_RELAY.idFromName(groupId));
-  const result = await relay.submitCommit(body.epoch, commit);
+
+  // Nadawcę bierzemy z TOKENU. Gdyby pochodził z ciała żądania, dałoby się
+  // wykluczyć z rozsyłki dowolną osobę i po cichu odciąć ją od grupy.
+  const result = await relay.submitCommit(body.epoch, envelope, body.members, c.get("userId"));
 
   if (!result.accepted) {
     return c.json(

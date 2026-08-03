@@ -135,3 +135,34 @@ button:disabled { opacity: .5; cursor: default; }
   padding: .4rem .7rem;
   border-radius: .4rem;
 }
+
+.wskazowka-plik {
+  display: block;
+  font-size: .72rem;
+  color: var(--przygaszony);
+  margin-top: .2rem;
+}
+
+.uczestnicy { margin-bottom: .75rem; }
+.uczestnicy-naglowek {
+  background: none;
+  padding: .3rem 0;
+  font-size: .85rem;
+  color: var(--przygaszony);
+}
+.lista-osob {
+  list-style: none;
+  margin: .4rem 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+.lista-osob li {
+  background: var(--karta);
+  border-radius: 1rem;
+  padding: .2rem .7rem;
+  font-size: .8rem;
+}
+.dodaj-osobe { display: flex; gap: .4rem; margin: .5rem 0; }
+.dodaj-osobe input { flex: 1; font-size: .9rem; padding: .45rem .6rem; }

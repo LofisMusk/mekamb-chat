@@ -1,10 +1,12 @@
 import init, {
   MekambClient,
   decodeEnvelope,
+  canStripMetadata,
   encodeEnvelope,
   maxAttachmentBytes,
   openAttachment,
   sealAttachment,
+  stripImageMetadata,
 } from "../wasm/mekamb_wasm";
 import { api } from "./api";
 import type { Account } from "./vault";
@@ -119,38 +121,60 @@ export class Messenger {
     );
   }
 
-  /**
-   * Zakłada rozmowę z drugim użytkownikiem.
-   *
-   * Commit idzie do `GroupRelay` i dopiero jego potwierdzenie pozwala scalić
-   * zmianę lokalnie. Przy odrzuceniu porzucamy commit i zgłaszamy błąd —
-   * scalenie na siłę wypchnęłoby nas z grupy.
-   */
+  /** Zakłada rozmowę i wprowadza do niej pierwszą osobę. */
   async startConversation(peerUsername: string): Promise<Uint8Array> {
+    const groupId = this.client.createConversation();
+    await this.addMember(groupId, peerUsername);
+    return groupId;
+  }
+
+  /**
+   * Dodaje osobę do rozmowy.
+   *
+   * Ta sama ścieżka obsługuje założenie DM-a i rozbudowę grupy — bo DM to
+   * grupa o rozmiarze 2 i nie ma powodu, żeby istniały dwa różne przepływy.
+   *
+   * Commit idzie do `GroupRelay`, który rozstrzyga kolejność i rozsyła go
+   * pozostałym członkom. Dopiero jego potwierdzenie pozwala scalić zmianę
+   * lokalnie: scalenie na siłę zostawiłoby nas w epoce, której reszta grupy
+   * nie zna, czyli poza rozmową.
+   */
+  async addMember(groupId: Uint8Array, username: string): Promise<void> {
     const { devices } = await api.get<{ devices: { deviceId: string }[] }>(
-      `/directory/${encodeURIComponent(peerUsername)}`,
+      `/directory/${encodeURIComponent(username)}`,
     );
 
     const device = devices[0];
     if (!device) {
-      throw new Error(`użytkownik ${peerUsername} nie ma zarejestrowanych urządzeń`);
+      throw new Error(`użytkownik ${username} nie ma zarejestrowanych urządzeń`);
     }
 
     const { keyPackage } = await api.post<{ keyPackage: string }>(
       `/key-packages/${encodeURIComponent(device.deviceId)}/claim`,
       {},
+      this.token,
     );
 
-    const groupId = this.client.createConversation();
     const pending = this.client.addMember(groupId, fromBase64(keyPackage));
+
+    // Skład PO commicie: nowa osoba musi znaleźć się na liście, do której
+    // relay rozsyła, inaczej nie dostanie kolejnych commitów.
+    const czlonkowie = [...this.memberUserIds(groupId), username];
 
     const epoch = this.client.epoch(groupId);
     const response = await api.post<{ accepted: boolean; epoch: number }>(
       `/groups/${toHex(groupId)}/commit`,
-      { epoch: Number(epoch), commit: toBase64(pending.commit) },
+      {
+        epoch: Number(epoch),
+        envelope: toBase64(encodeEnvelope(groupId, "commit", pending.commit)),
+        members: czlonkowie,
+      },
+      this.token,
     );
 
     if (!response.accepted) {
+      // Ktoś był szybszy. Porzucamy własny commit; jego commit dotrze do nas
+      // skrzynką i po jego przetworzeniu można spróbować ponownie.
       this.client.discardCommit(groupId);
       await this.persist();
       throw new Error("ktoś zmienił grupę w międzyczasie — spróbuj ponownie");
@@ -160,23 +184,49 @@ export class Messenger {
     await this.persist();
 
     if (pending.welcome) {
-      const envelope = encodeEnvelope(groupId, "welcome", pending.welcome);
-      await api.deposit(peerUsername, envelope);
+      await api.deposit(username, encodeEnvelope(groupId, "welcome", pending.welcome));
     }
-
-    return groupId;
   }
 
-  /** Szyfruje i wysyła wiadomość tekstową. */
-  async sendText(groupId: Uint8Array, text: string, recipients: string[]): Promise<void> {
+  /**
+   * Nazwy użytkowników w rozmowie, bez duplikatów.
+   *
+   * MLS zwraca `user_id:device_id`, bo członkiem grupy jest **urządzenie**,
+   * nie osoba. Do routingu potrzebujemy osób — jedna osoba z trzema
+   * urządzeniami ma jedną skrzynkę.
+   */
+  memberUserIds(groupId: Uint8Array): string[] {
+    const osoby = this.client
+      .members(groupId)
+      .map((wpis) => wpis.split(":")[0] ?? wpis);
+
+    return [...new Set(osoby)];
+  }
+
+  /** Uczestnicy rozmowy poza nami — odbiorcy wysyłanych wiadomości. */
+  private recipients(groupId: Uint8Array): string[] {
+    return this.memberUserIds(groupId).filter((osoba) => osoba !== this.account.userId);
+  }
+
+  /**
+   * Szyfruje i wysyła wiadomość tekstową do całej rozmowy.
+   *
+   * Odbiorców bierzemy z drzewa MLS, a nie z interfejsu: to jedyne miejsce,
+   * które wie, kto **naprawdę** jest w grupie po wszystkich commitach.
+   */
+  async sendText(groupId: Uint8Array, text: string): Promise<void> {
     const ciphertext = this.client.sendText(groupId, text, Date.now());
 
     // Ratchet przesunął się już przy szyfrowaniu — zapis musi nastąpić nawet
     // wtedy, gdy wysyłka po nim zawiedzie.
     await this.persist();
 
-    const envelope = encodeEnvelope(groupId, "application", ciphertext);
-    await Promise.all(recipients.map((userId) => api.deposit(userId, envelope)));
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
+  }
+
+  /** Rozsyła gotową kopertę do wszystkich uczestników poza nami. */
+  private async rozeslij(groupId: Uint8Array, envelope: Uint8Array): Promise<void> {
+    await Promise.all(this.recipients(groupId).map((userId) => api.deposit(userId, envelope)));
   }
 
   /**
@@ -186,11 +236,7 @@ export class Messenger {
    * widzi zawartości — nawet przez chwilę. Klucz idzie osobną drogą i nigdy
    * nie przechodzi przez endpoint załączników.
    */
-  async sendFile(
-    groupId: Uint8Array,
-    file: File,
-    recipients: string[],
-  ): Promise<void> {
+  async sendFile(groupId: Uint8Array, file: File): Promise<void> {
     if (file.size > maxAttachmentBytes()) {
       throw new Error(
         `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
@@ -201,7 +247,18 @@ export class Messenger {
     // Typ pliku bierzemy z przeglądarki, ale trafia on do danych
     // uwierzytelnionych — odbiorca odrzuci plik, jeśli ktoś go po drodze podmieni.
     const mimeType = file.type || "application/octet-stream";
-    const plaintext = new Uint8Array(await file.arrayBuffer());
+    const surowe = new Uint8Array(await file.arrayBuffer());
+
+    // Metadane usuwamy PRZED zaszyfrowaniem. EXIF włożony do środka
+    // szyfrogramu dociera do odbiorcy dokładnie tak samo jak treść — a stamtąd
+    // może trafić dalej razem z plikiem. Zdjęcie z telefonu niesie w EXIF-ie
+    // współrzędne GPS z dokładnością do kilku metrów.
+    //
+    // Dla typów, których nie umiemy oczyścić (wideo), zostawiamy plik bez
+    // zmian; ostrzeżeniem zajmuje się interfejs.
+    const plaintext = canStripMetadata(mimeType)
+      ? stripImageMetadata(surowe, mimeType)
+      : surowe;
 
     const sealed = sealAttachment(plaintext, mimeType);
     const blobId = await api.uploadAttachment(this.token, sealed.ciphertext);
@@ -220,8 +277,7 @@ export class Messenger {
     // Ratchet przesunął się przy szyfrowaniu wiadomości.
     await this.persist();
 
-    const envelope = encodeEnvelope(groupId, "application", ciphertext);
-    await Promise.all(recipients.map((userId) => api.deposit(userId, envelope)));
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
   }
 
   /**
@@ -261,6 +317,14 @@ export class Messenger {
       return null;
     }
 
+    // Commit zmienia skład grupy i epokę. Przetwarzamy go tą samą ścieżką co
+    // wiadomość — `receive` rozpoznaje rodzaj sam.
+    if (envelope.kind === "commit") {
+      this.client.receive(envelope.group_id, envelope.payload);
+      await this.persist();
+      return null;
+    }
+
     const incoming = this.client.receive(envelope.group_id, envelope.payload);
     await this.persist();
 
@@ -289,6 +353,11 @@ export class Messenger {
   /** Identyfikatory `user_id:device_id` członków rozmowy. */
   members(groupId: Uint8Array): string[] {
     return this.client.members(groupId);
+  }
+
+  /** Bieżąca epoka rozmowy — rośnie z każdą zmianą składu. */
+  epoch(groupId: Uint8Array): number {
+    return Number(this.client.epoch(groupId));
   }
 
   /** Zapisuje stan MLS. Wołane po każdej operacji zmieniającej ratchet. */

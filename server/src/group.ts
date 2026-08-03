@@ -66,7 +66,9 @@ export class GroupRelay extends DurableObject<Env> {
    */
   async submitCommit(
     expectedEpoch: number,
-    commit: ArrayBuffer,
+    envelope: ArrayBuffer,
+    members: string[],
+    sender: string,
   ): Promise<{ accepted: true; epoch: number } | { accepted: false; epoch: number }> {
     const current = this.epoch();
 
@@ -84,32 +86,44 @@ export class GroupRelay extends DurableObject<Env> {
       next,
     );
 
-    await this.fanOut(commit);
+    // Skład aktualizujemy PO przyjęciu commitu, nie przed. Przy odrzuceniu
+    // lista zostaje nietknięta, więc nieudana próba nie psuje routingu grupy.
+    this.setMembers(members);
+    await this.fanOut(envelope, sender);
 
     return { accepted: true, epoch: next };
   }
 
   /**
-   * Aktualizuje listę członków po zaakceptowanym commicie.
+   * Aktualizuje listę członków.
    *
    * Serwer potrzebuje jej wyłącznie do routingu — żeby wiedzieć, do czyich
    * skrzynek rozesłać commit. Nie wynika z niej nic o treści rozmowy.
    */
-  async setMembers(userIds: string[]): Promise<void> {
+  setMembers(userIds: string[]): void {
     this.ctx.storage.sql.exec("DELETE FROM members");
-    for (const userId of userIds) {
+    for (const userId of new Set(userIds)) {
       this.ctx.storage.sql.exec("INSERT INTO members (user_id) VALUES (?)", userId);
     }
   }
 
-  /** Rozsyła commit do skrzynek wszystkich członków grupy. */
-  private async fanOut(commit: ArrayBuffer): Promise<void> {
-    const members = this.members();
+  /**
+   * Rozsyła kopertę z commitem do skrzynek pozostałych członków.
+   *
+   * Nadawcę pomijamy: on scalił commit u siebie i próba przetworzenia własnego
+   * commitu w MLS kończy się błędem, więc dostarczenie mu go tylko generowałoby
+   * szum w logach.
+   *
+   * Rozsyłamy **kopertę**, a nie surowy commit — odbiorca musi wiedzieć, do
+   * której rozmowy ją skierować, zanim cokolwiek odszyfruje.
+   */
+  private async fanOut(envelope: ArrayBuffer, sender: string): Promise<void> {
+    const odbiorcy = this.members().filter((userId) => userId !== sender);
 
     await Promise.all(
-      members.map(async (userId) => {
+      odbiorcy.map(async (userId) => {
         const id = this.env.USER_INBOX.idFromName(userId);
-        await this.env.USER_INBOX.get(id).deposit(commit);
+        await this.env.USER_INBOX.get(id).deposit(envelope);
       }),
     );
   }

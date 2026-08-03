@@ -13,7 +13,17 @@ function relay(groupId: string) {
   return env.GROUP_RELAY.get(env.GROUP_RELAY.idFromName(groupId));
 }
 
-const COMMIT = new TextEncoder().encode("udawany commit MLS").buffer as ArrayBuffer;
+const COMMIT = new TextEncoder().encode("udawana koperta z commitem").buffer as ArrayBuffer;
+// Nazwy są unikalne per test: skrzynki Durable Objects zachowują stan
+// w obrębie pliku, więc współdzielony odbiorca zliczałby koperty ze wszystkich
+// wcześniejszych przypadków.
+const CZLONKOWIE = ["nadawca-wspolny", "odbiorca-wspolny"];
+const NADAWCA = "nadawca-wspolny";
+
+/** Skraca wywołania w testach — sygnatura relaya ma cztery argumenty. */
+function zglos(grupa: ReturnType<typeof relay>, epoka: number) {
+  return grupa.submitCommit(epoka, COMMIT, CZLONKOWIE, NADAWCA);
+}
 
 describe("GroupRelay", () => {
   it("nowa grupa zaczyna w epoce 0", async () => {
@@ -23,7 +33,7 @@ describe("GroupRelay", () => {
   it("przyjmuje commit zgodny z bieżącą epoką i podnosi ją", async () => {
     const grupa = relay("zgodna");
 
-    const wynik = await grupa.submitCommit(0, COMMIT);
+    const wynik = await zglos(grupa, 0);
 
     expect(wynik.accepted).toBe(true);
     expect(wynik.epoch).toBe(1);
@@ -32,10 +42,10 @@ describe("GroupRelay", () => {
 
   it("odrzuca commit na nieaktualnej epoce i zwraca aktualną", async () => {
     const grupa = relay("nieaktualna");
-    await grupa.submitCommit(0, COMMIT);
+    await zglos(grupa, 0);
 
     // Drugi klient wciąż myśli, że grupa jest w epoce 0.
-    const wynik = await grupa.submitCommit(0, COMMIT);
+    const wynik = await zglos(grupa, 0);
 
     expect(wynik.accepted).toBe(false);
     expect(wynik.epoch).toBe(1);
@@ -52,8 +62,8 @@ describe("GroupRelay", () => {
     const grupa = relay("wyscig");
 
     const wyniki = await Promise.all([
-      grupa.submitCommit(0, COMMIT),
-      grupa.submitCommit(0, COMMIT),
+      zglos(grupa, 0),
+      zglos(grupa, 0),
     ]);
 
     const przyjete = wyniki.filter((w) => w.accepted);
@@ -65,7 +75,7 @@ describe("GroupRelay", () => {
     const grupa = relay("zalew");
 
     const wyniki = await Promise.all(
-      Array.from({ length: 10 }, () => grupa.submitCommit(0, COMMIT)),
+      Array.from({ length: 10 }, () => zglos(grupa, 0)),
     );
 
     expect(wyniki.filter((w) => w.accepted)).toHaveLength(1);
@@ -74,13 +84,13 @@ describe("GroupRelay", () => {
 
   it("po odrzuceniu ponowienie na nowej epoce przechodzi", async () => {
     const grupa = relay("ponowienie");
-    await grupa.submitCommit(0, COMMIT);
+    await zglos(grupa, 0);
 
-    const odrzucony = await grupa.submitCommit(0, COMMIT);
+    const odrzucony = await zglos(grupa, 0);
     expect(odrzucony.accepted).toBe(false);
 
     // Klient przetworzył cudzy commit i ponawia na epoce zwróconej przez relay.
-    const ponowiony = await grupa.submitCommit(odrzucony.epoch, COMMIT);
+    const ponowiony = await zglos(grupa, odrzucony.epoch);
 
     expect(ponowiony.accepted).toBe(true);
     expect(ponowiony.epoch).toBe(2);
@@ -90,22 +100,37 @@ describe("GroupRelay", () => {
     const grupa = relay("trwalosc");
 
     for (let i = 0; i < 5; i += 1) {
-      const wynik = await grupa.submitCommit(i, COMMIT);
+      const wynik = await zglos(grupa, i);
       expect(wynik.accepted).toBe(true);
     }
 
     expect(await grupa.epoch()).toBe(5);
   });
 
-  it("commity trafiają do skrzynek członków grupy", async () => {
+  it("commit trafia do pozostałych członków, z pominięciem nadawcy", async () => {
     const grupa = relay("rozsylanie");
-    await grupa.setMembers(["alice", "bob"]);
 
-    await grupa.submitCommit(0, COMMIT);
+    await grupa.submitCommit(0, COMMIT, ["fan-a", "fan-b", "fan-c"], "fan-a");
 
-    for (const userId of ["alice", "bob"]) {
+    // Nadawca scalił commit u siebie, a przetworzenie własnego commitu w MLS
+    // kończy się błędem — dostarczanie mu go byłoby szkodliwe.
+    const nadawca = env.USER_INBOX.get(env.USER_INBOX.idFromName("fan-a"));
+    expect(await nadawca.pendingCount()).toBe(0);
+
+    for (const userId of ["fan-b", "fan-c"]) {
       const skrzynka = env.USER_INBOX.get(env.USER_INBOX.idFromName(userId));
       expect(await skrzynka.pendingCount()).toBe(1);
     }
+  });
+
+  it("odrzucony commit nie zmienia składu grupy", async () => {
+    const grupa = relay("sklad-po-odrzuceniu");
+    await grupa.submitCommit(0, COMMIT, ["sklad-a", "sklad-b"], "sklad-a");
+
+    // Druga próba na nieaktualnej epoce, z zupełnie innym składem.
+    const odrzucony = await grupa.submitCommit(0, COMMIT, ["mallory"], "mallory");
+
+    expect(odrzucony.accepted).toBe(false);
+    expect(await grupa.members()).toEqual(["sklad-a", "sklad-b"]);
   });
 });

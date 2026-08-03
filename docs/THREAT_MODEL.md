@@ -11,6 +11,7 @@ obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
 | Treść wiadomości | E2EE przez MLS. Serwer i relaye widzą wyłącznie szyfrogram |
 | Treść załączników | AES-256-GCM po stronie klienta, świeży klucz na plik; klucz podróżuje w kanale MLS |
 | Nazwa pliku i jego typ | Podróżują w kanale MLS. Serwer widzi wyłącznie nieprzezroczysty blob |
+| Lokalizacja i dane aparatu w zdjęciach | Usuwane przed zaszyfrowaniem, domyślnie (EXIF, XMP, IPTC, chunki tekstowe PNG) |
 | Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS |
 | Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
 | Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
@@ -57,6 +58,16 @@ i pozwalać wymusić relay.
 Relay iroh (publiczne n0 albo TURN Cloudflare) widzi IP i wzorce ruchu obu
 stron. Nie widzi treści — wiadomości są zaszyfrowane MLS **pod** szyfrowaniem
 QUIC/TLS.
+
+### Metadanych w nagraniach wideo
+
+Ze zdjęć usuwamy EXIF, XMP i IPTC. **Z wideo nie usuwamy niczego** — kontenery
+MP4 i MOV wymagają pełnego parsera boksów. Nagranie z telefonu niesie GPS
+i model urządzenia dokładnie tak samo jak zdjęcie.
+
+To realna luka, nie drobiazg. Interfejs pyta o zgodę przed wysłaniem wideo,
+zamiast milczeć: aplikacja deklarująca prywatność musi powiedzieć, gdzie jej
+brakuje.
 
 ### Ile plików i jak dużych
 

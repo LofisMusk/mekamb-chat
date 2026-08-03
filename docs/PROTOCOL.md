@@ -76,6 +76,31 @@ gdy jest offline (odpowiednik prekeys w Signalu).
 Key package jest **jednorazowy**. Serwer musi egzekwować jednokrotne wydanie —
 ponowne użycie psuje gwarancje forward secrecy.
 
+### Dodawanie osoby do rozmowy
+
+Ta sama ścieżka obsługuje założenie DM-a i rozbudowę grupy — bo DM to grupa
+o rozmiarze 2.
+
+```
+1. Pobierz key package urządzenia dodawanej osoby
+2. Przygotuj commit (stage_add_member)
+3. Wyślij do GroupRelay: { epoka, koperta z commitem, NOWY skład }
+4a. Przyjęty  → scal lokalnie, wyślij Welcome nowej osobie
+4b. Odrzucony → porzuć commit; cudzy commit dotrze skrzynką, po nim ponów
+```
+
+`GroupRelay` rozsyła kopertę pozostałym członkom **z pominięciem nadawcy**:
+ten scalił commit u siebie, a przetworzenie własnego commitu w MLS kończy się
+błędem.
+
+Skład aktualizowany jest **po** przyjęciu commitu. Przy odrzuceniu lista zostaje
+nietknięta, więc nieudana próba nie psuje routingu grupy. Nadawcę serwer bierze
+z tokenu, a nie z ciała żądania — inaczej dałoby się wykluczyć z rozsyłki
+dowolną osobę i po cichu odciąć ją od grupy.
+
+**Nowa osoba nie widzi wcześniejszych wiadomości.** To wynika wprost z MLS:
+dołącza w bieżącej epoce i nie ma materiału klucza z poprzednich. Zamierzone.
+
 ## 4. Podział ruchu
 
 To jest sedno architektury.
@@ -162,6 +187,33 @@ Właściwości, które ta konstrukcja musi zachować:
 
 Serwer nadaje `blob_id` sam. Pozwolenie klientowi na wybór nazwy umożliwiałoby
 nadpisanie cudzego bloba albo zgadywanie istniejących.
+
+### Metadane zdjęć
+
+Ze zdjęć usuwamy metadane **przed** zaszyfrowaniem, domyślnie i bez pytania.
+
+Powód jest prosty: EXIF w zdjęciu z telefonu niesie współrzędne GPS
+z dokładnością do kilku metrów, model aparatu i czas wykonania. Szyfrowanie nie
+pomaga na dane, które sami umieszczamy w środku szyfrogramu — docierają do
+odbiorcy razem z obrazem i mogą powędrować dalej.
+
+Czyszczenie przepisuje strukturę pliku, przepuszczając wyłącznie fragmenty
+potrzebne do wyświetlenia. **Piksele zostają bit w bit takie same** — inaczej
+niż przy przekodowaniu, które kosztowałoby jakość.
+
+| Format | Zostaje | Wylatuje |
+|---|---|---|
+| JPEG | JFIF, profil ICC, tablice i nagłówki ramki | APP1 (EXIF, XMP), APP13 (IPTC), komentarze, reszta APPn |
+| PNG | chunki krytyczne, barwy, APNG | `tEXt`, `zTXt`, `iTXt`, `eXIf`, `tIME` |
+
+Obie listy są **listami dozwolonych**, nie zakazanych. Przy odwrotnym podejściu
+każdy nowy, nieznany typ segmentu przechodziłby domyślnie — czyli dokładnie ten
+przypadek, którego chcemy uniknąć.
+
+**Wideo nie jest czyszczone.** Kontenery MP4 i MOV trzymają metadane
+w zagnieżdżonych boksach `moov`/`udta`, a ich przepisanie wymaga pełnego parsera.
+Nagrania z telefonu też mają GPS, więc jest to realna luka — interfejs pyta
+o zgodę przed wysłaniem wideo, dopóki nie zostanie zamknięta.
 
 ## 7. Rozmowy audio/wideo
 

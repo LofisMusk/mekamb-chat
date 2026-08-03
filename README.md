@@ -9,8 +9,8 @@ Otwartoźródłowy komunikator z szyfrowaniem end-to-end i architekturą **P2P-f
 
 - **Każda rozmowa zaszyfrowana E2EE** — MLS (RFC 9420), bez własnej kryptografii
 - **Ruch bezpośrednio między urządzeniami** — iroh przebija NAT w ~90–95% przypadków
-- **DM-y i grupy** — DM to po prostu grupa MLS o rozmiarze 2
-- **Zdjęcia i wideo** — szyfrowane osobnym kluczem na plik, serwer widzi tylko bajty
+- **DM-y i grupy wieloosobowe** — DM to po prostu grupa MLS o rozmiarze 2
+- **Zdjęcia i wideo** — szyfrowane osobnym kluczem na plik; ze zdjęć usuwamy lokalizację i dane aparatu
 - **Rozmowy audio i wideo** — WebRTC mesh do 4 osób, bez serwera mediów
 - **Logowanie: nazwa + hasło + kod TOTP** — hasło przez OPAQUE, więc serwer go nie widzi
 - **Klucze tylko na urządzeniu** — serwer nie ma czego wydać ani zgubić
@@ -104,7 +104,8 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
 - [~] **Faza 5** — Android: bindingi UniFFI, transport P2P, UI (zostaje logowanie)
 - [x] **Faza 6** — załączniki: zdjęcia i wideo szyfrowane end-to-end
-- [ ] Fazy 7–11 — grupy wieloosobowe, rozmowy, multi-device, hardening
+- [x] **Faza 7** — grupy wieloosobowe: dodawanie członków, rozsyłanie do grupy
+- [ ] Fazy 8–11 — rozmowy audio/wideo, multi-device, hardening
 
 ## Licencja
 

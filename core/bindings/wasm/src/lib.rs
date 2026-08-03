@@ -470,3 +470,22 @@ pub fn open_attachment(
 pub fn max_attachment_bytes() -> usize {
     mekamb_core::MAX_ATTACHMENT_BYTES
 }
+
+/// Usuwa metadane ze zdjęcia, zostawiając piksele nietknięte.
+///
+/// Wołane **przed** zaszyfrowaniem: EXIF umieszczony w środku szyfrogramu
+/// dociera do odbiorcy tak samo jak sama treść, więc szyfrowanie nie chroni
+/// przed danymi, które sami tam włożyliśmy.
+#[wasm_bindgen(js_name = stripImageMetadata)]
+pub fn strip_image_metadata(bytes: &[u8], mime_type: &str) -> Result<Vec<u8>, JsError> {
+    mekamb_core::strip_image_metadata(bytes, mime_type).map_err(to_js)
+}
+
+/// Czy dla tego typu pliku potrafimy usunąć metadane.
+///
+/// Zwraca `false` dla wideo — i to jest istotne, bo nagrania z telefonu też
+/// niosą GPS. Interfejs musi wtedy uprzedzić użytkownika, a nie milczeć.
+#[wasm_bindgen(js_name = canStripMetadata)]
+pub fn can_strip_metadata(mime_type: &str) -> bool {
+    mekamb_core::can_strip(mime_type)
+}

@@ -2511,6 +2511,7 @@ version = "0.1.0"
 dependencies = [
  "iroh",
  "mekamb-core",
+ "mekamb-opaque",
  "mekamb-transport",
  "thiserror 2.0.19",
  "tokio",
@@ -2521,10 +2522,21 @@ dependencies = [
 name = "mekamb-opaque"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "opaque-ke",
  "rand 0.8.7",
  "sha2 0.10.9",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "mekamb-opaque-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "mekamb-opaque",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2544,7 +2556,9 @@ name = "mekamb-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "getrandom 0.2.17",
  "mekamb-core",
+ "mekamb-opaque",
  "wasm-bindgen",
 ]
 

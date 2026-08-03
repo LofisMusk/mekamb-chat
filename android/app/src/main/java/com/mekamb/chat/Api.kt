@@ -35,6 +35,92 @@ class Api(private val baseUrl: String) {
 
     class ApiException(val status: Int, message: String) : Exception(message)
 
+    // --- uwierzytelnianie ---
+
+    /** Runda 1 rejestracji: zwraca odpowiedź serwera OPAQUE. */
+    suspend fun registerStart(username: String, request: ByteArray): ByteArray {
+        val odpowiedz = postJson(
+            "/auth/register/start",
+            buildJsonObject {
+                put("username", username)
+                put("registrationRequest", base64(request))
+            },
+            null,
+        )
+        return odpowiedz["registrationResponse"]!!.jsonPrimitive.content.fromBase64()
+    }
+
+    /** Runda 2 rejestracji: zakłada konto i zwraca sekret TOTP. */
+    suspend fun registerFinish(username: String, upload: ByteArray): RegistrationResult {
+        val odpowiedz = postJson(
+            "/auth/register/finish",
+            buildJsonObject {
+                put("username", username)
+                put("registrationRecord", base64(upload))
+            },
+            null,
+        )
+        return RegistrationResult(
+            totpSecret = odpowiedz["totpSecret"]!!.jsonPrimitive.content,
+            otpauthUri = odpowiedz["otpauthUri"]!!.jsonPrimitive.content,
+        )
+    }
+
+    /** Aktywuje konto kodem z authenticatora. */
+    suspend fun registerConfirm(username: String, code: String) {
+        postJson(
+            "/auth/register/confirm",
+            buildJsonObject {
+                put("username", username)
+                put("code", code)
+            },
+            null,
+        )
+    }
+
+    /** Runda 1 logowania. Zwraca identyfikator sesji i odpowiedź OPAQUE. */
+    suspend fun loginStart(username: String, request: ByteArray): Pair<String, ByteArray> {
+        val odpowiedz = postJson(
+            "/auth/login/start",
+            buildJsonObject {
+                put("username", username)
+                put("ke1", base64(request))
+            },
+            null,
+        )
+        return odpowiedz["loginId"]!!.jsonPrimitive.content to
+            odpowiedz["ke2"]!!.jsonPrimitive.content.fromBase64()
+    }
+
+    /** Runda 2 logowania: dowód klienta. */
+    suspend fun loginFinish(loginId: String, username: String, finalization: ByteArray) {
+        postJson(
+            "/auth/login/finish",
+            buildJsonObject {
+                put("loginId", loginId)
+                put("username", username)
+                put("ke3", base64(finalization))
+            },
+            null,
+        )
+    }
+
+    /** Runda 3: drugi składnik. Dopiero tutaj powstaje token dostępowy. */
+    suspend fun loginTotp(loginId: String, code: String, deviceId: String): String {
+        val odpowiedz = postJson(
+            "/auth/login/totp",
+            buildJsonObject {
+                put("loginId", loginId)
+                put("code", code)
+                put("deviceId", deviceId)
+            },
+            null,
+        )
+        return odpowiedz["token"]!!.jsonPrimitive.content
+    }
+
+    // --- katalog i skrzynka ---
+
     /** Rejestruje urządzenie w katalogu i odświeża jego adres iroh. */
     suspend fun registerDevice(
         token: String,

@@ -1,0 +1,27 @@
+[package]
+name = "mekamb-opaque-wasm"
+description = "Serwerowa strona OPAQUE skompilowana do WebAssembly dla Cloudflare Workers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mekamb-opaque = { path = "../.." }
+wasm-bindgen = "0.2"
+console_error_panic_hook = "0.1"
+
+# Patrz komentarz w core/bindings/wasm/Cargo.toml — build ma być powtarzalny
+# i nie wymagać pobierania binaryen z sieci.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+# `rand` przypięty do wersji opaque-ke ciągnie getrandom 0.2, który na wasm32
+# wymaga jawnego wskazania źródła losowości. Feature "js" kieruje go do
+# `crypto.getRandomValues` — dostępnego zarówno w przeglądarce, jak i w Workers.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }

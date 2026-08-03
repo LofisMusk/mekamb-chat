@@ -1,11 +1,9 @@
-import {
-  KE2,
-  OpaqueClient,
-  OpaqueID,
-  RegistrationResponse,
-  getOpaqueConfig,
-} from "@cloudflare/opaque-ts";
-
+import init, {
+  opaqueLoginFinish,
+  opaqueLoginStart,
+  opaqueRegisterFinish,
+  opaqueRegisterStart,
+} from "../wasm/mekamb_wasm";
 import { api, base64ToBytes, bytesToBase64 } from "./api";
 
 /**
@@ -13,15 +11,23 @@ import { api, base64ToBytes, bytesToBase64 } from "./api";
  *
  * # Hasło nie opuszcza tej maszyny
  *
- * OPAQUE wykonuje kosztowne rozciąganie klucza tutaj, u klienta, i wysyła
- * na serwer wyłącznie ślepe wartości. Serwer nigdy nie widzi hasła — ani
- * w chwili rejestracji, ani logowania — więc nie ma czego z niego wyciec.
+ * OPAQUE wykonuje kosztowną część obliczeń tutaj, u klienta, i wysyła na serwer
+ * wyłącznie ślepe wartości. Serwer nigdy nie widzi hasła — ani przy rejestracji,
+ * ani przy logowaniu — więc nie ma czego z niego wyciec.
+ *
+ * # Ten sam kod co na serwerze
+ *
+ * Kryptografia pochodzi z `mekamb-opaque` (Rust, RFC 9807) skompilowanego do
+ * WebAssembly — z tego samego modułu, który obsługuje MLS. Serwer używa tego
+ * samego kodu, więc zgodność wynika z konstrukcji.
  */
 
-const cfg = getOpaqueConfig(OpaqueID.OPAQUE_P256);
+let wasmReady: Promise<unknown> | null = null;
 
-/** Musi zgadzać się z `SERVER_IDENTITY` w server/src/auth.ts. */
-const SERVER_IDENTITY = "mekamb-chat";
+function ensureWasm(): Promise<unknown> {
+  wasmReady ??= init();
+  return wasmReady;
+}
 
 export interface RegistrationResult {
   /** Sekret do wpisania w aplikacji authenticator. Pokazywany dokładnie raz. */
@@ -30,36 +36,35 @@ export interface RegistrationResult {
   otpauthUri: string;
 }
 
-/**
- * Zakłada konto. Po tym kroku konto jest nieaktywne aż do [`confirmRegistration`].
- */
+/** Zakłada konto. Nieaktywne aż do [`confirmRegistration`]. */
 export async function register(
   username: string,
   password: string,
 ): Promise<RegistrationResult> {
-  const client = new OpaqueClient(cfg);
+  await ensureWasm();
 
-  const request = await client.registerInit(password);
-  if (request instanceof Error) throw request;
+  const start = opaqueRegisterStart(password);
 
   const { registrationResponse } = await api.post<{ registrationResponse: string }>(
     "/auth/register/start",
-    {
-      username,
-      registrationRequest: bytesToBase64(Uint8Array.from(request.serialize())),
-    },
+    { username, registrationRequest: bytesToBase64(start.request) },
   );
 
-  const finished = await client.registerFinish(
-    RegistrationResponse.deserialize(cfg, Array.from(base64ToBytes(registrationResponse))),
-    SERVER_IDENTITY,
+  const finish = opaqueRegisterFinish(
+    start.state,
+    password,
     username,
+    base64ToBytes(registrationResponse),
   );
-  if (finished instanceof Error) throw finished;
+
+  // `export_key` to klucz wyprowadzony z hasła, nieznany serwerowi. Nadaje się
+  // do szyfrowania kopii zapasowych, których serwer ma nie umieć odczytać —
+  // na razie go nie używamy, ale świadomie nigdzie nie wysyłamy.
+  void finish.export_key;
 
   return api.post<RegistrationResult>("/auth/register/finish", {
     username,
-    registrationRecord: bytesToBase64(Uint8Array.from(finished.record.serialize())),
+    registrationRecord: bytesToBase64(finish.upload),
   });
 }
 
@@ -70,6 +75,7 @@ export async function confirmRegistration(username: string, code: string): Promi
 
 export interface LoginSession {
   loginId: string;
+  username: string;
 }
 
 /**
@@ -79,23 +85,19 @@ export interface LoginSession {
  * zanim cokolwiek pójdzie dalej.
  */
 export async function loginStart(username: string, password: string): Promise<LoginSession> {
-  const client = new OpaqueClient(cfg);
+  await ensureWasm();
 
-  const ke1 = await client.authInit(password);
-  if (ke1 instanceof Error) throw ke1;
+  const start = opaqueLoginStart(password);
 
   const { loginId, ke2 } = await api.post<{ loginId: string; ke2: string }>("/auth/login/start", {
     username,
-    ke1: bytesToBase64(Uint8Array.from(ke1.serialize())),
+    ke1: bytesToBase64(start.request),
   });
 
-  const finished = await client.authFinish(
-    KE2.deserialize(cfg, Array.from(base64ToBytes(ke2))),
-    SERVER_IDENTITY,
-    username,
-  );
-
-  if (finished instanceof Error) {
+  let finish;
+  try {
+    finish = opaqueLoginFinish(start.state, password, username, base64ToBytes(ke2));
+  } catch {
     // To samo dla złego hasła i nieistniejącego konta — serwer celowo nie
     // pozwala ich odróżnić, więc komunikat też nie może.
     throw new Error("nieprawidłowa nazwa użytkownika lub hasło");
@@ -103,10 +105,11 @@ export async function loginStart(username: string, password: string): Promise<Lo
 
   await api.post("/auth/login/finish", {
     loginId,
-    ke3: bytesToBase64(Uint8Array.from(finished.ke3.serialize())),
+    username,
+    ke3: bytesToBase64(finish.finalization),
   });
 
-  return { loginId };
+  return { loginId, username };
 }
 
 export interface AccessToken {

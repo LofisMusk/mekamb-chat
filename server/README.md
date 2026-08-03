@@ -47,19 +47,19 @@ npx wrangler d1 migrations apply mekamb --remote
 ```bash
 npx wrangler secret put TOTP_ENCRYPTION_KEY
 npx wrangler secret put TOKEN_SIGNING_KEY
-npx wrangler secret put OPAQUE_OPRF_SEED
-npx wrangler secret put OPAQUE_AKE_SEED
+npx wrangler secret put OPAQUE_SERVER_KEY
 ```
 
-Ziarna OPAQUE muszą mieć **dokładnie 32 bajty**, podane w base64:
+Sekret OPAQUE ma określoną strukturę — nie jest to zwykły losowy ciąg. Generuje
+go biblioteka:
 
 ```bash
-openssl rand -base64 32
+cargo run -q -p mekamb-opaque --bin genkey
 ```
 
-> **Zmiana `OPAQUE_OPRF_SEED` albo `OPAQUE_AKE_SEED` unieważnia wszystkie konta.**
-> Z tych ziaren wyprowadzany jest materiał wiążący hasła użytkowników z tym
-> wdrożeniem. Potraktuj je jak dane, których utrata jest nieodwracalna.
+> **Zmiana `OPAQUE_SERVER_KEY` unieważnia wszystkie konta.** Z niego wyprowadzany
+> jest materiał wiążący hasła użytkowników z tym wdrożeniem. Potraktuj go jak
+> dane, których utrata jest nieodwracalna.
 
 ### 3. Publikacja
 
@@ -87,16 +87,37 @@ Kilka decyzji, które łatwo omyłkowo „poprawić":
 - **Sesje logowania są jednorazowe** — konsumowane przez `DELETE ... RETURNING`,
   więc równoległe żądania nie użyją tego samego rekordu dwa razy.
 
-## Wybór biblioteki OPAQUE
+## OPAQUE: jedna implementacja, trzy platformy
 
-Używamy [`@cloudflare/opaque-ts`](https://github.com/cloudflare/opaque-ts),
-czystego TypeScriptu.
+Kryptografia siedzi w [`opaque/`](../opaque) (Rust, RFC 9807). Serwer używa jej
+przez WebAssembly, przeglądarka przez WebAssembly, Android przez UniFFI.
 
-Pierwotny wybór, `@serenity-kit/opaque`, **nie działa w Workers**: inline'uje
-WASM jako base64 i kompiluje go w runtime, co środowisko blokuje
-(`Wasm code generation disallowed by embedder`). Sprawdza to
-[`test/opaque-probe.test.ts`](test/opaque-probe.test.ts) — gdyby ktoś chciał
-wrócić do wariantu z WASM, ten test pokaże, na czym to stanie.
+To nie jest wybór estetyczny, tylko wniosek z nieudanej próby. Wcześniej serwer
+miał implementację w TypeScripcie (`@cloudflare/opaque-ts`), która realizuje
+**draft-irtf-cfrg-opaque-07** z 2021 roku. Klient natywny musiałby użyć rustowej,
+realizującej **RFC 9807**. Między draftem a RFC zmienił się format komunikatów,
+więc te dwie implementacje nigdy by się nie dogadały — nie „mniej bezpiecznie",
+tylko logowanie, które nigdy nie przechodzi.
 
-Kosztowne rozciąganie klucza dzieje się po stronie **klienta**; serwer wykonuje
-tylko operacje na krzywej eliptycznej, więc limit CPU Workera nie jest zagrożony.
+### Jak WASM w ogóle działa w Workers
+
+Środowisko zabrania **kompilowania** WebAssembly w runtime — na tym poległa
+wcześniejsza próba z biblioteką inline'ującą WASM jako base64. Wolno natomiast
+zaimportować moduł skompilowany przez bundler i utworzyć instancję ręcznie;
+robi to [`src/opaque-wasm/index.js`](src/opaque-wasm/index.js).
+
+Rozróżnienie jest istotne: zakaz dotyczy generowania kodu, a nie uruchamiania
+kodu przygotowanego wcześniej.
+
+### Regeneracja modułu
+
+Po zmianach w `opaque/`:
+
+```bash
+cargo build -p mekamb-opaque-wasm --target wasm32-unknown-unknown --release
+wasm-bindgen target/wasm32-unknown-unknown/release/mekamb_opaque_wasm.wasm \
+  --out-dir server/src/opaque-wasm --target bundler --no-typescript
+```
+
+Plik `index.js` i `index.d.ts` są pisane ręcznie i **nie są nadpisywane** —
+`wasm-bindgen` o nich nie wie.

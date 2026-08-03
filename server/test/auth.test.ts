@@ -1,15 +1,9 @@
-import {
-  KE2,
-  OpaqueClient,
-  OpaqueID,
-  RegistrationResponse,
-  getOpaqueConfig,
-} from "@cloudflare/opaque-ts";
 import { SELF } from "cloudflare:test";
 import { Secret, TOTP } from "otpauth";
 import { describe, expect, it } from "vitest";
 
 import { base64ToBytes, bytesToBase64 } from "../src/crypto";
+import * as opaque from "../src/opaque-wasm/index.js";
 import { verifyCode } from "../src/totp";
 
 /**
@@ -18,9 +12,6 @@ import { verifyCode } from "../src/totp";
  * Testy używają prawdziwego klienta OPAQUE, a nie atrapy — dzięki temu
  * sprawdzają protokół, a nie własne wyobrażenie o nim.
  */
-
-const cfg = getOpaqueConfig(OpaqueID.OPAQUE_P256);
-const SERVER_IDENTITY = "mekamb-chat";
 
 async function post(sciezka: string, body: unknown): Promise<Response> {
   return SELF.fetch(`https://mekamb${sciezka}`, {
@@ -34,30 +25,33 @@ function nazwa(): string {
   return `u${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
 
-/** Przechodzi rejestrację i zwraca aktywne konto gotowe do logowania. */
+/**
+ * Przechodzi rejestrację prawdziwym klientem OPAQUE.
+ *
+ * Nie atrapą: test na atrapie sprawdzałby nasze wyobrażenie o protokole,
+ * a nie sam protokół. Klient i serwer to tu ten sam kod w Rust, skompilowany
+ * do WebAssembly.
+ */
 async function zarejestruj(username: string, password: string) {
-  const client = new OpaqueClient(cfg);
-
-  const request = await client.registerInit(password);
-  if (request instanceof Error) throw request;
+  const start = opaque.clientRegisterStart(password);
 
   const startRes = await post("/auth/register/start", {
     username,
-    registrationRequest: bytesToBase64(Uint8Array.from(request.serialize())),
+    registrationRequest: bytesToBase64(start.request),
   });
   expect(startRes.status).toBe(200);
   const { registrationResponse } = await startRes.json<{ registrationResponse: string }>();
 
-  const finished = await client.registerFinish(
-    RegistrationResponse.deserialize(cfg, Array.from(base64ToBytes(registrationResponse))),
-    SERVER_IDENTITY,
+  const upload = opaque.clientRegisterFinish(
+    start.state,
+    password,
     username,
+    base64ToBytes(registrationResponse),
   );
-  if (finished instanceof Error) throw finished;
 
   const finishRes = await post("/auth/register/finish", {
     username,
-    registrationRecord: bytesToBase64(Uint8Array.from(finished.record.serialize())),
+    registrationRecord: bytesToBase64(upload),
   });
   expect(finishRes.status).toBe(200);
   const { totpSecret, otpauthUri } = await finishRes.json<{
@@ -107,28 +101,29 @@ async function aktywuj(username: string, totpSecret: string): Promise<void> {
   expect(res.status).toBe(200);
 }
 
-/** Przechodzi logowanie aż do kroku TOTP; zwraca `loginId`. */
+/** Przechodzi logowanie aż do kroku TOTP; zwraca odpowiedź serwera. */
 async function zalogujDoTotp(username: string, password: string): Promise<Response> {
-  const client = new OpaqueClient(cfg);
-  const ke1 = await client.authInit(password);
-  if (ke1 instanceof Error) throw ke1;
+  const start = opaque.clientLoginStart(password);
 
   const startRes = await post("/auth/login/start", {
     username,
-    ke1: bytesToBase64(Uint8Array.from(ke1.serialize())),
+    ke1: bytesToBase64(start.request),
   });
   if (startRes.status !== 200) return startRes;
 
   const { loginId, ke2 } = await startRes.json<{ loginId: string; ke2: string }>();
 
-  const finishedClient = await client.authFinish(
-    KE2.deserialize(cfg, Array.from(base64ToBytes(ke2))),
-    SERVER_IDENTITY,
-    username,
-  );
-
-  if (finishedClient instanceof Error) {
-    // Złe hasło albo nieistniejące konto — klient wykrywa to sam.
+  let finalization: Uint8Array;
+  try {
+    finalization = opaque.clientLoginFinish(
+      start.state,
+      password,
+      username,
+      base64ToBytes(ke2),
+    );
+  } catch {
+    // Złe hasło albo nieistniejące konto — klient wykrywa to sam, serwer
+    // nie ma czego porównywać.
     return new Response(JSON.stringify({ error: "klient odrzucił odpowiedź serwera" }), {
       status: 401,
     });
@@ -136,7 +131,8 @@ async function zalogujDoTotp(username: string, password: string): Promise<Respon
 
   return post("/auth/login/finish", {
     loginId,
-    ke3: bytesToBase64(Uint8Array.from(finishedClient.ke3.serialize())),
+    username,
+    ke3: bytesToBase64(finalization),
   });
 }
 
@@ -153,13 +149,11 @@ describe("rejestracja", () => {
     const username = nazwa();
     await zarejestruj(username, "haslo-pierwsze");
 
-    const client = new OpaqueClient(cfg);
-    const request = await client.registerInit("haslo-drugie");
-    if (request instanceof Error) throw request;
+    const start = opaque.clientRegisterStart("haslo-drugie");
 
     const res = await post("/auth/register/start", {
       username,
-      registrationRequest: bytesToBase64(Uint8Array.from(request.serialize())),
+      registrationRequest: bytesToBase64(start.request),
     });
 
     expect(res.status).toBe(409);
@@ -229,10 +223,7 @@ describe("logowanie", () => {
     const konto = await zarejestruj(nazwa(), "prawidlowe-haslo");
     await aktywuj(konto.username, konto.totpSecret);
 
-    const client = new OpaqueClient(cfg);
-    const ke1 = await client.authInit("cokolwiek");
-    if (ke1 instanceof Error) throw ke1;
-    const ke1b64 = bytesToBase64(Uint8Array.from(ke1.serialize()));
+    const ke1b64 = bytesToBase64(opaque.clientLoginStart("cokolwiek").request);
 
     const nieistniejace = await post("/auth/login/start", {
       username: nazwa(),
@@ -313,10 +304,7 @@ describe("logowanie", () => {
 
   it("po serii nieudanych prób logowanie jest blokowane", async () => {
     const username = nazwa();
-    const client = new OpaqueClient(cfg);
-    const ke1 = await client.authInit("cokolwiek");
-    if (ke1 instanceof Error) throw ke1;
-    const ke1b64 = bytesToBase64(Uint8Array.from(ke1.serialize()));
+    const ke1b64 = bytesToBase64(opaque.clientLoginStart("cokolwiek").request);
 
     const statusy: number[] = [];
     for (let i = 0; i < 8; i += 1) {

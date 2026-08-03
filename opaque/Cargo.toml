@@ -20,3 +20,10 @@ opaque-ke = { version = "4.0.1", features = ["ristretto255"] }
 sha2 = "0.10"
 rand = { version = "0.8", features = ["getrandom"] }
 thiserror.workspace = true
+
+# Potrzebny wyłącznie przez narzędzie `genkey`.
+base64 = "0.22"
+
+[[bin]]
+name = "genkey"
+required-features = []

@@ -1,53 +1,90 @@
 package com.mekamb.chat
 
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import uniffi.mekamb_ffi.opaqueLoginFinish
+import uniffi.mekamb_ffi.opaqueLoginStart
+import uniffi.mekamb_ffi.opaqueRegisterFinish
+import uniffi.mekamb_ffi.opaqueRegisterStart
+
 /**
  * Uwierzytelnianie klienta natywnego.
  *
- * # Stan: NIEDOKOŃCZONE — i to celowo widoczne
+ * # Hasło nie opuszcza tego urządzenia
  *
- * Ten obiekt nie loguje. Zgłasza jawny błąd zamiast udawać, że przeszło —
- * atrapa zwracająca fałszywy token byłaby gorsza niż brak funkcji, bo reszta
- * aplikacji zachowywałaby się tak, jakby użytkownik był uwierzytelniony.
+ * OPAQUE wykonuje kosztowną część obliczeń tutaj i wysyła na serwer wyłącznie
+ * ślepe wartości. Serwer nigdy nie widzi hasła — ani przy rejestracji, ani przy
+ * logowaniu — więc nie ma czego z niego wyciec.
  *
- * # Na czym polega problem
+ * # Ten sam kod co na serwerze
  *
- * Serwer używa OPAQUE w implementacji TypeScript (`@cloudflare/opaque-ts`).
- * Klient webowy korzysta z **tej samej** biblioteki, więc zgodność jest
- * zagwarantowana z definicji. Android nie może jej użyć i potrzebuje
- * implementacji natywnej — najrozsądniej `opaque-ke` w rdzeniu Rust, wystawione
- * przez UniFFI obok reszty API.
+ * Kryptografia pochodzi z `mekamb-opaque` (Rust, RFC 9807) przez UniFFI.
+ * Serwer używa tego samego kodu skompilowanego do WebAssembly, przeglądarka
+ * również. Zgodność wynika z konstrukcji.
  *
- * Haczyk: **dwie niezależne implementacje tego samego szkicu RFC nie są
- * automatycznie zgodne na poziomie bajtów.** Muszą się zgadzać: zestaw OPRF
- * (P-256), KDF, MAC, funkcja skrótu oraz funkcja rozciągania klucza — Cloudflare
- * domyślnie nie rozciąga wcale, a `opaque-ke` owszem. Rozjazd w którymkolwiek
- * z tych elementów daje nie „gorsze bezpieczeństwo", tylko logowanie, które
- * po prostu nigdy nie przechodzi.
- *
- * # Co trzeba zrobić
- *
- * 1. Dodać `opaque-ke` do rdzenia z konfiguracją odwzorowującą `OPAQUE_P256`.
- * 2. Napisać test zgodności: rejestracja w Rust, logowanie przez prawdziwy
- *    Worker. Bez tego testu nie ma podstaw twierdzić, że to działa.
- * 3. Dopiero po jego przejściu wystawić rejestrację i logowanie przez UniFFI.
- *
- * Gdyby zgodność okazała się nieosiągalna, alternatywą jest przeniesienie
- * serwerowej strony OPAQUE na Rust skompilowany do WASM — wtedy obie strony
- * pochodzą z jednej implementacji. To większa zmiana, ale usuwa całą klasę
- * problemów ze zgodnością.
+ * Wcześniej było inaczej i to nie działało: serwer miał implementację
+ * w TypeScripcie realizującą **draft-07** protokołu, a klient natywny miałby
+ * rustową realizującą **RFC 9807**. Te dwie nigdy by się nie dogadały —
+ * nie „mniej bezpiecznie", tylko logowanie, które nigdy nie przechodzi.
  */
 object Auth {
 
+    /** Zakłada konto. Nieaktywne aż do [confirmRegistration]. */
+    suspend fun register(
+        api: Api,
+        username: String,
+        password: String,
+    ): RegistrationResult = withContext(Dispatchers.Default) {
+        val start = opaqueRegisterStart(password)
+
+        val response = api.registerStart(username, start.request)
+        val finish = opaqueRegisterFinish(start.state, password, username, response)
+
+        // `exportKey` to klucz wyprowadzony z hasła, nieznany serwerowi.
+        // Nadaje się do szyfrowania kopii, których serwer ma nie odczytać —
+        // na razie go nie używamy i świadomie nigdzie nie wysyłamy.
+
+        api.registerFinish(username, finish.upload)
+    }
+
+    /** Aktywuje konto pierwszym kodem z authenticatora. */
+    suspend fun confirmRegistration(api: Api, username: String, code: String) {
+        api.registerConfirm(username, code)
+    }
+
     /**
-     * Przeprowadza logowanie i zwraca token dostępowy.
+     * Loguje i zwraca token dostępowy.
      *
-     * @throws NotImplementedError dopóki natywny OPAQUE nie jest gotowy.
+     * Trzy rundy: wymiana OPAQUE, dowód klienta, drugi składnik. Samo hasło
+     * nie wystarcza — serwer wydaje token dopiero po kodzie z authenticatora.
      */
-    @Suppress("UNUSED_PARAMETER")
-    suspend fun zaloguj(api: Api, username: String, haslo: String, kod: String): String {
-        throw NotImplementedError(
-            "Logowanie na Androidzie wymaga natywnego klienta OPAQUE. " +
-                "Szczegóły i plan w komentarzu przy com.mekamb.chat.Auth.",
-        )
+    suspend fun login(
+        api: Api,
+        username: String,
+        password: String,
+        code: String,
+        deviceId: String,
+    ): String = withContext(Dispatchers.Default) {
+        val start = opaqueLoginStart(password)
+        val (loginId, ke2) = api.loginStart(username, start.request)
+
+        val finish = try {
+            opaqueLoginFinish(start.state, password, username, ke2)
+        } catch (e: Exception) {
+            // Złe hasło i nieistniejące konto dają ten sam komunikat — serwer
+            // celowo nie pozwala ich odróżnić, więc klient też nie może.
+            throw IllegalArgumentException("nieprawidłowa nazwa użytkownika lub hasło", e)
+        }
+
+        api.loginFinish(loginId, username, finish.finalization)
+        api.loginTotp(loginId, code, deviceId)
     }
 }
+
+data class RegistrationResult(val totpSecret: String, val otpauthUri: String)
+
+/** Kodowanie base64 zgodne z tym, którego używa serwer. */
+internal fun ByteArray.toBase64(): String = Base64.encodeToString(this, Base64.NO_WRAP)
+
+internal fun String.fromBase64(): ByteArray = Base64.decode(this, Base64.NO_WRAP)

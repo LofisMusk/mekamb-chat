@@ -1,14 +1,6 @@
-import {
-  ExpectedAuthResult,
-  KE1,
-  KE3,
-  OpaqueID,
-  OpaqueServer,
-  RegistrationRecord,
-  RegistrationRequest,
-  getOpaqueConfig,
-} from "@cloudflare/opaque-ts";
 import { Hono } from "hono";
+
+import * as opaque from "./opaque-wasm/index.js";
 
 import { base64ToBytes, bytesToBase64, decryptSecret, encryptSecret, issueToken } from "./crypto";
 import type { Env } from "./env";
@@ -30,17 +22,22 @@ import { generateSecret, isReplay, provisioningUri, verifyCode } from "./totp";
  * w żadnej postaci, a z rekordu w bazie nie da się prowadzić takiego ataku.
  * Serwer nie ma czego wyciec, bo nigdy tego nie miał.
  *
+ * # Implementacja jest wspólna z klientami
+ *
+ * Cała kryptografia siedzi w `mekamb-opaque` (Rust, RFC 9807) i jest tu
+ * używana przez WebAssembly. Ten sam kod działa w przeglądarce i na Androidzie.
+ *
+ * To nie jest wybór estetyczny. Poprzednio serwer miał implementację
+ * w TypeScripcie realizującą **draft-07** protokołu, a klient natywny miałby
+ * rustową realizującą **RFC 9807** — te dwie nigdy by się nie dogadały.
+ * Wspólny kod usuwa całą klasę problemów ze zgodnością.
+ *
  * # Ochrona przed enumeracją kont
  *
  * Logowanie nieistniejącą nazwą przechodzi **tę samą** ścieżkę co prawdziwe:
  * zakładamy sesję, odpowiadamy atrapą rekordu i pozwalamy dojść aż do kroku
  * TOTP. Bez tego kształt albo czas odpowiedzi zdradzałby, które konta istnieją.
  */
-
-const cfg = getOpaqueConfig(OpaqueID.OPAQUE_P256);
-
-/** Tożsamość serwera w protokole — wiąże sesję z konkretnym wdrożeniem. */
-const SERVER_IDENTITY = "mekamb-chat";
 
 /** Jak długo żyje sesja logowania. Ma starczyć na dwie rundy, nie na atak. */
 const LOGIN_SESSION_TTL_MS = 3 * 60 * 1000;
@@ -53,23 +50,14 @@ const LOGIN_BUCKET = { capacity: 5, refillPerSecond: 1 / 30 };
 
 const auth = new Hono<{ Bindings: Env }>();
 
-/** Buduje instancję serwera OPAQUE z sekretów środowiska. */
-async function opaqueServer(env: Env): Promise<OpaqueServer> {
-  const oprfSeed = Array.from(base64ToBytes(env.OPAQUE_OPRF_SEED));
-
-  // Klucz AKE wyprowadzamy deterministycznie z ziarna. Losowanie przy każdym
-  // starcie Workera zmieniałoby tożsamość serwera i unieważniało rejestracje.
-  const keypair = await cfg.ake.deriveAuthKeyPair(base64ToBytes(env.OPAQUE_AKE_SEED));
-
-  return new OpaqueServer(
-    cfg,
-    oprfSeed,
-    {
-      private_key: Array.from(keypair.private_key),
-      public_key: Array.from(keypair.public_key),
-    },
-    SERVER_IDENTITY,
-  );
+/**
+ * Sekret serwera OPAQUE z Workers Secrets.
+ *
+ * **Jego zmiana unieważnia wszystkie konta** — z niego wyprowadzany jest
+ * materiał wiążący hasła użytkowników z tym wdrożeniem.
+ */
+function serverKey(env: Env): Uint8Array {
+  return base64ToBytes(env.OPAQUE_SERVER_KEY);
 }
 
 /** Sprawdza limit prób dla danego klucza. */
@@ -105,20 +93,18 @@ auth.post("/register/start", async (c) => {
     return c.json({ error: "nazwa jest zajęta" }, 409);
   }
 
-  const server = await opaqueServer(c.env);
-  const request = RegistrationRequest.deserialize(
-    cfg,
-    Array.from(base64ToBytes(body.registrationRequest)),
-  );
-
-  const response = await server.registerInit(request, body.username);
-  if (response instanceof Error) {
+  let response: Uint8Array;
+  try {
+    response = opaque.registrationStart(
+      serverKey(c.env),
+      body.username,
+      base64ToBytes(body.registrationRequest),
+    );
+  } catch {
     return c.json({ error: "nie udało się rozpocząć rejestracji" }, 400);
   }
 
-  return c.json({
-    registrationResponse: bytesToBase64(Uint8Array.from(response.serialize())),
-  });
+  return c.json({ registrationResponse: bytesToBase64(response) });
 });
 
 /**
@@ -132,6 +118,16 @@ auth.post("/register/finish", async (c) => {
     return c.json({ error: "nieprawidłowa nazwa użytkownika" }, 400);
   }
 
+  // Rekord konta wylicza serwer z odpowiedzi klienta. Klient nie może go
+  // podać wprost — inaczej podstawiłby dowolny i logowałby się bez znajomości
+  // hasła.
+  let record: Uint8Array;
+  try {
+    record = opaque.registrationFinish(base64ToBytes(body.registrationRecord));
+  } catch {
+    return c.json({ error: "nieprawidłowa odpowiedź rejestracyjna" }, 400);
+  }
+
   const totpSecret = generateSecret();
   const userId = crypto.randomUUID();
 
@@ -143,7 +139,7 @@ auth.post("/register/finish", async (c) => {
       .bind(
         userId,
         body.username,
-        body.registrationRecord,
+        bytesToBase64(record),
         await encryptSecret(c.env.TOTP_ENCRYPTION_KEY, totpSecret),
         Date.now(),
       )
@@ -221,18 +217,18 @@ auth.post("/login/start", async (c) => {
     .bind(body.username)
     .first<{ id: string; opaque_record: string }>();
 
-  // Dla nieznanej nazwy używamy atrapy rekordu i idziemy dalej tą samą drogą.
-  // Odpowiedź musi być nieodróżnialna od prawdziwej.
-  const record =
-    user === null
-      ? await RegistrationRecord.createFake(cfg)
-      : RegistrationRecord.deserialize(cfg, Array.from(base64ToBytes(user.opaque_record)));
-
-  const server = await opaqueServer(c.env);
-  const ke1 = KE1.deserialize(cfg, Array.from(base64ToBytes(body.ke1)));
-
-  const started = await server.authInit(ke1, record, body.username, body.username);
-  if (started instanceof Error) {
+  // Dla nieznanej nazwy przekazujemy `undefined` i idziemy dalej tą samą drogą.
+  // Biblioteka produkuje wtedy odpowiedź nieodróżnialną od prawdziwej —
+  // to jedyne, co powstrzymuje sprawdzanie, które konta są zajęte.
+  let started: { response: Uint8Array; state: Uint8Array };
+  try {
+    started = opaque.loginStart(
+      serverKey(c.env),
+      body.username,
+      user === null ? undefined : base64ToBytes(user.opaque_record),
+      base64ToBytes(body.ke1),
+    );
+  } catch {
     return c.json({ error: "nie udało się rozpocząć logowania" }, 400);
   }
 
@@ -246,21 +242,18 @@ auth.post("/login/start", async (c) => {
     .bind(
       loginId,
       user?.id ?? null,
-      bytesToBase64(Uint8Array.from(started.expected.serialize())),
+      bytesToBase64(started.state),
       now,
       now + LOGIN_SESSION_TTL_MS,
     )
     .run();
 
-  return c.json({
-    loginId,
-    ke2: bytesToBase64(Uint8Array.from(started.ke2.serialize())),
-  });
+  return c.json({ loginId, ke2: bytesToBase64(started.response) });
 });
 
 /** Runda 2: weryfikacja dowodu klienta, przejście do kroku TOTP. */
 auth.post("/login/finish", async (c) => {
-  const body = await c.req.json<{ loginId: string; ke3: string }>();
+  const body = await c.req.json<{ loginId: string; username: string; ke3: string }>();
 
   // Sesję konsumujemy niepodzielnie: DELETE ... RETURNING gwarantuje, że ten
   // sam rekord nie zostanie użyty dwa razy, nawet przy równoległych żądaniach.
@@ -276,18 +269,19 @@ auth.post("/login/finish", async (c) => {
     return c.json({ error: "sesja logowania jest nieważna" }, 401);
   }
 
-  const server = await opaqueServer(c.env);
-  const expected = ExpectedAuthResult.deserialize(
-    cfg,
-    Array.from(base64ToBytes(session.expected)),
-  );
-  const ke3 = KE3.deserialize(cfg, Array.from(base64ToBytes(body.ke3)));
-
-  const finished = server.authFinish(ke3, expected);
-
   // Nieznana nazwa użytkownika kończy się tu tak samo jak złe hasło —
   // tym samym komunikatem i tym samym kodem odpowiedzi.
-  if (finished instanceof Error || session.user_id === null) {
+  try {
+    opaque.loginFinish(
+      base64ToBytes(session.expected),
+      body.username,
+      base64ToBytes(body.ke3),
+    );
+  } catch {
+    return c.json({ error: "nieprawidłowe dane logowania" }, 401);
+  }
+
+  if (session.user_id === null) {
     return c.json({ error: "nieprawidłowe dane logowania" }, 401);
   }
 

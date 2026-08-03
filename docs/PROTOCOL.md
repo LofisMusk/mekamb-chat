@@ -11,7 +11,7 @@ wyłącznie na jego podstawie.
 | Ciphersuite | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001) |
 | Transport | iroh 1.0 — QUIC z przebijaniem NAT, relay jako fallback |
 | Ładunek aplikacyjny | protobuf, [`proto/chat.proto`](../proto/chat.proto) |
-| Uwierzytelnienie do infrastruktury | OPAQUE + TOTP (RFC 6238) |
+| Uwierzytelnienie do infrastruktury | OPAQUE (RFC 9807) + TOTP (RFC 6238) |
 
 Ciphersuite jest obowiązkowy w RFC 9420, więc protokół pozostaje
 interoperacyjny z innymi implementacjami MLS.
@@ -271,6 +271,14 @@ rejestracja:  register/start → register/finish → register/confirm
 logowanie:    login/start    → login/finish    → login/totp
               (OPAQUE runda 1) (OPAQUE runda 2)  (drugi składnik → token)
 ```
+
+**Serwer i wszystkie klienty używają tej samej implementacji** — `opaque-ke`
+w Rust, wystawionej przez WebAssembly (Worker, przeglądarka) i UniFFI (Android).
+
+Dwie niezależne implementacje tego samego protokołu nie są zgodne na poziomie
+bajtów tylko dlatego, że obie „robią OPAQUE". Sprawdziliśmy to na własnej
+skórze: implementacja TypeScript realizowała draft-07, rustowa RFC 9807, a między
+nimi zmienił się format komunikatów. Wspólny kod usuwa całą klasę problemów.
 
 Właściwości, które ta ścieżka musi zachować:
 

@@ -12,11 +12,20 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 mekamb-core = { path = "../.." }
+
+# Klient OPAQUE jedzie razem z MLS, żeby przeglądarka ładowała jeden moduł
+# zamiast dwóch.
+mekamb-opaque = { path = "../../../opaque" }
 wasm-bindgen = "0.2"
 
 # Bez tego panika w Rust objawia się w przeglądarce jako `unreachable executed`
 # bez śladu, skąd przyszła.
 console_error_panic_hook = "0.1"
+
+# Patrz opaque/bindings/wasm/Cargo.toml — getrandom 0.2 potrzebuje na wasm32
+# jawnego wskazania źródła losowości.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 # wasm-opt pobiera binarkę binaryen z sieci przy każdym buildzie. Wyłączamy go,
 # żeby build był powtarzalny, działał offline i nie wymagał dodatkowego kroku w CI.

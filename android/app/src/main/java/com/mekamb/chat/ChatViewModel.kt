@@ -43,23 +43,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var stan by mutableStateOf(StanCzatu())
         private set
 
-    /**
-     * Loguje użytkownika i uruchamia klienta.
-     *
-     * **Uwierzytelnianie nie jest jeszcze podłączone** — patrz [Auth].
-     * Do czasu jego dokończenia ta metoda zgłasza czytelny błąd zamiast
-     * udawać, że logowanie przeszło.
-     */
+    /** Loguje użytkownika i uruchamia klienta. */
     fun zaloguj(username: String, haslo: String, kod: String) {
         viewModelScope.launch {
             stan = stan.copy(pracuje = true, blad = null)
 
             runCatching {
-                val token = Auth.zaloguj(api, username, haslo, kod)
-
+                // Identyfikator urządzenia odtwarzamy z magazynu, gdy istnieje.
+                // Nowy przy każdym logowaniu zostawiałby w katalogu stos
+                // martwych urządzeń, do których nikt się nie dodzwoni.
                 val konto = vault.loadAccount()
                     ?: Account(username, "android-${UUID.randomUUID().toString().take(8)}")
                 vault.saveAccount(konto)
+
+                val token = Auth.login(api, username, haslo, kod, konto.deviceId)
 
                 val klient = Messenger.open(vault, api, konto, token)
 

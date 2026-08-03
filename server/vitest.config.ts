@@ -10,14 +10,6 @@ import { defineConfig } from "vitest/config";
 const migrations = await readD1Migrations("./migrations");
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      // Patrz komentarz w test/stubs/node-crypto.js. Nasz własny kod nigdy nie
-      // importuje gołego `crypto` — używa globalnego Web Crypto — więc ten
-      // alias nie ma jak wpłynąć na nic poza sjcl.
-      crypto: "./test/stubs/node-crypto.js",
-    },
-  },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
@@ -29,9 +21,10 @@ export default defineConfig({
           // i nigdy nietrzymane w repozytorium — patrz README serwera.
           TOTP_ENCRYPTION_KEY: "testowy-klucz-szyfrowania-totp",
           TOKEN_SIGNING_KEY: "testowy-klucz-podpisu-tokenow",
-          // Dokładnie 32 bajty w base64 — krótsze ziarno odrzuca sama biblioteka.
-          OPAQUE_OPRF_SEED: "bWVrYW1iLXRlc3Qtb3ByZi1zZWVkLTAxMjM0NTY3ODk=",
-          OPAQUE_AKE_SEED: "bWVrYW1iLXRlc3QtYWtlLXNlZWQtMDEyMzQ1Njc4OTA=",
+          // Sekret serwera OPAQUE wygenerowany raz i przypięty, żeby konta
+          // zakładane w testach dawały się w nich zalogować.
+          OPAQUE_SERVER_KEY:
+            "SjEx2h2qb2r14pDqmG/ljG4FzQBMAuZ7sMGibfK2KjI8LBEx+SinI/dekSRoxIiwNaVnbXREud1Rk86b5jeO+4pCXg4nBhD8zdjjEGp42tt3gHC9Q1vaNcxE5OMVIWUJdinK/KSSqBEo3zGbHJmZWbYzMAP0p18FGieTJuB/RXk=",
         },
       },
     }),
@@ -44,13 +37,5 @@ export default defineConfig({
     // bundler (esbuild w wranglerze) radzi sobie z tym bez problemu.
     // Prebundlujemy te zależności esbuildem, żeby testy widziały ten sam
     // kształt modułu co produkcja.
-    deps: {
-      optimizer: {
-        ssr: {
-          enabled: true,
-          include: ["@cloudflare/opaque-ts", "@cloudflare/voprf-ts"],
-        },
-      },
-    },
   },
 });

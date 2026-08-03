@@ -15,6 +15,7 @@ name = "mekamb_ffi"
 
 [dependencies]
 mekamb-core = { path = "../.." }
+mekamb-opaque = { path = "../../../opaque" }
 mekamb-transport = { path = "../../../transport" }
 uniffi = { version = "0.32.0", features = ["cli"] }
 iroh.workspace = true

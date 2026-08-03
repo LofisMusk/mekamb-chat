@@ -421,3 +421,99 @@ impl From<Delivery> for DeliveryMode {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// OPAQUE — strona klienta
+//
+// Ten sam kod, którego używa serwer (przez WebAssembly) i przeglądarka.
+// Zgodność wynika z konstrukcji: dwie niezależne implementacje tego samego
+// protokołu nie są zgodne na poziomie bajtów tylko dlatego, że obie
+// „robią OPAQUE". Uzasadnienie w `opaque/src/lib.rs`.
+// ---------------------------------------------------------------------------
+
+impl From<mekamb_opaque::Error> for MekambError {
+    fn from(error: mekamb_opaque::Error) -> Self {
+        use mekamb_opaque::Error as E;
+        match error {
+            // Nieudane uwierzytelnienie ma jeden wariant — rozróżnianie
+            // „złe hasło" od „nie ma konta" pozwalałoby sprawdzać, które
+            // nazwy są zajęte.
+            E::AuthenticationFailed => Self::MessageRejected,
+            E::InvalidServerKey | E::MalformedMessage => {
+                Self::InvalidInput { powod: error.to_string() }
+            }
+            E::Protocol => Self::Crypto { powod: error.to_string() },
+        }
+    }
+}
+
+/// Pierwsza runda: żądanie do wysłania i stan do zachowania.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OpaqueStart {
+    pub request: Vec<u8>,
+    /// **Sekret.** Zostaje w pamięci klienta między rundami.
+    pub state: Vec<u8>,
+}
+
+/// Wynik drugiej rundy rejestracji.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OpaqueRegisterFinish {
+    /// Do wysłania na serwer jako rekord konta.
+    pub upload: Vec<u8>,
+    /// Klucz wyprowadzony z hasła, **nieznany serwerowi**.
+    pub export_key: Vec<u8>,
+}
+
+/// Wynik drugiej rundy logowania.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OpaqueLoginFinish {
+    /// Dowód do odesłania serwerowi.
+    pub finalization: Vec<u8>,
+    pub session_key: Vec<u8>,
+    pub export_key: Vec<u8>,
+}
+
+/// Rejestracja, runda 1. Hasło nie opuszcza tego urządzenia.
+#[uniffi::export]
+pub fn opaque_register_start(password: String) -> Result<OpaqueStart, MekambError> {
+    let w = mekamb_opaque::client_registration_start(&password)?;
+    Ok(OpaqueStart { request: w.request, state: w.state })
+}
+
+/// Rejestracja, runda 2.
+#[uniffi::export]
+pub fn opaque_register_finish(
+    state: Vec<u8>,
+    password: String,
+    username: String,
+    response: Vec<u8>,
+) -> Result<OpaqueRegisterFinish, MekambError> {
+    let w = mekamb_opaque::client_registration_finish(&state, &password, &username, &response)?;
+    Ok(OpaqueRegisterFinish { upload: w.upload, export_key: w.export_key })
+}
+
+/// Logowanie, runda 1.
+#[uniffi::export]
+pub fn opaque_login_start(password: String) -> Result<OpaqueStart, MekambError> {
+    let w = mekamb_opaque::client_login_start(&password)?;
+    Ok(OpaqueStart { request: w.request, state: w.state })
+}
+
+/// Logowanie, runda 2.
+///
+/// **Złe hasło wykrywa tutaj klient**, a nie serwer — serwer nie ma czego
+/// porównywać, więc nie ma stamtąd czego wyciec.
+#[uniffi::export]
+pub fn opaque_login_finish(
+    state: Vec<u8>,
+    password: String,
+    username: String,
+    response: Vec<u8>,
+) -> Result<OpaqueLoginFinish, MekambError> {
+    let w = mekamb_opaque::client_login_finish(&state, &password, &username, &response)?;
+    Ok(OpaqueLoginFinish {
+        finalization: w.finalization,
+        session_key: w.session_key,
+        export_key: w.export_key,
+    })
+}

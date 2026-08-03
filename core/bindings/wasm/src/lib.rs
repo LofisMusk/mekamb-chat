@@ -488,3 +488,91 @@ pub fn strip_metadata(bytes: &[u8], mime_type: &str) -> Result<Vec<u8>, JsError>
 pub fn can_strip_metadata(mime_type: &str) -> bool {
     mekamb_core::can_strip(mime_type)
 }
+
+// ---------------------------------------------------------------------------
+// OPAQUE — strona klienta
+//
+// Ten sam kod, którego używa serwer (przez osobny moduł WASM) i Android
+// (przez UniFFI). Zgodność wynika z konstrukcji: dwie niezależne implementacje
+// tego samego protokołu nie są zgodne na poziomie bajtów tylko dlatego,
+// że obie „robią OPAQUE".
+// ---------------------------------------------------------------------------
+
+/// Wynik pierwszej rundy — żądanie do wysłania i stan do zachowania.
+#[wasm_bindgen(getter_with_clone)]
+pub struct OpaqueStart {
+    pub request: Vec<u8>,
+    /// **Sekret.** Zostaje w pamięci klienta między rundami.
+    pub state: Vec<u8>,
+}
+
+/// Rejestracja, runda 1. Hasło nie opuszcza tego urządzenia.
+#[wasm_bindgen(js_name = opaqueRegisterStart)]
+pub fn opaque_register_start(password: &str) -> Result<OpaqueStart, JsError> {
+    let wynik = mekamb_opaque::client_registration_start(password).map_err(opaque_to_js)?;
+    Ok(OpaqueStart { request: wynik.request, state: wynik.state })
+}
+
+/// Wynik drugiej rundy rejestracji.
+#[wasm_bindgen(getter_with_clone)]
+pub struct OpaqueRegisterFinish {
+    /// Do wysłania na serwer jako rekord konta.
+    pub upload: Vec<u8>,
+    /// Klucz wyprowadzony z hasła, **nieznany serwerowi**.
+    pub export_key: Vec<u8>,
+}
+
+/// Rejestracja, runda 2.
+#[wasm_bindgen(js_name = opaqueRegisterFinish)]
+pub fn opaque_register_finish(
+    state: &[u8],
+    password: &str,
+    username: &str,
+    response: &[u8],
+) -> Result<OpaqueRegisterFinish, JsError> {
+    let wynik = mekamb_opaque::client_registration_finish(state, password, username, response)
+        .map_err(opaque_to_js)?;
+
+    Ok(OpaqueRegisterFinish { upload: wynik.upload, export_key: wynik.export_key })
+}
+
+/// Logowanie, runda 1.
+#[wasm_bindgen(js_name = opaqueLoginStart)]
+pub fn opaque_login_start(password: &str) -> Result<OpaqueStart, JsError> {
+    let wynik = mekamb_opaque::client_login_start(password).map_err(opaque_to_js)?;
+    Ok(OpaqueStart { request: wynik.request, state: wynik.state })
+}
+
+/// Wynik drugiej rundy logowania.
+#[wasm_bindgen(getter_with_clone)]
+pub struct OpaqueLoginFinish {
+    /// Dowód do odesłania serwerowi.
+    pub finalization: Vec<u8>,
+    pub session_key: Vec<u8>,
+    pub export_key: Vec<u8>,
+}
+
+/// Logowanie, runda 2.
+///
+/// **Złe hasło wykrywa tutaj klient**, a nie serwer — serwer nie ma czego
+/// porównywać, więc nie ma stamtąd czego wyciec.
+#[wasm_bindgen(js_name = opaqueLoginFinish)]
+pub fn opaque_login_finish(
+    state: &[u8],
+    password: &str,
+    username: &str,
+    response: &[u8],
+) -> Result<OpaqueLoginFinish, JsError> {
+    let wynik = mekamb_opaque::client_login_finish(state, password, username, response)
+        .map_err(opaque_to_js)?;
+
+    Ok(OpaqueLoginFinish {
+        finalization: wynik.finalization,
+        session_key: wynik.session_key,
+        export_key: wynik.export_key,
+    })
+}
+
+fn opaque_to_js(error: mekamb_opaque::Error) -> JsError {
+    JsError::new(&error.to_string())
+}

@@ -55,6 +55,31 @@ jobs:
           AR_wasm32_unknown_unknown: llvm-ar
         run: cargo check -p mekamb-transport --target wasm32-unknown-unknown
 
+  server:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Testy działają na workerd — tym samym silniku co produkcja, więc
+      # gwarancje Durable Objects są sprawdzane realnie, a nie na atrapie.
+      - name: Testy
+        run: npm test
+
   audit:
     name: Audyt zależności
     runs-on: ubuntu-latest

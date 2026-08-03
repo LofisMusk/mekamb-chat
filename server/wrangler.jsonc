@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mekamb",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    // Logi przydają się przy diagnozowaniu, ale nie mogą zawierać treści.
+    // Serwer i tak jej nie widzi — patrz docs/THREAT_MODEL.md.
+    "enabled": true
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mekamb",
+      "database_id": "PLACEHOLDER-uzupelnic-po-wrangler-d1-create",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "mekamb-attachments"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "USER_INBOX", "class_name": "UserInbox" },
+      { "name": "GROUP_RELAY", "class_name": "GroupRelay" },
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      // SQLite-owe Durable Objects są warunkiem korzystania z darmowego tieru.
+      "new_sqlite_classes": ["UserInbox", "GroupRelay", "RateLimiter"]
+    }
+  ],
+
+  "triggers": {
+    // Sprzątanie wygasłych kopert i osieroconych załączników.
+    "crons": ["0 4 * * *"]
+  }
+}

@@ -140,11 +140,26 @@ w górę, co przekracza możliwości typowego łącza domowego.
 ## 7. Uwierzytelnienie do infrastruktury
 
 ```
-1. OPAQUE — uwierzytelnienie hasłem bez ujawniania hasła serwerowi
-2. TOTP (RFC 6238) — weryfikowany po ustanowieniu sesji OPAQUE
-3. Serwer wydaje krótkożyjący token dostępowy + refresh token związany
-   z kluczem urządzenia
+rejestracja:  register/start → register/finish → register/confirm
+              (OPAQUE)         (konto pending,    (kod z authenticatora
+                                sekret TOTP)       aktywuje konto)
+
+logowanie:    login/start    → login/finish    → login/totp
+              (OPAQUE runda 1) (OPAQUE runda 2)  (drugi składnik → token)
 ```
+
+Właściwości, które ta ścieżka musi zachować:
+
+- **Serwer nie widzi hasła** ani w chwili rejestracji, ani logowania. Z rekordu
+  w bazie nie da się prowadzić ataku słownikowego offline — inaczej niż z hasha.
+- **Nieistniejąca nazwa użytkownika przechodzi tę samą ścieżkę** co istniejąca,
+  z atrapą rekordu (`RegistrationRecord.createFake`). Bez tego kształt lub czas
+  odpowiedzi zdradzałby, które konta istnieją.
+- **Kod TOTP jest jednorazowy w swoim oknie.** Zapisujemy numer ostatnio użytego
+  okna i odrzucamy wszystko, co nie jest późniejsze (RFC 6238 §5.2). Skutek
+  widoczny dla użytkownika: po aktywacji konta trzeba poczekać na nowy kod.
+- **Sesja logowania jest jednorazowa** — konsumowana niepodzielnie przez
+  `DELETE ... RETURNING`.
 
 **Hasło i TOTP nie odblokowują wiadomości.** Autoryzują wyłącznie dostęp do
 infrastruktury: skrzynki offline, katalogu i publikowania key packages. Klucze

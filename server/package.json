@@ -15,7 +15,7 @@
     "migrate:remote": "wrangler d1 migrations apply mekamb --remote"
   },
   "dependencies": {
-    "@serenity-kit/opaque": "^1.1.0",
+    "@cloudflare/opaque-ts": "^0.7.5",
     "hono": "^4.12.34",
     "otpauth": "^9.5.1"
   },

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import auth from "./auth";
 import {
   availableKeyPackages,
   consumeKeyPackage,
@@ -14,6 +15,8 @@ export { RateLimiter } from "./ratelimit";
 export { UserInbox } from "./inbox";
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.route("/auth", auth);
 
 /**
  * Limit prób logowania.

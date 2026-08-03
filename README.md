@@ -88,7 +88,7 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 0** — szkielet repozytorium, CI, dokumentacja protokołu
 - [x] **Faza 1** — rdzeń: tożsamość, wyprowadzanie kluczy, grupy MLS, framing
 - [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
-- [~] **Faza 3** — backend: Durable Objects, katalog, key packages (zostaje OPAQUE + TOTP)
+- [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
 - [ ] **Faza 4** — PWA
 - [ ] **Faza 5** — klient Android
 - [ ] Fazy 6–11 — grupy, załączniki, rozmowy, multi-device, hardening

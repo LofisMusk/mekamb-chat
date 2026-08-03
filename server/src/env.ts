@@ -15,6 +15,17 @@ export interface Env {
 
   /** Klucz podpisujący tokeny dostępowe. */
   TOKEN_SIGNING_KEY: string;
+
+  /**
+   * Ziarno OPRF serwera OPAQUE (base64).
+   *
+   * Zmiana tej wartości unieważnia WSZYSTKIE rejestracje — z niej wyprowadzany
+   * jest materiał wiążący hasła użytkowników z tym wdrożeniem.
+   */
+  OPAQUE_OPRF_SEED: string;
+
+  /** Ziarno klucza AKE serwera OPAQUE (base64). Zmiana też unieważnia konta. */
+  OPAQUE_AKE_SEED: string;
 }
 
 /** Ile dni koperta czeka w skrzynce, zanim zostanie usunięta. */

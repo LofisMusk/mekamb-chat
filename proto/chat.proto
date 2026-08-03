@@ -1,0 +1,75 @@
+// Normatywny opis formatu ładunku aplikacyjnego mekamb-chat.
+//
+// UWAGA: struktury w `core/src/framing.rs` są deklarowane bezpośrednio w Rust
+// (atrybuty `prost`), a nie generowane z tego pliku. Powód: `protoc` byłby
+// dodatkową zależnością toolchainu w CI Androida i WASM. Ten plik jest źródłem
+// prawdy dla implementacji w innych językach — każda zmiana tutaj musi zostać
+// odzwierciedlona w `framing.rs`, i odwrotnie. Test `framing::tests` pilnuje
+// zgodności numerów pól.
+//
+// Ten ładunek jest ZAWSZE przenoszony wewnątrz wiadomości aplikacyjnej MLS.
+// Nigdy nie trafia do sieci w postaci jawnej.
+
+syntax = "proto3";
+
+package mekamb.chat.v1;
+
+// Wiadomość widziana przez użytkownika.
+message ChatMessage {
+  // Wersja protokołu ładunku. Odbiorca odrzuca nieznane wersje główne.
+  uint32 protocol_version = 1;
+
+  // 16 losowych bajtów. Służy do deduplikacji i do wiązania odpowiedzi.
+  // Generowany przez nadawcę, więc NIE jest zaufany globalnie — traktować
+  // jako unikalny wyłącznie w obrębie danej rozmowy.
+  bytes message_id = 2;
+
+  // Czas wysłania wg zegara nadawcy, w milisekundach epoki uniksowej.
+  // To DEKLARACJA NADAWCY, nie fakt: nadawca może wpisać dowolną wartość.
+  // Do porządkowania w UI używać kolejności odbioru, a znacznika tylko do
+  // wyświetlenia.
+  uint64 sent_at_ms = 3;
+
+  oneof body {
+    TextBody text = 4;
+    AttachmentBody attachment = 5;
+    CallSignalBody call_signal = 6;
+  }
+
+  // message_id wiadomości, na którą to jest odpowiedź.
+  optional bytes reply_to = 7;
+}
+
+message TextBody {
+  string content = 1;
+}
+
+// Metadane załącznika. Sam plik leży zaszyfrowany w R2 albo leci przez iroh;
+// klucz podróżuje tutaj, czyli wewnątrz kanału MLS.
+message AttachmentBody {
+  string blob_id = 1;
+  bytes decryption_key = 2;   // AES-256-GCM, 32 bajty
+  bytes nonce = 3;            // 12 bajtów
+  string mime_type = 4;
+  uint64 size_bytes = 5;
+  optional string file_name = 6;
+}
+
+// Sygnalizacja WebRTC przenoszona kanałem MLS.
+//
+// Dzięki temu odcisk DTLS jest uwierzytelniony kryptograficznie: nawet podmiot
+// kontrolujący warstwę transportową nie podstawi się w środek połączenia, bo
+// nie sfałszuje wiadomości MLS.
+message CallSignalBody {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    OFFER = 1;
+    ANSWER = 2;
+    ICE_CANDIDATE = 3;
+    HANGUP = 4;
+  }
+  Kind kind = 1;
+  bytes call_id = 2;
+  string payload = 3;          // SDP albo kandydat ICE
+  string dtls_fingerprint = 4; // weryfikowany przed zestawieniem połączenia
+}

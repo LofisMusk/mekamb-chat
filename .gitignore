@@ -1,0 +1,35 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.tsbuildinfo
+
+# WASM
+core/bindings/wasm/pkg/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+*.keystore
+!debug.keystore
+
+# Secrets — nigdy w repo
+.env
+.env.*
+!.env.example
+secrets/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

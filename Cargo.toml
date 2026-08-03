@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/LofisMusk/mekamb-chat"
+
+[workspace.dependencies]
+openmls = "0.8.1"
+openmls_rust_crypto = "0.5.1"
+openmls_traits = "0.5.0"
+openmls_basic_credential = "0.5.0"
+openmls_memory_storage = "0.5.0"
+iroh = "1.0.3"
+hkdf = "0.13.0"
+sha2 = "0.11.0"
+rand = "0.10.2"
+prost = "0.14.4"
+ed25519-dalek = "2.2"
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+thiserror = "2"
+tracing = "0.1"
+hex = "0.4"
+
+# OpenMLS używa `debug_assert!(false, "Ciphertext decryption failed")` w ścieżce
+# deszyfrowania. To założenie ma sens w bibliotece testowanej na poprawnych
+# wektorach, ale nie w komunikatorze: u nas nieudane deszyfrowanie to normalny
+# skutek pakietu zmodyfikowanego po drodze albo zwykłych śmieci z sieci. W
+# buildzie release funkcja i tak zwraca `AeadError` — problemem jest wyłącznie
+# panika w debug, przez którą pojedynczy wrogi pakiet wywracałby aplikację
+# deweloperską i testy odporności.
+#
+# Wyłączamy asercje punktowo, TYLKO dla tych pakietów. Nasz własny kod zachowuje
+# je w komplecie.
+[profile.dev.package.openmls]
+debug-assertions = false
+
+[profile.test.package.openmls]
+debug-assertions = false
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

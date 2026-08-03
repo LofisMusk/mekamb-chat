@@ -1,0 +1,45 @@
+[package]
+name = "mekamb-core"
+description = "Rdzeń kryptograficzny i transportowy komunikatora mekamb-chat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+openmls.workspace = true
+openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
+openmls_basic_credential.workspace = true
+openmls_memory_storage.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+rand.workspace = true
+ed25519-dalek.workspace = true
+zeroize.workspace = true
+prost.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+hex.workspace = true
+
+# Losowość w przeglądarce.
+#
+# `getrandom` nie ma domyślnego backendu dla `wasm32-unknown-unknown` — bez
+# jawnego włączenia kompilacja kończy się `compile_error!`. To nie jest
+# formalność: pod spodem chodzi o to, skąd biorą się bajty ziarna urządzenia,
+# więc backend musi być wybrany świadomie, a nie odziedziczony przypadkiem.
+# Oba warianty prowadzą do `crypto.getRandomValues()` przeglądarki.
+#
+# W grafie są dwie niezgodne wersje `getrandom` i każda potrzebuje własnej cechy:
+#   0.2 — przez rand_core 0.6, którego używa stos kryptograficzny OpenMLS
+#   0.4 — przez rand 0.10, którego używamy bezpośrednio
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+
+# OpenMLS pod WASM potrzebuje API przeglądarki nie tylko do losowości, ale też
+# do odczytu czasu — bez niego nie sprawdzi okresu ważności key packages.
+# Cecha jest włączana wyłącznie dla wasm32, żeby buildy natywne nie ciągnęły
+# zależności od `wasm-bindgen`.
+openmls = { workspace = true, features = ["js"] }

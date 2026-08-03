@@ -134,7 +134,36 @@ Odbiorca odrzuca ładunek, gdy:
 wartość. Do porządkowania w interfejsie należy używać kolejności odbioru,
 a znacznika wyłącznie do wyświetlenia.
 
-## 6. Rozmowy audio/wideo
+## 6. Załączniki
+
+Plik jest szyfrowany **przed** wysłaniem na serwer, świeżym kluczem AES-256-GCM.
+
+```
+1. Klient losuje klucz (32 B) i nonce (12 B)
+2. Szyfruje plik; `mime_type` wchodzi do danych uwierzytelnionych (AAD)
+3. Wgrywa SAM SZYFROGRAM na serwer → dostaje `blob_id`
+4. Wysyła `AttachmentBody` z kluczem, nonce'em, typem i nazwą — kanałem MLS
+```
+
+Właściwości, które ta konstrukcja musi zachować:
+
+- **Świeży klucz na każdy plik.** Powtórzenie pary (klucz, nonce) w AES-GCM nie
+  osłabia szyfru „trochę" — pozwala odzyskać strumień klucza i sfałszować
+  dowolną wiadomość. Losowanie klucza per plik usuwa tę możliwość z definicji,
+  zamiast polegać na poprawnym liczeniu licznika.
+- **Typ pliku jest uwierzytelniony.** `mime_type` trafia do AAD, więc podmiana
+  deklarowanego typu unieważnia szyfrogram. Bez tego pośrednik mógłby podać
+  wideo jako obraz i skierować je do innego dekodera niż zamierzony.
+- **Nazwa pliku i typ nie trafiają na serwer.** Są metadanymi treści, więc
+  zostają w kanale MLS. R2 przechowuje wyłącznie bajty i czas wgrania.
+- **Limit 25 MB.** Mieści zdjęcia i krótkie wideo bez przesyłania
+  wieloczęściowego. Większe pliki wymagałyby wysyłki prosto do R2 z pominięciem
+  Workera — to osobna funkcja, nie zmiana stałej.
+
+Serwer nadaje `blob_id` sam. Pozwolenie klientowi na wybór nazwy umożliwiałoby
+nadpisanie cudzego bloba albo zgadywanie istniejących.
+
+## 7. Rozmowy audio/wideo
 
 WebRTC, topologia mesh, maksymalnie 4 uczestników. Bez serwera mediów.
 
@@ -152,7 +181,7 @@ kryptograficznej na osobę, która nie ma jak jej ocenić.
 Limit 4 osób wynika z pasma: przy 5 uczestnikach każdy wysyła 4 strumienie
 w górę, co przekracza możliwości typowego łącza domowego.
 
-## 7. Uwierzytelnienie do infrastruktury
+## 8. Uwierzytelnienie do infrastruktury
 
 ```
 rejestracja:  register/start → register/finish → register/confirm
@@ -181,7 +210,7 @@ infrastruktury: skrzynki offline, katalogu i publikowania key packages. Klucze
 wiadomości nigdy nie opuszczają urządzenia, więc przejęcie konta nie daje
 dostępu do historii.
 
-## 8. Wersjonowanie
+## 9. Wersjonowanie
 
 Każda koperta niesie wersję protokołu. Odbiorca odrzuca nieznaną wersję główną
 zamiast zgadywać — czytelny błąd jest lepszy niż ciche błędne parsowanie.

@@ -9,7 +9,8 @@ obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
 | Zasób | Ochrona |
 |---|---|
 | Treść wiadomości | E2EE przez MLS. Serwer i relaye widzą wyłącznie szyfrogram |
-| Treść załączników | AES-256-GCM po stronie klienta; klucz podróżuje w kanale MLS |
+| Treść załączników | AES-256-GCM po stronie klienta, świeży klucz na plik; klucz podróżuje w kanale MLS |
+| Nazwa pliku i jego typ | Podróżują w kanale MLS. Serwer widzi wyłącznie nieprzezroczysty blob |
 | Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS |
 | Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
 | Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
@@ -28,7 +29,14 @@ Serwer widzi i może logować:
 - kto ma konto i kiedy się loguje,
 - które urządzenia należą do którego użytkownika,
 - kto jest członkiem której grupy (przez commity),
-- kiedy i ile bajtów trafia do skrzynki offline.
+- kiedy i ile bajtów trafia do skrzynki offline,
+- **rozmiar każdego załącznika**.
+
+Ostatni punkt jest istotniejszy, niż wygląda: sam rozmiar sporo mówi o rodzaju
+pliku — zdjęcie z telefonu, zrzut ekranu i krótkie wideo mają wyraźnie różne
+rzędy wielkości. Ukrycie tego wymagałoby dopełniania plików do stałych progów,
+co przy wideo oznaczałoby przesyłanie wielokrotnie większej ilości danych.
+Świadomie tego nie robimy.
 
 Serwer **nie** widzi treści ani — przy działającym P2P — samych wiadomości.
 
@@ -49,6 +57,12 @@ i pozwalać wymusić relay.
 Relay iroh (publiczne n0 albo TURN Cloudflare) widzi IP i wzorce ruchu obu
 stron. Nie widzi treści — wiadomości są zaszyfrowane MLS **pod** szyfrowaniem
 QUIC/TLS.
+
+### Ile plików i jak dużych
+
+Serwer nie wie, **co** przechowuje, ale wie **ile** i **jak długo**. Bloby
+nieodebrane przez 30 dni są kasowane, bo serwer nie ma jak stwierdzić, czy ktoś
+jeszcze po nie sięgnie — nie zna treści wiadomości, które się do nich odwołują.
 
 ### Dostawcy push
 

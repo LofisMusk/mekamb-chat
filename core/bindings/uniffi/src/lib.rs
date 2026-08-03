@@ -50,7 +50,10 @@ impl From<mekamb_core::Error> for MekambError {
         use mekamb_core::Error as E;
         match error {
             E::MessageRejected => Self::MessageRejected,
-            E::InvalidSeedLength { .. } | E::InvalidIdentity(_) | E::Framing(_) => {
+            E::InvalidSeedLength { .. }
+            | E::InvalidInput(_)
+            | E::InvalidIdentity(_)
+            | E::Framing(_) => {
                 Self::InvalidInput { powod: error.to_string() }
             }
             E::Group(_) => Self::Crypto { powod: error.to_string() },

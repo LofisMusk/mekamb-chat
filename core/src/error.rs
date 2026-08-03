@@ -15,6 +15,10 @@ pub enum Error {
     #[error("nieprawidłowa długość ziarna: oczekiwano {expected} bajtów, otrzymano {got}")]
     InvalidSeedLength { expected: usize, got: usize },
 
+    /// Dane wejściowe nie spełniają wymagań (rozmiar, długość klucza itp.).
+    #[error("nieprawidłowe dane wejściowe: {0}")]
+    InvalidInput(String),
+
     /// Identyfikator użytkownika lub urządzenia nie spełnia wymagań formatu.
     #[error("nieprawidłowy identyfikator: {0}")]
     InvalidIdentity(String),

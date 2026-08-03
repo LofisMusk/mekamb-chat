@@ -67,6 +67,41 @@ export const api = {
     }
   },
 
+  /**
+   * Wgrywa zaszyfrowany załącznik i zwraca nadany przez serwer identyfikator.
+   *
+   * Do serwera trafia wyłącznie szyfrogram — klucz zostaje po tej stronie
+   * i pojedzie osobno, wewnątrz wiadomości MLS.
+   */
+  async uploadAttachment(token: string, ciphertext: Uint8Array): Promise<string> {
+    const response = await fetch(`${API_URL}/attachments`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: ciphertext as BufferSource,
+    });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new ApiError(response.status, body.error ?? "nie udało się wgrać załącznika");
+    }
+
+    const { blobId } = (await response.json()) as { blobId: string };
+    return blobId;
+  },
+
+  /** Pobiera szyfrogram załącznika. */
+  async downloadAttachment(token: string, blobId: string): Promise<Uint8Array> {
+    const response = await fetch(`${API_URL}/attachments/${encodeURIComponent(blobId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new ApiError(response.status, "nie udało się pobrać załącznika");
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  },
+
   /** Otwiera połączenie ze skrzynką. Zaległości przychodzą od razu po podłączeniu. */
   connectInbox(userId: string): WebSocket {
     const url = new URL(`${API_URL}/inbox/${encodeURIComponent(userId)}/connect`);

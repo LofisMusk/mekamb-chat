@@ -13,6 +13,7 @@
 //! - [`group`] — rozmowy oparte na MLS (DM to grupa dwuosobowa)
 //! - [`framing`] — ładunek aplikacyjny przenoszony wewnątrz MLS
 //! - [`envelope`] — jawna koperta routingu na zewnątrz MLS
+//! - [`attachments`] — szyfrowanie plików kluczem podróżującym w MLS
 //! - [`storage`] — dostawca kryptografii i zrzut stanu MLS
 //! - [`error`] — wspólny typ błędu
 //!
@@ -23,6 +24,7 @@
 //! bez żadnej infrastruktury — testy poniżej przepuszczają pełny handshake
 //! między dwiema tożsamościami w jednym procesie.
 
+pub mod attachments;
 pub mod envelope;
 pub mod error;
 pub mod framing;
@@ -30,6 +32,7 @@ pub mod group;
 pub mod identity;
 pub mod storage;
 
+pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
 pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
 pub use error::{Error, Result};
 pub use framing::ChatMessage;

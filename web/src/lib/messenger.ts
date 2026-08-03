@@ -2,6 +2,9 @@ import init, {
   MekambClient,
   decodeEnvelope,
   encodeEnvelope,
+  maxAttachmentBytes,
+  openAttachment,
+  sealAttachment,
 } from "../wasm/mekamb_wasm";
 import { api } from "./api";
 import type { Account } from "./vault";
@@ -27,6 +30,15 @@ function ensureWasm(): Promise<unknown> {
   return wasmReady;
 }
 
+export interface ReceivedAttachment {
+  blobId: string;
+  key: Uint8Array;
+  nonce: Uint8Array;
+  mimeType: string;
+  sizeBytes: number;
+  fileName?: string;
+}
+
 export interface ReceivedMessage {
   groupId: Uint8Array;
   senderUserId: string;
@@ -34,6 +46,8 @@ export interface ReceivedMessage {
   text: string;
   sentAtMs: number;
   messageId: Uint8Array;
+  /** Obecne, gdy wiadomość niesie plik zamiast tekstu. */
+  attachment?: ReceivedAttachment;
 }
 
 export class Messenger {
@@ -166,6 +180,73 @@ export class Messenger {
   }
 
   /**
+   * Wysyła plik: szyfruje, wgrywa szyfrogram, a klucz wysyła kanałem MLS.
+   *
+   * Kolejność jest istotna. Szyfrujemy PRZED wgraniem, więc serwer nigdy nie
+   * widzi zawartości — nawet przez chwilę. Klucz idzie osobną drogą i nigdy
+   * nie przechodzi przez endpoint załączników.
+   */
+  async sendFile(
+    groupId: Uint8Array,
+    file: File,
+    recipients: string[],
+  ): Promise<void> {
+    if (file.size > maxAttachmentBytes()) {
+      throw new Error(
+        `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
+          `${Math.round(maxAttachmentBytes() / 1024 / 1024)} MB`,
+      );
+    }
+
+    // Typ pliku bierzemy z przeglądarki, ale trafia on do danych
+    // uwierzytelnionych — odbiorca odrzuci plik, jeśli ktoś go po drodze podmieni.
+    const mimeType = file.type || "application/octet-stream";
+    const plaintext = new Uint8Array(await file.arrayBuffer());
+
+    const sealed = sealAttachment(plaintext, mimeType);
+    const blobId = await api.uploadAttachment(this.token, sealed.ciphertext);
+
+    const ciphertext = this.client.sendAttachment(
+      groupId,
+      blobId,
+      sealed.key,
+      sealed.nonce,
+      mimeType,
+      file.size,
+      file.name || undefined,
+      Date.now(),
+    );
+
+    // Ratchet przesunął się przy szyfrowaniu wiadomości.
+    await this.persist();
+
+    const envelope = encodeEnvelope(groupId, "application", ciphertext);
+    await Promise.all(recipients.map((userId) => api.deposit(userId, envelope)));
+  }
+
+  /**
+   * Pobiera i odszyfrowuje załącznik, zwracając adres nadający się do
+   * wyświetlenia.
+   *
+   * Deszyfrowanie dzieje się w pamięci przeglądarki; `blob:` wskazuje na dane,
+   * które nigdy nie trafiły na dysk w postaci jawnej. Wywołujący musi zwolnić
+   * adres przez `URL.revokeObjectURL`, inaczej odszyfrowany plik zostaje
+   * w pamięci do końca życia karty.
+   */
+  async openAttachmentUrl(attachment: ReceivedAttachment): Promise<string> {
+    const ciphertext = await api.downloadAttachment(this.token, attachment.blobId);
+
+    const plaintext = openAttachment(
+      ciphertext,
+      attachment.key,
+      attachment.nonce,
+      attachment.mimeType,
+    );
+
+    return URL.createObjectURL(new Blob([plaintext as BlobPart], { type: attachment.mimeType }));
+  }
+
+  /**
    * Przetwarza kopertę odebraną ze skrzynki.
    *
    * Zwraca `null`, gdy koperta nie była wiadomością do wyświetlenia — na
@@ -192,6 +273,16 @@ export class Messenger {
       text: incoming.text,
       sentAtMs: incoming.sent_at_ms,
       messageId: incoming.message_id,
+      attachment: incoming.attachment
+        ? {
+            blobId: incoming.attachment.blob_id,
+            key: incoming.attachment.key,
+            nonce: incoming.attachment.nonce,
+            mimeType: incoming.attachment.mime_type,
+            sizeBytes: incoming.attachment.size_bytes,
+            fileName: incoming.attachment.file_name,
+          }
+        : undefined,
     };
   }
 

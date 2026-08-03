@@ -4,7 +4,7 @@ import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
 import type { LoginSession } from "./lib/auth";
 import { Messenger } from "./lib/messenger";
-import type { ReceivedMessage } from "./lib/messenger";
+import type { ReceivedAttachment, ReceivedMessage } from "./lib/messenger";
 import {
   isInstalled,
   isPersistent,
@@ -40,6 +40,7 @@ interface Wiadomosc {
   tresc: string;
   czas: number;
   wlasna: boolean;
+  zalacznik?: ReceivedAttachment;
 }
 
 export function App() {
@@ -378,6 +379,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         tresc: odebrana.text,
         czas: odebrana.sentAtMs,
         wlasna: false,
+        zalacznik: odebrana.attachment,
       },
     ]);
   }, []);
@@ -458,10 +460,46 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         {wiadomosci.map((w) => (
           <li key={w.id} className={w.wlasna ? "wlasna" : ""}>
             <span className="autor">{w.autor}</span>
-            <span className="tresc">{w.tresc}</span>
+            {w.zalacznik ? (
+              <Zalacznik messenger={messenger} zalacznik={w.zalacznik} onBlad={onBlad} />
+            ) : (
+              <span className="tresc">{w.tresc}</span>
+            )}
           </li>
         ))}
       </ol>
+
+      {groupId && (
+        <label className="dolacz-plik">
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={async (e) => {
+              const plik = e.target.files?.[0];
+              // Czyścimy pole od razu, żeby dało się wysłać ten sam plik dwa razy.
+              e.target.value = "";
+              if (!plik) return;
+
+              try {
+                await messenger.sendFile(groupId, plik, [rozmowca]);
+                setWiadomosci((p) => [
+                  ...p,
+                  {
+                    id: crypto.randomUUID(),
+                    autor: "Ty",
+                    tresc: `wysłano: ${plik.name}`,
+                    czas: Date.now(),
+                    wlasna: true,
+                  },
+                ]);
+              } catch (err) {
+                onBlad(err);
+              }
+            }}
+          />
+          Dołącz zdjęcie lub wideo
+        </label>
+      )}
 
       {groupId && (
         <form
@@ -496,5 +534,66 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         </form>
       )}
     </section>
+  );
+}
+
+/**
+ * Odszyfrowany załącznik.
+ *
+ * Deszyfrowanie odkładamy do momentu wyświetlenia: przy wielu plikach w oknie
+ * jednoczesne trzymanie wszystkich w pamięci szybko wyczerpałoby ją na telefonie.
+ */
+function Zalacznik({
+  messenger,
+  zalacznik,
+  onBlad,
+}: {
+  messenger: Messenger;
+  zalacznik: ReceivedAttachment;
+  onBlad: (e: unknown) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [pobiera, setPobiera] = useState(false);
+
+  useEffect(() => {
+    // Adres `blob:` wskazuje na odszyfrowane dane w pamięci karty. Bez
+    // zwolnienia zostaje tam do jej zamknięcia.
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
+
+  const rozmiarMb = (zalacznik.sizeBytes / 1024 / 1024).toFixed(1);
+  const obraz = zalacznik.mimeType.startsWith("image/");
+  const wideo = zalacznik.mimeType.startsWith("video/");
+
+  if (!url) {
+    return (
+      <button
+        className="zalacznik-pobierz"
+        disabled={pobiera}
+        onClick={async () => {
+          setPobiera(true);
+          try {
+            setUrl(await messenger.openAttachmentUrl(zalacznik));
+          } catch (err) {
+            onBlad(err);
+          } finally {
+            setPobiera(false);
+          }
+        }}
+      >
+        {pobiera ? "Odszyfrowuję…" : `${zalacznik.fileName ?? "załącznik"} · ${rozmiarMb} MB`}
+      </button>
+    );
+  }
+
+  if (obraz) return <img className="zalacznik" src={url} alt={zalacznik.fileName ?? "załącznik"} />;
+  if (wideo) return <video className="zalacznik" src={url} controls />;
+
+  return (
+    <a className="zalacznik-pobierz" href={url} download={zalacznik.fileName ?? "zalacznik"}>
+      Pobierz {zalacznik.fileName ?? "plik"}
+    </a>
   );
 }

@@ -109,6 +109,29 @@ impl ChatMessage {
         }
     }
 
+    /// Buduje wiadomość z załącznikiem.
+    ///
+    /// `decryption_key` i `nonce` pochodzą z [`crate::attachments::seal_attachment`]
+    /// i podróżują tutaj — czyli **wewnątrz** szyfrowania MLS. Umieszczenie ich
+    /// gdziekolwiek indziej udostępniłoby plik serwerowi.
+    pub fn attachment(body: AttachmentBody, sent_at_ms: u64) -> Self {
+        Self {
+            protocol_version: PAYLOAD_VERSION,
+            message_id: new_message_id().to_vec(),
+            sent_at_ms,
+            body: Some(Body::Attachment(body)),
+            reply_to: None,
+        }
+    }
+
+    /// Zwraca metadane załącznika, jeśli wiadomość go niesie.
+    pub fn as_attachment(&self) -> Option<&AttachmentBody> {
+        match &self.body {
+            Some(Body::Attachment(a)) => Some(a),
+            _ => None,
+        }
+    }
+
     /// Zwraca treść, jeśli to wiadomość tekstowa.
     pub fn as_text(&self) -> Option<&str> {
         match &self.body {

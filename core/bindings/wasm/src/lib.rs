@@ -39,6 +39,25 @@ pub struct IncomingMessage {
     /// Czas zadeklarowany przez nadawcę. **Nie jest faktem** — patrz PROTOCOL.md.
     pub sent_at_ms: f64,
     pub message_id: Vec<u8>,
+
+    /// Wypełnione, gdy wiadomość niesie załącznik zamiast tekstu.
+    pub attachment: Option<AttachmentInfo>,
+}
+
+/// Metadane załącznika odebrane z kanału MLS.
+///
+/// `key` i `nonce` są sekretami — przyszły zaszyfrowane i służą wyłącznie do
+/// odszyfrowania bloba pobranego z serwera. Nie wolno ich nigdzie zapisać
+/// w postaci jawnej.
+#[derive(Clone)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct AttachmentInfo {
+    pub blob_id: String,
+    pub key: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub mime_type: String,
+    pub size_bytes: f64,
+    pub file_name: Option<String>,
 }
 
 /// Commit oczekujący na potwierdzenie przez `GroupRelay`.
@@ -229,6 +248,43 @@ impl MekambClient {
             .map_err(to_js)
     }
 
+    /// Szyfruje i pakuje wiadomość z załącznikiem.
+    ///
+    /// Wołane PO wgraniu szyfrogramu na serwer: `blob_id` pochodzi z odpowiedzi
+    /// serwera, a klucz z [`seal_attachment`]. Klucz podróżuje wewnątrz MLS,
+    /// więc serwer przechowuje plik, którego nie potrafi odczytać.
+    #[wasm_bindgen(js_name = sendAttachment)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn send_attachment(
+        &mut self,
+        group_id: &[u8],
+        blob_id: &str,
+        key: &[u8],
+        nonce: &[u8],
+        mime_type: &str,
+        size_bytes: f64,
+        file_name: Option<String>,
+        sent_at_ms: f64,
+    ) -> Result<Vec<u8>, JsError> {
+        let message = mekamb_core::framing::ChatMessage::attachment(
+            mekamb_core::framing::AttachmentBody {
+                blob_id: blob_id.to_string(),
+                decryption_key: key.to_vec(),
+                nonce: nonce.to_vec(),
+                mime_type: mime_type.to_string(),
+                size_bytes: size_bytes as u64,
+                file_name,
+            },
+            sent_at_ms as u64,
+        );
+
+        let Self { identity, provider, conversations } = self;
+
+        pobierz_mut(conversations, group_id)?
+            .send(provider, identity, &message)
+            .map_err(to_js)
+    }
+
     /// Przetwarza wiadomość odebraną z sieci.
     #[wasm_bindgen(js_name = receive)]
     pub fn receive(&mut self, group_id: &[u8], bytes: &[u8]) -> Result<IncomingMessage, JsError> {
@@ -254,6 +310,14 @@ impl MekambClient {
                 text: message.as_text().unwrap_or_default().to_string(),
                 sent_at_ms: message.sent_at_ms as f64,
                 message_id: message.message_id.clone(),
+                attachment: message.as_attachment().map(|a| AttachmentInfo {
+                    blob_id: a.blob_id.clone(),
+                    key: a.decryption_key.clone(),
+                    nonce: a.nonce.clone(),
+                    mime_type: a.mime_type.clone(),
+                    size_bytes: a.size_bytes as f64,
+                    file_name: a.file_name.clone(),
+                }),
             },
             Incoming::MembershipChanged => zdarzenie("membership-changed"),
             Incoming::ProposalQueued => zdarzenie("proposal-queued"),
@@ -299,6 +363,7 @@ fn zdarzenie(kind: &str) -> IncomingMessage {
         text: String::new(),
         sent_at_ms: 0.0,
         message_id: Vec::new(),
+        attachment: None,
     }
 }
 
@@ -358,4 +423,50 @@ pub fn decode_envelope(bytes: &[u8]) -> Result<DecodedEnvelope, JsError> {
         kind: kind.into(),
         payload: envelope.payload,
     })
+}
+
+/// Zaszyfrowany załącznik gotowy do wysłania.
+#[wasm_bindgen(getter_with_clone)]
+pub struct SealedAttachmentJs {
+    /// Do wgrania na serwer. Nieczytelne bez klucza.
+    pub ciphertext: Vec<u8>,
+    /// **Sekret.** Trafia do wiadomości MLS, nigdy obok szyfrogramu.
+    pub key: Vec<u8>,
+    pub nonce: Vec<u8>,
+}
+
+/// Szyfruje plik przed wgraniem na serwer.
+///
+/// Każde wywołanie losuje świeży klucz i nonce — powtórzenie pary w AES-GCM
+/// pozwoliłoby odzyskać strumień klucza, więc nie polegamy tu na żadnym
+/// liczniku.
+///
+/// `mime_type` wchodzi do danych uwierzytelnionych: podmiana deklarowanego typu
+/// pliku unieważnia szyfrogram.
+#[wasm_bindgen(js_name = sealAttachment)]
+pub fn seal_attachment(plaintext: &[u8], mime_type: &str) -> Result<SealedAttachmentJs, JsError> {
+    let sealed = mekamb_core::seal_attachment(plaintext, mime_type).map_err(to_js)?;
+
+    Ok(SealedAttachmentJs {
+        ciphertext: sealed.ciphertext.clone(),
+        key: sealed.key.to_vec(),
+        nonce: sealed.nonce.to_vec(),
+    })
+}
+
+/// Odszyfrowuje załącznik pobrany z serwera.
+#[wasm_bindgen(js_name = openAttachment)]
+pub fn open_attachment(
+    ciphertext: &[u8],
+    key: &[u8],
+    nonce: &[u8],
+    mime_type: &str,
+) -> Result<Vec<u8>, JsError> {
+    mekamb_core::open_attachment(ciphertext, key, nonce, mime_type).map_err(to_js)
+}
+
+/// Górny limit rozmiaru załącznika — interfejs odsiewa za duże pliki od razu.
+#[wasm_bindgen(js_name = maxAttachmentBytes)]
+pub fn max_attachment_bytes() -> usize {
+    mekamb_core::MAX_ATTACHMENT_BYTES
 }

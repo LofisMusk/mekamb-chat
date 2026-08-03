@@ -22,10 +22,15 @@
       wpisujemy tu blankietowego `https:`: lista z jednym adresem sprawia, że
       nawet po wstrzyknięciu skryptu nie da się wysłać danych gdziekolwiek
       indziej niż do naszego API.
+
+      `blob:` w img-src i media-src jest konieczne, żeby wyświetlić odszyfrowany
+      załącznik. Adres `blob:` wskazuje na dane utworzone przez nasz własny
+      skrypt w tej karcie — nie da się przez niego niczego pobrać z zewnątrz.
+      Bez tego wpisu zdjęcia i wideo po prostu się nie renderują.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src %CONNECT_SRC%; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src %CONNECT_SRC%; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
   </head>
   <body>

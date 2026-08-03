@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 
+import attachments, { cleanupOrphanedAttachments } from "./attachments";
 import auth from "./auth";
 import {
   availableKeyPackages,
@@ -38,6 +39,7 @@ app.use("*", async (c, next) =>
 );
 
 app.route("/auth", auth);
+app.route("/attachments", attachments);
 
 /**
  * Limit prób logowania.
@@ -242,4 +244,22 @@ function fromBase64(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-export default app;
+/**
+ * Wyzwalacz cron: sprzątanie osieroconych załączników.
+ *
+ * Skrzynki czyszczą się same alarmami Durable Objects; R2 nie ma takiego
+ * mechanizmu, więc potrzebuje osobnego przebiegu.
+ */
+export default {
+  fetch: app.fetch,
+
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      cleanupOrphanedAttachments(env).then((usuniete) => {
+        if (usuniete > 0) {
+          console.log(`sprzątanie R2: usunięto ${usuniete} osieroconych załączników`);
+        }
+      }),
+    );
+  },
+};

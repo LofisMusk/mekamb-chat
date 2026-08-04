@@ -125,13 +125,23 @@ jobs:
       # Zależności JavaScriptu też mają podatności, a serwer i klient webowy
       # opierają się na nich tak samo jak rdzeń na crate'ach.
       #
-      # Próg ustawiony na „high": ostrzeżenia o niskiej wadze w narzędziach
-      # deweloperskich zablokowałyby każdą zmianę, a nie mówią nic o tym,
-      # co faktycznie trafia do użytkownika.
-      - name: Serwer
+      # BLOKUJE tylko to, co trafia do użytkownika (`--omit=dev`). Narzędzia
+      # budowania i testów sprawdzamy osobno, informacyjnie: wrangler i miniflare
+      # ciągną `undici` z otwartymi zgłoszeniami, a jedyna „poprawka" oferowana
+      # przez npm to cofnięcie wranglera do starszej wersji. Blokowanie każdej
+      # zmiany w projekcie z tego powodu byłoby gorsze niż świadome odnotowanie.
+      - name: Serwer (zależności produkcyjne)
         working-directory: server
-        run: npm ci && npm audit --audit-level=high
+        run: npm ci && npm audit --audit-level=high --omit=dev
 
-      - name: Klient webowy
+      - name: Klient webowy (zależności produkcyjne)
         working-directory: web
-        run: npm ci && npm audit --audit-level=high
+        run: npm ci && npm audit --audit-level=high --omit=dev
+
+      - name: Narzędzia budowania (informacyjnie)
+        continue-on-error: true
+        run: |
+          echo "::group::server"; (cd server && npm audit --audit-level=high) || true
+          echo "::endgroup::"
+          echo "::group::web"; (cd web && npm audit --audit-level=high) || true
+          echo "::endgroup::"

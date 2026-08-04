@@ -35,6 +35,17 @@ zaktualizuje libcrux.**
 `cargo tree` pokazuje **zero wystąpień** — nie trafiają do żadnego builda.
 To pozostałość rozwiązywania zależności opcjonalnych.
 
+### Zależności JavaScriptu
+
+Audyt npm blokuje wyłącznie na **zależnościach produkcyjnych** — tych, które
+trafiają do użytkownika. Tam jest ich zero.
+
+Narzędzia budowania i testów są sprawdzane osobno, informacyjnie: `wrangler`
+i `miniflare` ciągną `undici` z otwartymi zgłoszeniami, a jedyna poprawka
+proponowana przez npm to cofnięcie wranglera do starszej wersji. Te zależności
+nie działają ani na serwerze produkcyjnym (Worker chodzi na runtime Cloudflare,
+nie na undici), ani u użytkownika.
+
 ### Niekonserwowane
 
 `instant` i `proc-macro-error2` to ostrzeżenia o braku konserwacji, nie

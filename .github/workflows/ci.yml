@@ -107,6 +107,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Testy PO buildzie, bo część z nich importuje moduł WASM. Bez tego kroku
+      # testy klienta nie uruchamiałyby się nigdzie poza maszyną autora.
+      - name: Testy
+        run: npm test
+
   audit:
     name: Audyt zależności
     runs-on: ubuntu-latest

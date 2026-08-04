@@ -27,7 +27,15 @@ rand = "0.10.2"
 # drugiej kopii powiekszyloby pakiet WASM bez zadnego zysku.
 aes-gcm = "0.10.3"
 # Noise Protocol — nie piszemy własnej kryptografii transportowej.
-snow = "0.10"
+# Bez domyślnych funkcji: chcemy wyłącznie czysto rustowe implementacje
+# prymitywów. Wariant z `ring` kompiluje kod C, co wymagałoby toolchainu C
+# dla każdej platformy docelowej — a to jest dokładnie ta klasa problemu,
+# przez którą odpadł iroh.
+snow = { version = "0.10", default-features = false, features = [
+    "default-resolver",
+    "default-resolver-crypto",
+    "std",
+] }
 x25519-dalek = "2"
 prost = "0.14.4"
 ed25519-dalek = "2.2"

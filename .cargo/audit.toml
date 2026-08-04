@@ -1,0 +1,39 @@
+# Konfiguracja `cargo audit`.
+#
+# Każde wyciszenie ma tu uzasadnienie. Wyciszenie bez uzasadnienia jest gorsze
+# niż brak audytu: daje wrażenie, że ktoś sprawdził, choć nikt nie sprawdził.
+#
+# Pełny opis znanych zgłoszeń: SECURITY.md, sekcja „Znane zgłoszenia audytu".
+
+[advisories]
+ignore = [
+    # --- libcrux przez OpenMLS: SHA3/SHAKE ---
+    #
+    # Wszystkie cztery dotyczą SHA3 i SHAKE. Nasz ciphersuite to
+    # MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 — X25519, AES-128-GCM,
+    # SHA-256, Ed25519. SHA3 ani SHAKE nie występują na tej ścieżce.
+    #
+    # Poprawki istnieją (libcrux-sha3 >= 0.0.10, libcrux-secrets >= 0.0.6), ale
+    # `hpke-rs` przypina starsze wersje i nie da się ich podnieść bez zmian
+    # w tej zależności. Do usunięcia, gdy hpke-rs zaktualizuje libcrux.
+    "RUSTSEC-2026-0207", # SHAKE: błędny wynik przy wielu wywołaniach squeeze
+    "RUSTSEC-2026-0208", # SHAKE-256 AVX2: możliwa panika
+    "RUSTSEC-2026-0212", # libcrux-secrets: stałoczasowość na aarch64
+
+    # --- libcrux: warianty, których nie kompilujemy ---
+    #
+    # `libcrux-aesgcm` i `libcrux-chacha20poly1305` są w Cargo.lock, ale NIE
+    # trafiają do żadnego builda: `cargo tree` pokazuje zero wystąpień.
+    # To pozostałość rozwiązywania zależności opcjonalnych.
+    "RUSTSEC-2026-0209", # AES-GCM: brak limitu długości AAD
+    "RUSTSEC-2026-0210", # zmiana nazwy crate'a, nie podatność
+    "RUSTSEC-2026-0211", # AES-GCM: nierównoczasowe sprawdzenie znacznika
+    "RUSTSEC-2026-0124", # ChaCha20-Poly1305: panika przy zbyt długim szyfrogramie
+
+    # --- niekonserwowane crate'y, nie podatności ---
+    #
+    # Oba wchodzą przez narzędzia budowania, nie przez kod wykonywany
+    # u użytkownika.
+    "RUSTSEC-2024-0384", # instant
+    "RUSTSEC-2026-0173", # proc-macro-error2
+]

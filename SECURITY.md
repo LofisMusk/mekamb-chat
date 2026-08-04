@@ -7,6 +7,39 @@
 Nie należy go używać tam, gdzie ujawnienie treści miałoby poważne konsekwencje.
 Do takich zastosowań istnieją komunikatory po audycie — Signal.
 
+## Znane zgłoszenia audytu
+
+`cargo audit` zgłasza dziewięć pozycji, wszystkie wyciszone w
+[`.cargo/audit.toml`](.cargo/audit.toml) z uzasadnieniem. Poniżej ocena — jawnie,
+bo wyciszenie bez uzasadnienia jest gorsze niż brak audytu.
+
+### Faktycznie w drzewie zależności
+
+`libcrux-sha3` i `libcrux-secrets` wchodzą przez `hpke-rs` → `openmls_rust_crypto`.
+Trzy zgłoszenia (RUSTSEC-2026-0207, -0208, -0212), wszystkie o wysokiej wadze,
+wszystkie dotyczą **SHA3 i SHAKE**.
+
+Nasz ciphersuite to `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` — X25519,
+AES-128-GCM, SHA-256, Ed25519. **SHA3 ani SHAKE nie występują na tej ścieżce.**
+
+To ocena oparta na wyborze ciphersuite, nie na prześledzeniu kodu `hpke-rs`.
+Gdyby ktoś zmienił ciphersuite na wariant z SHA3, ocena przestaje obowiązywać.
+
+Poprawki istnieją (`libcrux-sha3` ≥ 0.0.10, `libcrux-secrets` ≥ 0.0.6), ale
+`hpke-rs` przypina starsze wersje. **Do usunięcia z listy wyciszeń, gdy hpke-rs
+zaktualizuje libcrux.**
+
+### Poza drzewem
+
+`libcrux-aesgcm` i `libcrux-chacha20poly1305` figurują w `Cargo.lock`, ale
+`cargo tree` pokazuje **zero wystąpień** — nie trafiają do żadnego builda.
+To pozostałość rozwiązywania zależności opcjonalnych.
+
+### Niekonserwowane
+
+`instant` i `proc-macro-error2` to ostrzeżenia o braku konserwacji, nie
+podatności. Oba wchodzą przez narzędzia budowania.
+
 ## Zgłaszanie podatności
 
 Podatności prosimy zgłaszać przez **GitHub Security Advisories** w tym

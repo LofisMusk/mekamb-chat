@@ -46,14 +46,11 @@ jobs:
           rustup target add wasm32-unknown-unknown
           cargo check -p mekamb-core --target wasm32-unknown-unknown
 
-      # Transport ciągnie `ring`, który kompiluje kod C i wymaga clanga
-      # potrafiącego celować w wasm32. Systemowy clang na macOS tego nie umie,
-      # więc ten krok jest sprawdzany wyłącznie tutaj, na Linuksie.
-      - name: Transport pod wasm32
-        env:
-          CC_wasm32_unknown_unknown: clang
-          AR_wasm32_unknown_unknown: llvm-ar
-        run: cargo check -p mekamb-transport --target wasm32-unknown-unknown
+      # Transportu NIE sprawdzamy pod wasm32 i to jest zamierzone: opiera się
+      # na gniazdach UDP, których w przeglądarce nie ma. Klient webowy w ogóle
+      # go nie używa — korzysta ze skrzynki na serwerze.
+      #
+      # Rdzeń kryptograficzny pozostaje przenośny i to on jest tu sprawdzany.
 
   server:
     name: Backend

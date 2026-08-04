@@ -4,7 +4,15 @@ import type { UserInbox } from "./inbox";
 
 export interface Env {
   DB: D1Database;
-  ATTACHMENTS: R2Bucket;
+  /**
+   * Kubełek na zaszyfrowane załączniki.
+   *
+   * Opcjonalny: R2 wymaga jednorazowej aktywacji w panelu Cloudflare, więc
+   * wdrożenie bez niego jest poprawnym stanem. Endpointy załączników sprawdzają
+   * obecność bindingu i zwracają czytelny błąd, zamiast wywracać się na
+   * `undefined`.
+   */
+  ATTACHMENTS?: R2Bucket;
 
   USER_INBOX: DurableObjectNamespace<UserInbox>;
   GROUP_RELAY: DurableObjectNamespace<GroupRelay>;

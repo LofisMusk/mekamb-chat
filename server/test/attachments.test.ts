@@ -148,14 +148,14 @@ describe("załączniki", () => {
     const { blobId } = await (await wgraj(bajty(128), bearer)).json<{ blobId: string }>();
 
     // Cofamy znacznik czasu, udając blob sprzed retencji.
-    const obiekt = await env.ATTACHMENTS.get(blobId);
-    await env.ATTACHMENTS.put(blobId, await obiekt!.arrayBuffer(), {
+    const obiekt = await env.ATTACHMENTS!.get(blobId);
+    await env.ATTACHMENTS!.put(blobId, await obiekt!.arrayBuffer(), {
       customMetadata: { uploadedAt: "1", uploadedBy: "alicja" },
     });
 
     const usuniete = await cleanupOrphanedAttachments(env);
 
     expect(usuniete).toBeGreaterThanOrEqual(1);
-    expect(await env.ATTACHMENTS.get(blobId)).toBeNull();
+    expect(await env.ATTACHMENTS!.get(blobId)).toBeNull();
   });
 });

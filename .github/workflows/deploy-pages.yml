@@ -42,10 +42,19 @@ jobs:
         working-directory: web
         env:
           GITHUB_PAGES: "true"
-          # Adres backendu trafia do CSP, więc musi być dokładny.
-          # Ustawić w Settings → Secrets and variables → Actions → Variables.
           VITE_API_URL: ${{ vars.API_URL }}
-        run: npm run build
+        run: |
+          # Adres backendu trafia do CSP przy budowaniu. Bez niego klient
+          # wyszedłby z adresem localhost i po wdrożeniu nie połączyłby się
+          # z niczym — a wyglądałby na działający, dopóki ktoś nie spróbuje
+          # się zalogować. Lepiej zatrzymać build.
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::Brak zmiennej API_URL."
+            echo "Ustaw ją w Settings → Secrets and variables → Actions → Variables"
+            echo "na adres wdrożonego Workera, np. https://mekamb.<subdomena>.workers.dev"
+            exit 1
+          fi
+          npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:

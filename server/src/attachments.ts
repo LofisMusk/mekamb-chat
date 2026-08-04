@@ -42,6 +42,23 @@ const attachments = new Hono<{
  * Identyfikator nadaje **serwer**, a nie klient. Pozwolenie klientowi na wybór
  * nazwy pozwalałoby nadpisać cudzy blob albo zgadywać istniejące.
  */
+/**
+ * Sprawdza, czy magazyn załączników jest podłączony.
+ *
+ * Bez tego wywołanie na niepodłączonym bindingu kończyłoby się błędem
+ * wewnętrznym, a użytkownik zobaczyłby „coś poszło nie tak" zamiast informacji,
+ * że ta funkcja po prostu nie jest jeszcze włączona.
+ */
+attachments.use("*", async (c, next) => {
+  if (!c.env.ATTACHMENTS) {
+    return c.json(
+      { error: "załączniki nie są jeszcze włączone na tym wdrożeniu" },
+      503,
+    );
+  }
+  await next();
+});
+
 attachments.post("/", requireAuth, async (c) => {
   const deklarowany = Number(c.req.header("Content-Length") ?? "0");
 
@@ -63,7 +80,7 @@ attachments.post("/", requireAuth, async (c) => {
 
   const blobId = crypto.randomUUID();
 
-  await c.env.ATTACHMENTS.put(blobId, ciphertext, {
+  await c.env.ATTACHMENTS!.put(blobId, ciphertext, {
     customMetadata: {
       // Wyłącznie do sprzątania. Nie zapisujemy tu nazwy pliku ani typu:
       // to metadane treści, a te mają zostać w kanale MLS.
@@ -77,7 +94,7 @@ attachments.post("/", requireAuth, async (c) => {
 
 /** Pobiera zaszyfrowany załącznik. */
 attachments.get("/:blobId", requireAuth, async (c) => {
-  const obiekt = await c.env.ATTACHMENTS.get(c.req.param("blobId"));
+  const obiekt = await c.env.ATTACHMENTS!.get(c.req.param("blobId"));
 
   if (obiekt === null) {
     return c.json({ error: "nie ma takiego załącznika" }, 404);
@@ -102,20 +119,22 @@ attachments.get("/:blobId", requireAuth, async (c) => {
  * oznacza zwykle błąd po stronie klienta, a nie normalne sprzątanie.
  */
 export async function cleanupOrphanedAttachments(env: Env): Promise<number> {
+  if (!env.ATTACHMENTS) return 0;
+
   const prog = Date.now() - ATTACHMENT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
   let usuniete = 0;
   let kursor: string | undefined;
 
   do {
-    const lista = await env.ATTACHMENTS.list({ cursor: kursor, include: ["customMetadata"] });
+    const lista = await env.ATTACHMENTS!.list({ cursor: kursor, include: ["customMetadata"] });
 
     const doUsuniecia = lista.objects
       .filter((obiekt) => Number(obiekt.customMetadata?.uploadedAt ?? 0) < prog)
       .map((obiekt) => obiekt.key);
 
     if (doUsuniecia.length > 0) {
-      await env.ATTACHMENTS.delete(doUsuniecia);
+      await env.ATTACHMENTS!.delete(doUsuniecia);
       usuniete += doUsuniecia.length;
     }
 

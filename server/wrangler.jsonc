@@ -6,8 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
 
   "vars": {
-    // Adresy klienta webowego. Produkcyjny adres GitHub Pages dopisać przy wdrożeniu.
-    "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175"
+    // Adresy klienta webowego: produkcyjny (GitHub Pages) i lokalne do pracy.
+    // Lista, nie gwiazdka — patrz komentarz przy ALLOWED_ORIGINS w src/env.ts.
+    "ALLOWED_ORIGINS": "https://lofismusk.github.io,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175"
   },
 
   "observability": {
@@ -20,17 +21,23 @@
     {
       "binding": "DB",
       "database_name": "mekamb",
-      "database_id": "PLACEHOLDER-uzupelnic-po-wrangler-d1-create",
+      "database_id": "2d53084c-3b63-4f22-8ab4-d7dc6c5bdd57",
       "migrations_dir": "migrations"
     }
   ],
 
-  "r2_buckets": [
-    {
-      "binding": "ATTACHMENTS",
-      "bucket_name": "mekamb-attachments"
-    }
-  ],
+  // R2 wymaga jednorazowej aktywacji w panelu Cloudflare (akceptacja
+  // regulaminu). Do tego czasu Worker wdraża się bez tego bindingu, a endpointy
+  // załączników zwracają czytelny błąd zamiast padać.
+  //
+  // Po włączeniu R2: odkomentuj poniższe i wykonaj `wrangler deploy`.
+  //
+  // "r2_buckets": [
+  // {
+  // "binding": "ATTACHMENTS",
+  // "bucket_name": "mekamb-attachments"
+  // }
+  // ],
 
   "durable_objects": {
     "bindings": [

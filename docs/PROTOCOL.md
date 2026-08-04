@@ -129,8 +129,20 @@ Wpis znika z kolejki dopiero po potwierdzeniu (`ack:<id>`), które klient wysył
 odebraniem a zapisem, żeby wiadomość przepadła — nadawca miałby ją za
 dostarczoną i nikt by jej nie powtórzył.
 
-Ceną jest możliwość otrzymania tej samej koperty dwa razy. To nieszkodliwe:
-`message_id` pozwala odsiać duplikat.
+Ceną jest możliwość otrzymania tej samej koperty dwa razy — i to wymaga po
+stronie klienta więcej uwagi, niż się wydaje.
+
+Powtórzona koperta zostaje przez MLS odrzucona (ratchet już się przesunął),
+więc klient jej **nie potwierdzi** — a wtedy wróci przy następnym połączeniu.
+I przy kolejnym. Klient musi więc liczyć nieudane próby i po kilku potwierdzić
+kopertę mimo wszystko, uznając ją za martwą.
+
+Nie po pierwszej próbie: koperta może wyprzedzić commit, który jest jej
+potrzebny, i przejść dopiero za drugim razem.
+
+Nieudane przetworzenie koperty **nie jest błędem do pokazania użytkownikowi**.
+Powtórzenie, nieaktualna epoka i pakiet spreparowany przez kogoś z sieci
+wyglądają tak samo, a użytkownik nie ma na żadne z nich wpływu.
 
 ### Cykl życia commitu
 

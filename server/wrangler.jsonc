@@ -26,18 +26,17 @@
     }
   ],
 
-  // R2 wymaga jednorazowej aktywacji w panelu Cloudflare (akceptacja
-  // regulaminu). Do tego czasu Worker wdraża się bez tego bindingu, a endpointy
-  // załączników zwracają czytelny błąd zamiast padać.
+  // Zaszyfrowane załączniki. Serwer przechowuje wyłącznie szyfrogram — klucz
+  // podróżuje w kanale MLS i nigdy nie przechodzi przez ten kubełek.
   //
-  // Po włączeniu R2: odkomentuj poniższe i wykonaj `wrangler deploy`.
-  //
-  // "r2_buckets": [
-  // {
-  // "binding": "ATTACHMENTS",
-  // "bucket_name": "mekamb-attachments"
-  // }
-  // ],
+  // Binding pozostaje w kodzie opcjonalny: wdrożenie na koncie bez włączonego
+  // R2 jest poprawnym stanem, a endpointy zwracają wtedy czytelne 503.
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "mekamb-attachments"
+    }
+  ],
 
   "durable_objects": {
     "bindings": [

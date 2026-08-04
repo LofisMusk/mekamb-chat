@@ -36,6 +36,14 @@ type Ekran =
   | { nazwa: "drugi-skladnik"; username: string; sesja: LoginSession }
   | { nazwa: "czat"; messenger: Messenger };
 
+/**
+ * Ile razy próbujemy przetworzyć kopertę, zanim uznamy ją za martwą.
+ *
+ * Więcej niż jeden raz, bo koperta może wyprzedzić commit, który jest jej
+ * potrzebny — wtedy druga próba po nadejściu commitu się powiedzie.
+ */
+const PROB_PRZED_ODRZUCENIEM = 3;
+
 interface Wiadomosc {
   id: string;
   autor: string;
@@ -372,6 +380,14 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
   const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
   const gniazdo = useRef<WebSocket | null>(null);
+  /**
+   * Ile razy dana koperta odpadła przy przetwarzaniu.
+   *
+   * Potrzebne, bo koperta bez potwierdzenia wraca przy każdym połączeniu.
+   * Bez licznika koperta, której nigdy nie da się przetworzyć — powtórzona
+   * albo spreparowana — wracałaby w nieskończoność.
+   */
+  const nieudane = useRef(new Map<string, number>());
 
   const dodaj = useCallback((odebrana: ReceivedMessage) => {
     setWiadomosci((poprzednie) => [
@@ -415,10 +431,26 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           dodaj(odebrana);
           if (!groupId) setGroupId(odebrana.groupId);
         }
+        nieudane.current.delete(String(id));
       } catch (err) {
-        // Bez potwierdzenia koperta zostaje w kolejce i wróci przy następnym
-        // połączeniu — błąd przetwarzania nie może kasować danych.
-        onBlad(err);
+        // Nieudane przetworzenie koperty jest sytuacją SPODZIEWANĄ: powtórzenie
+        // ze skrzynki, pakiet z nieaktualnej epoki, dane spreparowane przez
+        // kogoś z sieci. Pokazywanie tego użytkownikowi jako błędu straszy go
+        // czymś, na co nie ma wpływu i czego nie musi rozumieć.
+        console.warn("koperta odrzucona przy przetwarzaniu", err);
+
+        // Bez potwierdzenia koperta wraca przy każdym połączeniu. Po kilku
+        // nieudanych próbach uznajemy ją za martwą i potwierdzamy, żeby nie
+        // krążyła w nieskończoność — ale dopiero po kilku, bo koperta, która
+        // wyprzedziła swój commit, może przejść za drugim razem.
+        const klucz = String(id);
+        const prob = (nieudane.current.get(klucz) ?? 0) + 1;
+        nieudane.current.set(klucz, prob);
+
+        if (prob >= PROB_PRZED_ODRZUCENIEM) {
+          socket.send(`ack:${id}`);
+          nieudane.current.delete(klucz);
+        }
       }
     };
 

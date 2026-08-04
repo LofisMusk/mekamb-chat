@@ -173,7 +173,10 @@ private fun Zawartosc(
             stan.zalogowany ->
                 EkranListy(
                     model = model,
-                    onOtworzRozmowe = { wRozmowie = true },
+                    onOtworzRozmowe = { pozycja ->
+                        model.otworzRozmowe(pozycja)
+                        wRozmowie = true
+                    },
                     onNowaRozmowa = { nowaRozmowa = true },
                     onGalaz = { galaz = it },
                 )

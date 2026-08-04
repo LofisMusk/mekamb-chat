@@ -37,6 +37,8 @@ data class StanCzatu(
     val groupId: ByteArray? = null,
     val rozmowca: String? = null,
     val wiadomosci: List<Wiadomosc> = emptyList(),
+    /** Wszystkie rozmowy z dysku, od najświeższej. */
+    val rozmowy: List<PozycjaListy> = emptyList(),
     /** Jak poszła ostatnia wysyłka — pokazywane użytkownikowi. */
     val trybPolaczenia: DeliveryMode? = null,
     /** Sekret TOTP do wpisania w authenticatorze. Tylko przy rejestracji. */
@@ -64,14 +66,32 @@ data class Wiadomosc(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val vault = Vault(application)
+    private val historia = Historia(vault)
     private val api = Api(BuildConfig.API_URL)
     private var messenger: Messenger? = null
 
-    var stan by mutableStateOf(StanCzatu())
+    var stan by mutableStateOf(
+        // Konto na urządzeniu znaczy, że powitanie jest zbędne — pytanie
+        // „załóż czy zaloguj" ma sens tylko przy pierwszym uruchomieniu.
+        if (vault.loadAccount() != null) StanCzatu(ekran = Ekran.LOGOWANIE) else StanCzatu(),
+    )
         private set
 
-    /** Przełącza ekran, czyszcząc komunikaty z poprzedniego. */
     /** Chowa komunikat błędu. Ma znikać, gdy użytkownik go przeczyta. */
+    /**
+     * Otwiera rozmowę z listy.
+     *
+     * Wiadomości idą z dysku, bo w pamięci są tylko te z bieżącej sesji.
+     */
+    fun otworzRozmowe(pozycja: PozycjaListy) {
+        stan = stan.copy(
+            groupId = pozycja.groupId,
+            rozmowca = pozycja.rozmowca,
+            wiadomosci = historia.wczytaj(pozycja.groupId),
+            blad = null,
+        )
+    }
+
     fun wyczyscBlad() {
         stan = stan.copy(blad = null)
     }
@@ -228,7 +248,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { klient ->
                 messenger = klient
                 sesjaLogowania = null
-                stan = stan.copy(zalogowany = true, pracuje = false)
+                stan = stan.copy(
+                    zalogowany = true,
+                    pracuje = false,
+                    // Rozmowy z poprzednich uruchomień. Bez tego lista byłaby
+                    // pusta mimo zapisanej historii.
+                    rozmowy = historia.lista(),
+                )
             }.onFailure { blad ->
                 // Sesja zostaje: kod mógł być po prostu przepisany z pomyłką
                 // albo zdążył wygasnąć, a przepisywanie hasła od nowa byłoby
@@ -244,7 +270,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { klient.startConversation(rozmowca) }
                 .onSuccess { groupId ->
-                    stan = stan.copy(groupId = groupId, rozmowca = rozmowca, blad = null)
+                    stan = stan.copy(
+                        groupId = groupId,
+                        rozmowca = rozmowca,
+                        // Rozmowa mogła już istnieć z poprzedniego uruchomienia.
+                        wiadomosci = historia.wczytaj(groupId),
+                        blad = null,
+                    )
+
+                    // Zapis od razu, jeszcze przed pierwszą wiadomością.
+                    // Bez tego rozmowa nie pojawiłaby się na liście, dopóki
+                    // ktoś czegoś nie napisze — a założona i pusta też jest
+                    // rozmową, do której trzeba móc wrócić.
+                    zapiszHistorie()
                 }
                 .onFailure { blad ->
                     stan = stan.copy(blad = blad.message ?: "nie udało się rozpocząć rozmowy")
@@ -274,6 +312,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         trybPolaczenia = sposob,
                         blad = null,
                     )
+                    zapiszHistorie()
                     onWyslane()
                 }
                 .onFailure { blad ->
@@ -294,13 +333,41 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 trybPolaczenia = DeliveryMode.DIRECT,
             )
 
-            is IncomingEvent.JoinedConversation -> stan.copy(groupId = zdarzenie.groupId)
+            is IncomingEvent.JoinedConversation -> stan.copy(
+                groupId = zdarzenie.groupId,
+                // Dołączenie do rozmowy przez welcome: historia mogła już tu
+                // być, jeśli to nie pierwsze uruchomienie.
+                wiadomosci = historia.wczytaj(zdarzenie.groupId),
+            )
 
             // Zmiany składu grupy i propozycje nie mają odpowiednika w interfejsie,
             // dopóki nie ma widoku listy członków.
             is IncomingEvent.MembershipChanged,
             is IncomingEvent.ProposalQueued,
             -> stan
+        }
+
+        zapiszHistorie()
+    }
+
+    /**
+     * Utrwala rozmowę po każdej zmianie.
+     *
+     * Zapisujemy całość, bo wszystkie rozmowy leżą w jednym zaszyfrowanym
+     * rekordzie — dopisanie jednej wiadomości i tak wymaga odczytania oraz
+     * przepisania go w całości.
+     *
+     * Niepowodzenie zapisu nie może wywrócić odbioru: wiadomość jest już
+     * odszyfrowana i pokazana, a utrata jej kopii na dysku jest mniejszą
+     * szkodą niż zerwanie pętli odbierającej.
+     */
+    private fun zapiszHistorie() {
+        val groupId = stan.groupId ?: return
+        val rozmowca = stan.rozmowca ?: historia.rozmowca(groupId) ?: return
+        runCatching {
+            historia.zapisz(groupId, rozmowca, stan.wiadomosci)
+            // Lista czyta z dysku, więc odświeżamy ją po zapisie, a nie przed.
+            stan = stan.copy(rozmowy = historia.lista())
         }
     }
 

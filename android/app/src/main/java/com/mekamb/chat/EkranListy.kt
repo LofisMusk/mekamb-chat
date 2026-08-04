@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,16 +29,14 @@ import uniffi.mekamb_ffi.DeliveryMode
 /**
  * Lista rozmów — ekran startowy po zalogowaniu.
  *
- * # Czego tu jeszcze nie ma
+ * # Skąd bierze się lista
  *
- * Listy **wielu** rozmów. Klient Androida nie zapisuje historii: wiadomości
- * żyją w pamięci modelu i znikają razem z procesem, więc nie ma z czego
- * odtworzyć wcześniejszych rozmów. Na kliencie webowym już to naprawiono
- * (`web/src/lib/historia.ts`); tutaj czeka to na swoją kolej.
+ * Z historii zapisanej na urządzeniu ([`Historia`]). Rozmowy są uporządkowane
+ * od najświeższej — lista ma pokazywać to, do czego wraca się najczęściej,
+ * a nie porządek alfabetyczny.
  *
- * Do tego czasu lista pokazuje rozmowę bieżącą i mówi wprost, że historia jest
- * tylko na urządzeniu — zamiast udawać pustą skrzynkę, która niczego nie
- * tłumaczy.
+ * Serwer o tej liście nic nie wie i nie ma jak jej odtworzyć. Stan pusty mówi
+ * to wprost, zamiast zostawiać wrażenie, że coś się nie wczytało.
  */
 
 /** Gałęzie dolnej nawigacji. */
@@ -46,7 +46,7 @@ enum class Galaz { ROZMOWY, KONTAKTY, KONTO }
 fun EkranListy(
     model: ChatViewModel,
     modifier: Modifier = Modifier,
-    onOtworzRozmowe: () -> Unit,
+    onOtworzRozmowe: (PozycjaListy) -> Unit,
     onNowaRozmowa: () -> Unit,
     onGalaz: (Galaz) -> Unit,
 ) {
@@ -64,13 +64,20 @@ fun EkranListy(
         }
 
         Column(Modifier.weight(1f).fillMaxWidth()) {
-            if (stan.rozmowca != null) {
-                WierszRozmowy(
-                    nazwa = stan.rozmowca,
-                    ostatnia = stan.wiadomosci.lastOrNull()?.tresc ?: "brak wiadomości",
-                    tryb = stan.trybPolaczenia,
-                    onClick = onOtworzRozmowe,
-                )
+            if (stan.rozmowy.isNotEmpty()) {
+                LazyColumn(Modifier.fillMaxWidth()) {
+                    items(stan.rozmowy, key = { Historia.klucz(it.groupId) }) { pozycja ->
+                        WierszRozmowy(
+                            nazwa = pozycja.rozmowca,
+                            ostatnia = pozycja.ostatnia?.let {
+                                if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
+                            } ?: "brak wiadomości",
+                            czas = pozycja.ostatnia?.czas,
+                            tryb = stan.trybPolaczenia,
+                            onClick = { onOtworzRozmowe(pozycja) },
+                        )
+                    }
+                }
             } else {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(Odstep.xl),
@@ -116,6 +123,7 @@ fun EkranListy(
 private fun WierszRozmowy(
     nazwa: String,
     ostatnia: String,
+    czas: Long?,
     tryb: DeliveryMode?,
     onClick: () -> Unit,
 ) {
@@ -160,8 +168,20 @@ private fun WierszRozmowy(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+
+        czas?.let {
+            Text(
+                GODZINA_LISTY.format(java.util.Date(it)),
+                style = MaterialTheme.typography.labelSmall,
+                color = Neutral600,
+            )
+        }
     }
 }
+
+/** Godzina ostatniej wiadomości na liście. */
+private val GODZINA_LISTY =
+    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
 
 /** Dolny pasek: Rozmowy · Kontakty · Konto. */
 @Composable

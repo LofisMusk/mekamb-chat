@@ -39,6 +39,17 @@ class Vault(context: Context) {
 
     fun loadState(): ByteArray? = odczytaj(KLUCZ_STAN)
 
+    /**
+     * Historia rozmów.
+     *
+     * Chroniona tak samo jak klucze — bo treść rozmów jest równie wrażliwa.
+     * Serwer jej nie ma i mieć nie będzie: utrata wszystkich urządzeń nadal
+     * oznacza utratę rozmów.
+     */
+    fun saveHistory(history: ByteArray) = zapisz(KLUCZ_HISTORIA, history)
+
+    fun loadHistory(): ByteArray? = odczytaj(KLUCZ_HISTORIA)
+
     fun saveAccount(account: Account) {
         prefs.edit()
             .putString(KLUCZ_UZYTKOWNIK, account.username)
@@ -124,6 +135,7 @@ class Vault(context: Context) {
     private fun keyStore(): KeyStore = KeyStore.getInstance(DOSTAWCA).apply { load(null) }
 
     private companion object {
+        const val KLUCZ_HISTORIA = "historia"
         const val PLIK = "mekamb-vault"
         const val DOSTAWCA = "AndroidKeyStore"
         const val ALIAS_KLUCZA = "mekamb-magazyn"

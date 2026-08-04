@@ -13,6 +13,7 @@ import {
   toBytes,
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
+import transfer, { cleanupExpiredTransfers } from "./transfer";
 import { requireAuth } from "./middleware";
 
 export { GroupRelay } from "./group";
@@ -42,6 +43,7 @@ app.use("*", async (c, next) =>
 app.route("/auth", auth);
 app.route("/attachments", attachments);
 app.route("/calls", calls);
+app.route("/transfer", transfer);
 
 /**
  * Limit prób logowania.
@@ -253,10 +255,12 @@ function fromBase64(value: string): ArrayBuffer {
 }
 
 /**
- * Wyzwalacz cron: sprzątanie osieroconych załączników.
+ * Wyzwalacz cron: sprzątanie R2.
  *
  * Skrzynki czyszczą się same alarmami Durable Objects; R2 nie ma takiego
- * mechanizmu, więc potrzebuje osobnego przebiegu.
+ * mechanizmu, więc potrzebuje osobnego przebiegu. Dotyczy to osieroconych
+ * załączników i porzuconych zrzutów przeniesienia — te drugie kasują się przy
+ * odbiorze, więc zostają tylko takie, po które nikt nie przyszedł.
  */
 export default {
   fetch: app.fetch,
@@ -266,6 +270,14 @@ export default {
       cleanupOrphanedAttachments(env).then((usuniete) => {
         if (usuniete > 0) {
           console.log(`sprzątanie R2: usunięto ${usuniete} osieroconych załączników`);
+        }
+      }),
+    );
+
+    ctx.waitUntil(
+      cleanupExpiredTransfers(env).then((usuniete) => {
+        if (usuniete > 0) {
+          console.log(`sprzątanie R2: usunięto ${usuniete} porzuconych zrzutów przeniesienia`);
         }
       }),
     );

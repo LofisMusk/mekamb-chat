@@ -216,3 +216,33 @@ button:disabled { opacity: .5; cursor: default; }
   padding: .35rem 0;
   font-size: .875rem;
 }
+
+/* --- Kody QR i przeniesienie konta --------------------------------------- */
+
+.kod-qr {
+  /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu
+     drugiego urządzenia bez przewijania. */
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  align-self: center;
+  border-radius: 4px;
+}
+
+.sekret-recznie summary {
+  color: var(--przygaszony);
+  font-size: .8rem;
+  cursor: pointer;
+}
+
+.przenies {
+  font-size: .8rem;
+}
+
+.podglad-aparatu {
+  width: 100%;
+  max-width: 20rem;
+  align-self: center;
+  border-radius: 4px;
+  background: #000;
+}

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
+import { KodQr } from "./KodQr";
+import { OdbierzTutaj, PrzeniesStad } from "./Przeniesienie";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
@@ -34,6 +36,7 @@ type Ekran =
   | { nazwa: "rejestracja" }
   | { nazwa: "potwierdzenie"; username: string; totpSecret: string; otpauthUri: string }
   | { nazwa: "logowanie" }
+  | { nazwa: "odbior-przeniesienia" }
   | { nazwa: "drugi-skladnik"; username: string; sesja: LoginSession }
   | { nazwa: "czat"; messenger: Messenger };
 
@@ -87,7 +90,21 @@ export function App() {
             Załóż konto
           </button>
           <button onClick={() => setEkran({ nazwa: "logowanie" })}>Mam już konto</button>
+          <button onClick={() => setEkran({ nazwa: "odbior-przeniesienia" })}>
+            Przenoszę konto z innego urządzenia
+          </button>
         </div>
+      )}
+
+      {ekran.nazwa === "odbior-przeniesienia" && (
+        <OdbierzTutaj
+          // Po odebraniu przeładowujemy stronę zamiast przechodzić dalej
+          // w miejscu: skarbiec zmienił się pod spodem, a wszystko, co go już
+          // wczytało, trzymałoby stan poprzedniego konta.
+          onGotowe={() => location.reload()}
+          onAnuluj={() => setEkran({ nazwa: "powitanie" })}
+          onBlad={zglosBlad}
+        />
       )}
 
       {ekran.nazwa === "rejestracja" && (
@@ -250,11 +267,20 @@ function PotwierdzenieTotp({
       }}
     >
       <h2>Drugi składnik</h2>
-      <p>Dodaj ten sekret w aplikacji authenticator:</p>
-      <code className="sekret">{totpSecret}</code>
+      <p>Zeskanuj kod aplikacją authenticator:</p>
+
+      <KodQr tresc={otpauthUri} opis="Kod QR do dodania konta w aplikacji authenticator" />
+
+      {/* Trzy drogi, bo żadna nie działa wszędzie: kod QR wymaga drugiego
+          urządzenia, odnośnik działa tylko na tym samym telefonie, a sekret
+          przepisany ręcznie działa zawsze i jest ostatnią deską ratunku. */}
       <p className="wskazowka">
-        <a href={otpauthUri}>Otwórz w aplikacji authenticator</a>
+        Na tym samym telefonie: <a href={otpauthUri}>otwórz w aplikacji authenticator</a>.
       </p>
+      <details className="sekret-recznie">
+        <summary>Albo wpisz sekret ręcznie</summary>
+        <code className="sekret">{totpSecret}</code>
+      </details>
       <label>
         Kod z aplikacji
         <input value={kod} onChange={(e) => setKod(e.target.value)} inputMode="numeric" required />
@@ -451,6 +477,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         <span className="tryb" title="Przeglądarka nie potrafi łączyć się bezpośrednio">
           przez serwer
         </span>
+        <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
         <button
           className="wyloguj"
           onClick={async () => {

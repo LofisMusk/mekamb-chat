@@ -1,8 +1,7 @@
-import org.gradle.internal.os.OperatingSystem
-
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // Od AGP 9.0 obsługa Kotlina jest wbudowana — osobna wtyczka
+    // `kotlin.android` jest nie tylko zbędna, ale wręcz odrzucana.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
@@ -44,14 +43,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -120,11 +119,11 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
     description = "Generuje wiązania Kotlina z metadanych zbudowanej biblioteki"
     dependsOn(buildRustLibs)
 
-    // Bindingi czytamy z biblioteki hosta, a nie z artefaktu androidowego:
-    // metadane UniFFI są identyczne, a plik hosta zawsze da się otworzyć
-    // narzędziem działającym na tej maszynie.
-    val rozszerzenie = if (OperatingSystem.current().isMacOsX) "dylib" else "so"
-    val biblioteka = rustRoot.resolve("target/release/libmekamb_ffi.$rozszerzenie")
+    // Metadane czytamy wprost z biblioteki, KTÓRA TRAFIA DO APK. Czytanie
+    // z osobnej kopii dla hosta wymagałoby zbudowania rdzenia drugi raz i
+    // otwierałoby możliwość, że wiązania opisują coś innego niż to, co się
+    // faktycznie uruchomi na telefonie.
+    val biblioteka = jniLibsDir.file("arm64-v8a/libmekamb_ffi.so").asFile
 
     workingDir = rustRoot
     commandLine(
@@ -138,10 +137,13 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
     outputs.dir(generatedKotlin)
 }
 
+// Wygenerowany Kotlin dokładamy do źródeł modułu.
 android.sourceSets.getByName("main") {
-    kotlin.srcDir(generatedKotlin)
+    kotlin.directories.add(generatedKotlin.get().asFile.absolutePath)
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureAll {
-    dependsOn(generateUniffiBindings)
-}
+// Kompilacja Kotlina musi poczekać na wygenerowanie wiązań. Wiążemy się z
+// nazwą zadania, a nie z typem `KotlinCompile`: od AGP 9 obsługa Kotlina jest
+// wbudowana i ten typ nie jest już widoczny w skrypcie budowania.
+tasks.matching { it.name.startsWith("compile") && it.name.contains("Kotlin") }
+    .configureEach { dependsOn(generateUniffiBindings) }

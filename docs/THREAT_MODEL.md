@@ -13,7 +13,7 @@ obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
 | Nazwa pliku i jego typ | Podróżują w kanale MLS. Serwer widzi wyłącznie nieprzezroczysty blob |
 | Lokalizacja i dane aparatu w zdjęciach | Usuwane przed zaszyfrowaniem, domyślnie (EXIF, XMP, IPTC, chunki tekstowe PNG) |
 | Lokalizacja i dane urządzenia w wideo | Usuwane z MP4 i MOV, razem ze ścieżkami metadanych czasowych (trasy GPS z kamer sportowych) |
-| Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS |
+| Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS i weryfikowany przed zestawieniem połączenia |
 | Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
 | Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
 | Hasło | OPAQUE — serwer nie widzi go nawet w pamięci |

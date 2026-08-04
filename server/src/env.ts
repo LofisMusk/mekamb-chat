@@ -26,6 +26,17 @@ export interface Env {
   OPAQUE_SERVER_KEY: string;
 
   /**
+   * Wspólny sekret serwera TURN. Opcjonalny.
+   *
+   * Bez niego rozmowy działają przez samo STUN — nie uda się tylko połączenie
+   * między dwiema stronami za restrykcyjnym NAT-em.
+   */
+  TURN_SHARED_SECRET?: string;
+
+  /** Adres serwera TURN, np. `turn:turn.example.org:3478`. Opcjonalny. */
+  TURN_URL?: string;
+
+  /**
    * Lista źródeł, którym wolno wołać to API, rozdzielona przecinkami.
    *
    * Świadomie lista, a nie `*`. Klient webowy stoi pod innym adresem niż API

@@ -186,3 +186,24 @@ button:disabled { opacity: .5; cursor: default; }
   line-height: 1.7;
   word-spacing: .35em;
 }
+
+.rozmowa { margin-bottom: .75rem; }
+.rozmowa-przyciski { display: flex; gap: .5rem; }
+.rozmowa-przyciski button { flex: 1; font-size: .9rem; }
+.rozmowa-pasek {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  justify-content: space-between;
+  background: var(--karta);
+  border-radius: .5rem;
+  padding: .5rem .75rem;
+  font-size: .875rem;
+}
+.rozlacz { background: #4a2330; color: #ffb0b0; }
+.rozmowa-wideo {
+  width: 100%;
+  border-radius: .5rem;
+  margin-top: .5rem;
+  background: #000;
+}

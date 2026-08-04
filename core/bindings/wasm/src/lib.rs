@@ -30,7 +30,7 @@ pub fn start() {
 /// Wynik przetworzenia wiadomości przychodzącej, w postaci strawnej dla JS.
 #[wasm_bindgen(getter_with_clone)]
 pub struct IncomingMessage {
-    /// `"message"`, `"membership-changed"` albo `"proposal-queued"`.
+    /// `"message"`, `"call-signal"`, `"membership-changed"` albo `"proposal-queued"`.
     pub kind: String,
     /// Uwierzytelniony nadawca — pusty dla zdarzeń niebędących wiadomością.
     pub sender_user_id: String,
@@ -42,6 +42,22 @@ pub struct IncomingMessage {
 
     /// Wypełnione, gdy wiadomość niesie załącznik zamiast tekstu.
     pub attachment: Option<AttachmentInfo>,
+
+    /// Wypełnione, gdy wiadomość niesie sygnalizację rozmowy.
+    pub call: Option<CallSignalInfo>,
+}
+
+/// Sygnalizacja rozmowy odebrana kanałem MLS.
+#[derive(Clone)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct CallSignalInfo {
+    /// `"offer"`, `"answer"`, `"ice"` albo `"hangup"`.
+    pub kind: String,
+    pub call_id: Vec<u8>,
+    pub payload: String,
+    /// Odcisk DTLS **uwierzytelniony przez MLS**. Przed zestawieniem
+    /// połączenia trzeba porównać go z tym w SDP.
+    pub dtls_fingerprint: String,
 }
 
 /// Metadane załącznika odebrane z kanału MLS.
@@ -285,6 +301,45 @@ impl MekambClient {
             .map_err(to_js)
     }
 
+    /// Szyfruje sygnalizację rozmowy i pakuje ją do wysłania.
+    ///
+    /// `dtls_fingerprint` podróżuje **wewnątrz** MLS, niezależnie od SDP.
+    /// Odbiorca porówna jedno z drugim przed zestawieniem połączenia.
+    #[wasm_bindgen(js_name = sendCallSignal)]
+    pub fn send_call_signal(
+        &mut self,
+        group_id: &[u8],
+        kind: &str,
+        call_id: &[u8],
+        payload: &str,
+        dtls_fingerprint: &str,
+        sent_at_ms: f64,
+    ) -> Result<Vec<u8>, JsError> {
+        let rodzaj = match kind {
+            "offer" => mekamb_core::framing::CallSignalKind::Offer,
+            "answer" => mekamb_core::framing::CallSignalKind::Answer,
+            "ice" => mekamb_core::framing::CallSignalKind::IceCandidate,
+            "hangup" => mekamb_core::framing::CallSignalKind::Hangup,
+            inne => return Err(JsError::new(&format!("nieznany rodzaj sygnału: {inne}"))),
+        };
+
+        let message = mekamb_core::framing::ChatMessage::call_signal(
+            mekamb_core::framing::CallSignalBody {
+                kind: rodzaj as i32,
+                call_id: call_id.to_vec(),
+                payload: payload.to_string(),
+                dtls_fingerprint: dtls_fingerprint.to_string(),
+            },
+            sent_at_ms as u64,
+        );
+
+        let Self { identity, provider, conversations } = self;
+
+        pobierz_mut(conversations, group_id)?
+            .send(provider, identity, &message)
+            .map_err(to_js)
+    }
+
     /// Przetwarza wiadomość odebraną z sieci.
     #[wasm_bindgen(js_name = receive)]
     pub fn receive(&mut self, group_id: &[u8], bytes: &[u8]) -> Result<IncomingMessage, JsError> {
@@ -310,6 +365,21 @@ impl MekambClient {
                 text: message.as_text().unwrap_or_default().to_string(),
                 sent_at_ms: message.sent_at_ms as f64,
                 message_id: message.message_id.clone(),
+                call: message.as_call_signal().map(|c| CallSignalInfo {
+                    kind: match mekamb_core::framing::CallSignalKind::try_from(c.kind) {
+                        Ok(mekamb_core::framing::CallSignalKind::Offer) => "offer",
+                        Ok(mekamb_core::framing::CallSignalKind::Answer) => "answer",
+                        Ok(mekamb_core::framing::CallSignalKind::IceCandidate) => "ice",
+                        Ok(mekamb_core::framing::CallSignalKind::Hangup) => "hangup",
+                        // Nierozpoznany rodzaj z sieci — interfejs ma go zignorować,
+                        // a nie zgadywać, co nadawca miał na myśli.
+                        _ => "nieznany",
+                    }
+                    .into(),
+                    call_id: c.call_id.clone(),
+                    payload: c.payload.clone(),
+                    dtls_fingerprint: c.dtls_fingerprint.clone(),
+                }),
                 attachment: message.as_attachment().map(|a| AttachmentInfo {
                     blob_id: a.blob_id.clone(),
                     key: a.decryption_key.clone(),
@@ -382,6 +452,7 @@ fn zdarzenie(kind: &str) -> IncomingMessage {
         sent_at_ms: 0.0,
         message_id: Vec::new(),
         attachment: None,
+        call: None,
     }
 }
 
@@ -593,4 +664,36 @@ pub fn opaque_login_finish(
 
 fn opaque_to_js(error: mekamb_opaque::Error) -> JsError {
     JsError::new(&error.to_string())
+}
+
+/// Sprawdza, czy SDP niesie wyłącznie oczekiwany odcisk DTLS.
+///
+/// `expected` pochodzi z kanału MLS, czyli ze źródła, którego kontrolujący
+/// sygnalizację nie potrafi podrobić. Zwraca błąd przy każdej niezgodności —
+/// **wywołujący ma wtedy zerwać połączenie, a nie pytać użytkownika.**
+/// Pytanie w tym miejscu przerzucałoby decyzję kryptograficzną na osobę,
+/// która nie ma jak jej ocenić.
+#[wasm_bindgen(js_name = verifySdpFingerprint)]
+pub fn verify_sdp_fingerprint(sdp: &str, expected: &str) -> Result<(), JsError> {
+    mekamb_core::verify_sdp_fingerprint(sdp, expected).map_err(to_js)
+}
+
+/// Wyciąga odcisk DTLS z własnego SDP, żeby wysłać go kanałem MLS.
+///
+/// Zwraca błąd, gdy SDP niesie więcej niż jeden różny odcisk — sytuacja,
+/// której w naszym własnym SDP nie powinno być, a która u odbiorcy i tak
+/// zostałaby odrzucona.
+#[wasm_bindgen(js_name = ownSdpFingerprint)]
+pub fn own_sdp_fingerprint(sdp: &str) -> Result<String, JsError> {
+    let odciski = mekamb_core::extract_fingerprints(sdp);
+
+    let pierwszy = odciski
+        .first()
+        .ok_or_else(|| JsError::new("własne SDP nie zawiera odcisku DTLS"))?;
+
+    if odciski.iter().any(|o| o != pierwszy) {
+        return Err(JsError::new("własne SDP zawiera niespójne odciski DTLS"));
+    }
+
+    Ok(pierwszy.clone())
 }

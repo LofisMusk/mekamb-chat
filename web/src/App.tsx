@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
 import type { LoginSession } from "./lib/auth";
+import { Call } from "./lib/calls";
+import type { CallState } from "./lib/calls";
 import { Messenger } from "./lib/messenger";
 import type { ReceivedAttachment, ReceivedMessage } from "./lib/messenger";
 import {
@@ -368,6 +370,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [tresc, setTresc] = useState("");
   const [rozmowca, setRozmowca] = useState("");
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
+  const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
   const gniazdo = useRef<WebSocket | null>(null);
 
   const dodaj = useCallback((odebrana: ReceivedMessage) => {
@@ -403,7 +406,12 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         // po odświeżeniu strony — czyli gubiłoby wiadomość bezpowrotnie.
         socket.send(`ack:${id}`);
 
-        if (odebrana) {
+        if (odebrana?.call) {
+          // Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia —
+          // trafia do komponentu rozmowy.
+          setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
+          if (!groupId) setGroupId(odebrana.groupId);
+        } else if (odebrana) {
           dodaj(odebrana);
           if (!groupId) setGroupId(odebrana.groupId);
         }
@@ -470,6 +478,15 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
       </ol>
 
       {groupId && <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />}
+
+      {groupId && (
+        <Rozmowa
+          messenger={messenger}
+          groupId={groupId}
+          sygnal={sygnalRozmowy}
+          onBlad={onBlad}
+        />
+      )}
 
       {groupId && (
         <label className="dolacz-plik">
@@ -753,6 +770,154 @@ function SafetyNumber({
           </p>
         </>
       )}
+    </section>
+  );
+}
+
+/** Sygnalizacja odebrana kanałem MLS, przekazana do komponentu rozmowy. */
+interface SygnalRozmowy {
+  kind: string;
+  callId: Uint8Array;
+  payload: string;
+  dtlsFingerprint: string;
+  nadawca: string;
+}
+
+/**
+ * Rozmowa audio i wideo.
+ *
+ * # Co widzi użytkownik i dlaczego
+ *
+ * Interfejs pokazuje **drogę połączenia**: „bezpośrednio" znaczy, że media idą
+ * wprost do rozmówcy — i że rozmówca zna wtedy Twój adres IP. „Przez
+ * przekaźnik" znaczy, że adres widzi serwer TURN zamiast rozmówcy. Jedno albo
+ * drugie; milczenie sugerowałoby, że nie ujawnia się nic.
+ */
+function Rozmowa({
+  messenger,
+  groupId,
+  sygnal,
+  onBlad,
+}: {
+  messenger: Messenger;
+  groupId: Uint8Array;
+  sygnal: SygnalRozmowy | null;
+  onBlad: (e: unknown) => void;
+}) {
+  const [call, setCall] = useState<Call | null>(null);
+  const [stan, setStan] = useState<CallState | null>(null);
+  const [przychodzace, setPrzychodzace] = useState<SygnalRozmowy | null>(null);
+  const wideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const pokazStrumien = useCallback((stream: MediaStream) => {
+    if (wideoRef.current) wideoRef.current.srcObject = stream;
+  }, []);
+
+  useEffect(() => {
+    if (!sygnal) return;
+
+    if (sygnal.kind === "offer" && !call) {
+      setPrzychodzace(sygnal);
+      return;
+    }
+
+    void call?.przyjmijSygnal(sygnal.kind, sygnal.payload, sygnal.dtlsFingerprint).catch(onBlad);
+  }, [sygnal, call, onBlad]);
+
+  const zadzwon = async (wideo: boolean) => {
+    try {
+      setCall(
+        await Call.zadzwon(messenger, groupId, messenger.accessToken, wideo, setStan, pokazStrumien),
+      );
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  const odbierz = async (wideo: boolean) => {
+    if (!przychodzace) return;
+
+    try {
+      const nowa = await Call.odbierz(
+        messenger,
+        groupId,
+        messenger.accessToken,
+        przychodzace.callId,
+        przychodzace.payload,
+        przychodzace.dtlsFingerprint,
+        wideo,
+        setStan,
+        pokazStrumien,
+      );
+      setCall(nowa);
+      setPrzychodzace(null);
+    } catch (err) {
+      // Najczęstsza przyczyna: odcisk certyfikatu nie zgadza się z tym,
+      // który przyszedł zaszyfrowanym kanałem.
+      setPrzychodzace(null);
+      onBlad(err);
+    }
+  };
+
+  const rozlacz = () => {
+    call?.zakoncz(true);
+    setCall(null);
+    setStan(null);
+  };
+
+  if (przychodzace) {
+    return (
+      <section className="rozmowa">
+        <strong>Połączenie przychodzące od {przychodzace.nadawca}</strong>
+        <div className="rozmowa-przyciski">
+          <button className="glowny" onClick={() => void odbierz(false)}>
+            Odbierz
+          </button>
+          <button onClick={() => void odbierz(true)}>Odbierz z obrazem</button>
+          <button className="rozlacz" onClick={() => setPrzychodzace(null)}>
+            Odrzuć
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (!call) {
+    return (
+      <section className="rozmowa">
+        <div className="rozmowa-przyciski">
+          <button onClick={() => void zadzwon(false)}>Zadzwoń</button>
+          <button onClick={() => void zadzwon(true)}>Wideo</button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rozmowa">
+      <div className="rozmowa-pasek">
+        <span>
+          {stan?.faza === "dzwoni" && "Dzwonię…"}
+          {stan?.faza === "laczenie" && "Łączę…"}
+          {stan?.faza === "trwa" && "Rozmowa trwa"}
+          {stan?.faza === "zakonczona" && "Zakończona"}
+        </span>
+
+        {stan?.faza === "trwa" && (
+          <span className="tryb" title="Bezpośrednio: rozmówca zna Twój adres IP. Przez przekaźnik: zna go serwer TURN.">
+            {stan.droga === "direct" && "bezpośrednio"}
+            {stan.droga === "relay" && "przez przekaźnik"}
+            {stan.droga === "unknown" && "ustalam drogę"}
+          </span>
+        )}
+
+        <button className="rozlacz" onClick={rozlacz}>
+          Rozłącz
+        </button>
+      </div>
+
+      {call.wideo && <video ref={wideoRef} autoPlay playsInline className="rozmowa-wideo" />}
+      {!call.wideo && <audio ref={wideoRef as never} autoPlay />}
     </section>
   );
 }

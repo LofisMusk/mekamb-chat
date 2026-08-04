@@ -283,9 +283,37 @@ Sygnalizacja (`CallSignalBody`) idzie **kanałem MLS**. Dzięki temu odcisk DTLS
 jest uwierzytelniony kryptograficznie: podmiot kontrolujący warstwę transportową
 nie podstawi się w środek połączenia, bo nie sfałszuje wiadomości MLS.
 
+### Weryfikacja odcisku
+
+```
+1. Dzwoniący tworzy ofertę SDP
+2. Wyciąga z niej własny odcisk DTLS
+3. Wysyła SDP i odcisk RAZEM, wewnątrz wiadomości MLS
+4. Odbiorca porównuje odcisk z SDP z tym z kanału MLS
+5a. Zgodne     → zestawia połączenie
+5b. Niezgodne  → zrywa, BEZ pytania użytkownika
+```
+
+Trzy szczegóły, które decydują o skuteczności:
+
+- **Sprawdzamy wszystkie odciski w SDP, nie pierwszy.** SDP może nieść odcisk
+  na poziomie sesji i osobne dla każdej ścieżki mediów. Wystarczyłoby dopisać
+  drugą ścieżkę z własnym odciskiem, gdyby sprawdzać tylko pierwszy.
+- **Weryfikacja poprzedza ustawienie opisu zdalnego.** Odwrotna kolejność
+  tworzyłaby — choćby na moment — połączenie z niezweryfikowaną stroną.
+- **Tylko SHA-256.** Lista dozwolonych z jedną pozycją nie pozwala zejść
+  na algorytm, dla którego kolizję da się znaleźć.
+
 **Niezgodność odcisku DTLS = natychmiastowe zerwanie połączenia, bez pytania
 użytkownika.** Pytanie w tym miejscu oznaczałoby przerzucenie decyzji
-kryptograficznej na osobę, która nie ma jak jej ocenić.
+kryptograficznej na osobę, która nie ma jak jej ocenić — a odpowiedź „tak"
+byłaby najczęstsza.
+
+### Adres IP a droga połączenia
+
+Połączenie bezpośrednie ujawnia adres IP rozmówcy. Przy przejściu przez TURN
+adres widzi przekaźnik zamiast rozmówcy. Interfejs pokazuje, która droga jest
+w użyciu — milczenie sugerowałoby, że nie ujawnia się nic.
 
 - STUN: `stun.cloudflare.com`
 - TURN: Cloudflare Realtime, poświadczenia krótkożyjące wydawane przez Worker

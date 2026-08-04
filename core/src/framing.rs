@@ -124,6 +124,29 @@ impl ChatMessage {
         }
     }
 
+    /// Buduje wiadomość z sygnalizacją rozmowy.
+    ///
+    /// Ładunek idzie **wewnątrz** MLS, więc odcisk DTLS jest uwierzytelniony
+    /// kryptograficznie — kontrolujący sygnalizację nie podstawi się w środek
+    /// połączenia, bo nie sfałszuje wiadomości MLS.
+    pub fn call_signal(body: CallSignalBody, sent_at_ms: u64) -> Self {
+        Self {
+            protocol_version: PAYLOAD_VERSION,
+            message_id: new_message_id().to_vec(),
+            sent_at_ms,
+            body: Some(Body::CallSignal(body)),
+            reply_to: None,
+        }
+    }
+
+    /// Zwraca sygnalizację rozmowy, jeśli wiadomość ją niesie.
+    pub fn as_call_signal(&self) -> Option<&CallSignalBody> {
+        match &self.body {
+            Some(Body::CallSignal(c)) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Zwraca metadane załącznika, jeśli wiadomość go niesie.
     pub fn as_attachment(&self) -> Option<&AttachmentBody> {
         match &self.body {

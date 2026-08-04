@@ -41,6 +41,14 @@ export interface ReceivedAttachment {
   fileName?: string;
 }
 
+export interface ReceivedCallSignal {
+  kind: string;
+  callId: Uint8Array;
+  payload: string;
+  /** Odcisk DTLS **uwierzytelniony przez MLS**. */
+  dtlsFingerprint: string;
+}
+
 export interface ReceivedMessage {
   groupId: Uint8Array;
   senderUserId: string;
@@ -50,6 +58,8 @@ export interface ReceivedMessage {
   messageId: Uint8Array;
   /** Obecne, gdy wiadomość niesie plik zamiast tekstu. */
   attachment?: ReceivedAttachment;
+  /** Obecne, gdy wiadomość niesie sygnalizację rozmowy. */
+  call?: ReceivedCallSignal;
 }
 
 export class Messenger {
@@ -58,6 +68,11 @@ export class Messenger {
     readonly account: Account,
     private readonly token: string,
   ) {}
+
+  /** Token dostępowy — potrzebny warstwie rozmów do pobrania adresów TURN. */
+  get accessToken(): string {
+    return this.token;
+  }
 
   /** Tworzy nową tożsamość urządzenia i zapisuje ją w magazynie. */
   static async create(account: Account, token: string): Promise<Messenger> {
@@ -350,6 +365,14 @@ export class Messenger {
       text: incoming.text,
       sentAtMs: incoming.sent_at_ms,
       messageId: incoming.message_id,
+      call: incoming.call
+        ? {
+            kind: incoming.call.kind,
+            callId: incoming.call.call_id,
+            payload: incoming.call.payload,
+            dtlsFingerprint: incoming.call.dtls_fingerprint,
+          }
+        : undefined,
       attachment: incoming.attachment
         ? {
             blobId: incoming.attachment.blob_id,
@@ -366,6 +389,32 @@ export class Messenger {
   /** Identyfikatory `user_id:device_id` członków rozmowy. */
   members(groupId: Uint8Array): string[] {
     return this.client.members(groupId);
+  }
+
+  /**
+   * Wysyła sygnalizację rozmowy kanałem MLS.
+   *
+   * Odcisk DTLS idzie tędy, a nie w SDP — dzięki temu jest uwierzytelniony
+   * kryptograficznie i kontrolujący sygnalizację nie podstawi się w środek.
+   */
+  async sendCallSignal(
+    groupId: Uint8Array,
+    kind: "offer" | "answer" | "ice" | "hangup",
+    callId: Uint8Array,
+    payload: string,
+    dtlsFingerprint: string,
+  ): Promise<void> {
+    const ciphertext = this.client.sendCallSignal(
+      groupId,
+      kind,
+      callId,
+      payload,
+      dtlsFingerprint,
+      Date.now(),
+    );
+
+    await this.persist();
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
   }
 
   /**

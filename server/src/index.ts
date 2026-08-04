@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 
 import attachments, { cleanupOrphanedAttachments } from "./attachments";
 import auth from "./auth";
+import calls from "./calls";
 import {
   availableKeyPackages,
   consumeKeyPackage,
@@ -40,6 +41,7 @@ app.use("*", async (c, next) =>
 
 app.route("/auth", auth);
 app.route("/attachments", attachments);
+app.route("/calls", calls);
 
 /**
  * Limit prób logowania.

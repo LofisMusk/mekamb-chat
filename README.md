@@ -103,7 +103,7 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
 - [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
 - [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
-- [x] **Faza 5** — Android: bindingi UniFFI, transport P2P, UI, logowanie, **APK się buduje**
+- [~] **Faza 5** — Android: APK się buduje i loguje, ale transport iroh przerywa proces ([szczegóły](android/README.md))
 - [x] **Faza 6** — załączniki: zdjęcia i wideo szyfrowane end-to-end
 - [x] **Faza 7** — grupy wieloosobowe: dodawanie członków, rozsyłanie do grupy
 - [~] **Faza 8** — safety numbers (zostaje linkowanie urządzeń przez QR)

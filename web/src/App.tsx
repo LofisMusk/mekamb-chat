@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
+import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
 import type { CallState } from "./lib/calls";
@@ -35,14 +36,6 @@ type Ekran =
   | { nazwa: "logowanie" }
   | { nazwa: "drugi-skladnik"; username: string; sesja: LoginSession }
   | { nazwa: "czat"; messenger: Messenger };
-
-/**
- * Ile razy próbujemy przetworzyć kopertę, zanim uznamy ją za martwą.
- *
- * Więcej niż jeden raz, bo koperta może wyprzedzić commit, który jest jej
- * potrzebny — wtedy druga próba po nadejściu commitu się powiedzie.
- */
-const PROB_PRZED_ODRZUCENIEM = 3;
 
 interface Wiadomosc {
   id: string;
@@ -387,7 +380,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
    * Bez licznika koperta, której nigdy nie da się przetworzyć — powtórzona
    * albo spreparowana — wracałaby w nieskończoność.
    */
-  const nieudane = useRef(new Map<string, number>());
+  const nieudane = useRef<LicznikProb>(new Map());
 
   const dodaj = useCallback((odebrana: ReceivedMessage) => {
     setWiadomosci((poprzednie) => [
@@ -431,7 +424,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           dodaj(odebrana);
           if (!groupId) setGroupId(odebrana.groupId);
         }
-        nieudane.current.delete(String(id));
+        poSukcesie(nieudane.current, String(id));
       } catch (err) {
         // Nieudane przetworzenie koperty jest sytuacją SPODZIEWANĄ: powtórzenie
         // ze skrzynki, pakiet z nieaktualnej epoki, dane spreparowane przez
@@ -443,13 +436,8 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         // nieudanych próbach uznajemy ją za martwą i potwierdzamy, żeby nie
         // krążyła w nieskończoność — ale dopiero po kilku, bo koperta, która
         // wyprzedziła swój commit, może przejść za drugim razem.
-        const klucz = String(id);
-        const prob = (nieudane.current.get(klucz) ?? 0) + 1;
-        nieudane.current.set(klucz, prob);
-
-        if (prob >= PROB_PRZED_ODRZUCENIEM) {
+        if (poNiepowodzeniu(nieudane.current, String(id)).rodzaj === "odrzuc") {
           socket.send(`ack:${id}`);
-          nieudane.current.delete(klucz);
         }
       }
     };

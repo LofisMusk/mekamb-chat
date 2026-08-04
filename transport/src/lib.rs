@@ -227,7 +227,11 @@ impl Transport {
         }
 
         for adres in &peer.addresses {
-            if self.wyslij_pod_adres(*adres, &peer.public_key, &bajty).await.is_ok() {
+            if self
+                .wyslij_pod_adres(*adres, &peer.public_key, &bajty)
+                .await
+                .is_ok()
+            {
                 return Ok(());
             }
         }
@@ -283,13 +287,17 @@ impl Transport {
         let odpowiedz = self.przebij(adres, &pierwsza).await?;
 
         if sesja.read_handshake(&odpowiedz)?.is_some() {
-            return Err(Error::Transport("nieoczekiwany przebieg handshake'u".into()));
+            return Err(Error::Transport(
+                "nieoczekiwany przebieg handshake'u".into(),
+            ));
         }
 
         // Noise potwierdza, że rozmówca zna odpowiedni klucz prywatny — ale to
         // my musimy sprawdzić, czy to TEN klucz, którego oczekiwaliśmy.
         if sesja.peer_public().as_deref() != Some(klucz_rozmowcy) {
-            return Err(Error::Transport("rozmówca ma inny klucz niż w katalogu".into()));
+            return Err(Error::Transport(
+                "rozmówca ma inny klucz niż w katalogu".into(),
+            ));
         }
 
         let szyfrogram = sesja.seal(ladunek)?;

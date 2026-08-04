@@ -76,7 +76,9 @@ pub async fn discover_public_address(socket: &UdpSocket, server: SocketAddr) -> 
             Err(_) => continue,
 
             Ok(Err(e)) => {
-                return Err(Error::Transport(format!("błąd odbioru odpowiedzi STUN: {e}")));
+                return Err(Error::Transport(format!(
+                    "błąd odbioru odpowiedzi STUN: {e}"
+                )));
             }
 
             Ok(Ok((ile, from))) => {
@@ -235,8 +237,15 @@ mod tests {
         let zadanie = build_request(&id);
 
         assert_eq!(zadanie.len(), 20);
-        assert_eq!(u16::from_be_bytes([zadanie[0], zadanie[1]]), BINDING_REQUEST);
-        assert_eq!(u16::from_be_bytes([zadanie[2], zadanie[3]]), 0, "brak atrybutów");
+        assert_eq!(
+            u16::from_be_bytes([zadanie[0], zadanie[1]]),
+            BINDING_REQUEST
+        );
+        assert_eq!(
+            u16::from_be_bytes([zadanie[2], zadanie[3]]),
+            0,
+            "brak atrybutów"
+        );
         assert_eq!(&zadanie[8..20], &id);
     }
 

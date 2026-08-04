@@ -46,7 +46,7 @@ fn top_level_dozwolony(typ: &[u8; 4]) -> bool {
         b"ftyp" | b"styp"          // identyfikacja formatu
             | b"moov" | b"mdat"    // struktura i dane obrazu
             | b"moof" | b"mfra" | b"sidx" | b"ssix"  // fragmentacja
-            | b"pdin"              // wskazówki do pobierania progresywnego
+            | b"pdin" // wskazówki do pobierania progresywnego
     )
 }
 
@@ -69,7 +69,9 @@ fn trak_child_dozwolony(typ: &[u8; 4]) -> bool {
 /// o identycznym rozmiarze.
 pub fn strip_video_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if bytes.len() < BOX_HEADER_LEN {
-        return Err(Error::InvalidInput("plik jest za krótki na kontener MP4".into()));
+        return Err(Error::InvalidInput(
+            "plik jest za krótki na kontener MP4".into(),
+        ));
     }
 
     // Pierwszy boks musi być rozpoznawalny, inaczej to nie jest MP4.
@@ -131,8 +133,20 @@ fn wyczysc_poziom(
         }
 
         match &typ {
-            b"moov" => wyczysc_poziom(buf, offset_zawartosci, koniec_boksu, Poziom::Moov, depth + 1)?,
-            b"trak" => wyczysc_poziom(buf, offset_zawartosci, koniec_boksu, Poziom::Trak, depth + 1)?,
+            b"moov" => wyczysc_poziom(
+                buf,
+                offset_zawartosci,
+                koniec_boksu,
+                Poziom::Moov,
+                depth + 1,
+            )?,
+            b"trak" => wyczysc_poziom(
+                buf,
+                offset_zawartosci,
+                koniec_boksu,
+                Poziom::Trak,
+                depth + 1,
+            )?,
             _ => {}
         }
 
@@ -238,7 +252,9 @@ fn przeczytaj_naglowek(buf: &[u8], i: usize, end: usize) -> Result<(usize, [u8; 
     };
 
     if i + rozmiar > end || offset_zawartosci > i + rozmiar {
-        return Err(Error::InvalidInput("boks wykracza poza swój kontener".into()));
+        return Err(Error::InvalidInput(
+            "boks wykracza poza swój kontener".into(),
+        ));
     }
 
     Ok((rozmiar, typ, offset_zawartosci))
@@ -280,12 +296,21 @@ mod tests {
     #[test]
     fn gps_z_udta_znika() {
         let oryginal = nagranie_z_gps();
-        assert!(zawiera(&oryginal, b"+52.2297+021.0122"), "test bez sensu bez GPS-u");
+        assert!(
+            zawiera(&oryginal, b"+52.2297+021.0122"),
+            "test bez sensu bez GPS-u"
+        );
 
         let oczyszczony = strip_video_metadata(&oryginal).unwrap();
 
-        assert!(!zawiera(&oczyszczony, b"+52.2297+021.0122"), "współrzędne przetrwały");
-        assert!(!zawiera(&oczyszczony, b"Apple iPhone"), "model urządzenia przetrwał");
+        assert!(
+            !zawiera(&oczyszczony, b"+52.2297+021.0122"),
+            "współrzędne przetrwały"
+        );
+        assert!(
+            !zawiera(&oczyszczony, b"Apple iPhone"),
+            "model urządzenia przetrwał"
+        );
     }
 
     /// Sedno: rozmiar pliku i offsety muszą zostać nietknięte.
@@ -305,14 +330,21 @@ mod tests {
                 .position(|okno| okno == b"mdat")
                 .expect("brak mdat")
         };
-        assert_eq!(pozycja(&oczyszczony), pozycja(&oryginal), "mdat się przesunął");
+        assert_eq!(
+            pozycja(&oczyszczony),
+            pozycja(&oryginal),
+            "mdat się przesunął"
+        );
     }
 
     #[test]
     fn obraz_i_struktura_przezywaja_czyszczenie() {
         let oczyszczony = strip_video_metadata(&nagranie_z_gps()).unwrap();
 
-        assert!(zawiera(&oczyszczony, b"UDAWANE-KLATKI-WIDEO"), "utracono dane obrazu");
+        assert!(
+            zawiera(&oczyszczony, b"UDAWANE-KLATKI-WIDEO"),
+            "utracono dane obrazu"
+        );
         assert!(zawiera(&oczyszczony, b"ftyp"), "utracono nagłówek formatu");
         assert!(zawiera(&oczyszczony, b"moov"), "utracono strukturę");
         assert!(zawiera(&oczyszczony, b"mvhd"), "utracono nagłówek filmu");
@@ -333,7 +365,9 @@ mod tests {
         // Za nagłówkiem `free` muszą być same zera.
         let po_naglowku = pozycja + 4;
         assert!(
-            oczyszczony[po_naglowku..po_naglowku + 16].iter().all(|&b| b == 0),
+            oczyszczony[po_naglowku..po_naglowku + 16]
+                .iter()
+                .all(|&b| b == 0),
             "zawartość usuniętego boksu nie została wyzerowana"
         );
     }
@@ -363,7 +397,10 @@ mod tests {
         let mdia_wideo = boks(b"mdia", &hdlr_wideo);
         let trak_wideo = boks(b"trak", &[boks(b"tkhd", &[0u8; 84]), mdia_wideo].concat());
 
-        let moov = boks(b"moov", &[boks(b"mvhd", &[0u8; 100]), trak_wideo, trak_meta].concat());
+        let moov = boks(
+            b"moov",
+            &[boks(b"mvhd", &[0u8; 100]), trak_wideo, trak_meta].concat(),
+        );
 
         let mut plik = boks(b"ftyp", b"isom");
         plik.extend_from_slice(&moov);
@@ -371,7 +408,10 @@ mod tests {
 
         let oczyszczony = strip_video_metadata(&plik).unwrap();
 
-        assert!(!zawiera(&oczyszczony, b"GPS"), "ścieżka z metadanymi przetrwała");
+        assert!(
+            !zawiera(&oczyszczony, b"GPS"),
+            "ścieżka z metadanymi przetrwała"
+        );
         // Ścieżka obrazu musi zostać — inaczej nie ma czego odtwarzać.
         assert!(zawiera(&oczyszczony, b"vide"), "usunięto ścieżkę obrazu");
         assert!(zawiera(&oczyszczony, b"obraz"), "usunięto ścieżkę obrazu");
@@ -398,13 +438,29 @@ mod tests {
             vec![0; 4],
             boks(b"ftyp", b"isom"),
             // Rozmiar 0 w środku pliku.
-            [boks(b"ftyp", b"isom"), vec![0, 0, 0, 0, b'm', b'o', b'o', b'v']].concat(),
+            [
+                boks(b"ftyp", b"isom"),
+                vec![0, 0, 0, 0, b'm', b'o', b'o', b'v'],
+            ]
+            .concat(),
             // Rozmiar poniżej nagłówka — zapętliłby naiwny parser.
-            [boks(b"ftyp", b"isom"), vec![0, 0, 0, 3, b'm', b'o', b'o', b'v']].concat(),
+            [
+                boks(b"ftyp", b"isom"),
+                vec![0, 0, 0, 3, b'm', b'o', b'o', b'v'],
+            ]
+            .concat(),
             // Rozmiar większy niż plik.
-            [boks(b"ftyp", b"isom"), vec![0xFF, 0xFF, 0xFF, 0xFF, b'm', b'o', b'o', b'v']].concat(),
+            [
+                boks(b"ftyp", b"isom"),
+                vec![0xFF, 0xFF, 0xFF, 0xFF, b'm', b'o', b'o', b'v'],
+            ]
+            .concat(),
             // Zapowiedziany rozmiar 64-bitowy bez danych.
-            [boks(b"ftyp", b"isom"), vec![0, 0, 0, 1, b'm', b'o', b'o', b'v']].concat(),
+            [
+                boks(b"ftyp", b"isom"),
+                vec![0, 0, 0, 1, b'm', b'o', b'o', b'v'],
+            ]
+            .concat(),
             // Głęboko zagnieżdżone moov.
             (0..40).fold(boks(b"ftyp", b"isom"), |acc, _| boks(b"moov", &acc)),
         ];

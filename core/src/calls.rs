@@ -47,7 +47,11 @@ pub fn extract_fingerprints(sdp: &str) -> Vec<String> {
                 // Inny algorytm traktujemy jak odcisk, którego nie znamy —
                 // trafia na listę w postaci, która nigdy nie zgodzi się
                 // z oczekiwaną, więc weryfikacja odpadnie.
-                Some(format!("{}:{}", algorytm.to_ascii_lowercase(), normalizuj(wartosc)))
+                Some(format!(
+                    "{}:{}",
+                    algorytm.to_ascii_lowercase(),
+                    normalizuj(wartosc)
+                ))
             }
         })
         .collect()
@@ -204,7 +208,13 @@ AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
     /// SDP przychodzi z sieci, więc bywa spreparowane.
     #[test]
     fn smieciowe_sdp_nie_powoduje_paniki() {
-        for smiec in ["", "a=fingerprint:", "a=fingerprint:sha-256", "\0\0\0", &"x".repeat(10_000)] {
+        for smiec in [
+            "",
+            "a=fingerprint:",
+            "a=fingerprint:sha-256",
+            "\0\0\0",
+            &"x".repeat(10_000),
+        ] {
             let _ = verify_sdp_fingerprint(smiec, ODCISK);
             let _ = extract_fingerprints(smiec);
         }

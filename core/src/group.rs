@@ -23,8 +23,7 @@
 use openmls::prelude::{
     Ciphersuite, GroupId, KeyPackage, KeyPackageBundle, KeyPackageIn, LeafNodeIndex, MlsGroup,
     MlsGroupCreateConfig, MlsGroupJoinConfig, MlsMessageBodyIn, MlsMessageIn, MlsMessageOut,
-    OpenMlsProvider as _, ProcessedMessageContent, ProtocolMessage, ProtocolVersion,
-    StagedWelcome,
+    OpenMlsProvider as _, ProcessedMessageContent, ProtocolMessage, ProtocolVersion, StagedWelcome,
     tls_codec::{Deserialize as _, Serialize as _},
 };
 use openmls_basic_credential::SignatureKeyPair;

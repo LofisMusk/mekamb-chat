@@ -8,5 +8,8 @@ fn main() {
     use base64::Engine;
 
     let key = mekamb_opaque::ServerKey::generate();
-    println!("{}", base64::prelude::BASE64_STANDARD.encode(key.to_bytes()));
+    println!(
+        "{}",
+        base64::prelude::BASE64_STANDARD.encode(key.to_bytes())
+    );
 }

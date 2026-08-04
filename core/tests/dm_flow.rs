@@ -5,7 +5,9 @@
 //! kryptograficzna jest kompletna i sieć jest już tylko transportem.
 
 use mekamb_core::framing::ChatMessage;
-use mekamb_core::group::{serialize_key_package, deserialize_key_package, Conversation, Incoming, Provider};
+use mekamb_core::group::{
+    Conversation, Incoming, Provider, deserialize_key_package, serialize_key_package,
+};
 use mekamb_core::identity::DeviceIdentity;
 
 /// Zestaw jednej strony rozmowy: tożsamość plus jej własny magazyn.
@@ -356,7 +358,10 @@ fn rozmowa_przezywa_zrzut_i_odtworzenie_stanu() {
 
     // „Uruchomienie aplikacji od nowa": świeży provider z odtworzonego stanu.
     let provider_po_restarcie = Provider::import_state(&zrzut).unwrap();
-    assert_eq!(provider_po_restarcie.entry_count(), alice.provider.entry_count());
+    assert_eq!(
+        provider_po_restarcie.entry_count(),
+        alice.provider.entry_count()
+    );
 
     // Rozmowa musi dać się prowadzić dalej — w obie strony.
     let odpowiedz_boba = u_boba
@@ -387,7 +392,10 @@ fn obie_strony_widza_ten_sam_safety_number() {
     let kod_alicji = u_alice.safety_number().unwrap();
     let kod_boba = u_boba.safety_number().unwrap();
 
-    assert_eq!(kod_alicji, kod_boba, "kody się różnią — porównanie nie miałoby sensu");
+    assert_eq!(
+        kod_alicji, kod_boba,
+        "kody się różnią — porównanie nie miałoby sensu"
+    );
     assert_eq!(kod_alicji.split(' ').count(), 12);
 }
 

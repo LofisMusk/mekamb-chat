@@ -82,11 +82,18 @@ pub fn seal_attachment(plaintext: &[u8], mime_type: &str) -> Result<SealedAttach
     let ciphertext = cipher
         .encrypt(
             Nonce::from_slice(&nonce_bytes),
-            Payload { msg: plaintext, aad: mime_type.as_bytes() },
+            Payload {
+                msg: plaintext,
+                aad: mime_type.as_bytes(),
+            },
         )
         .map_err(|_| Error::Group("nie udało się zaszyfrować załącznika".into()))?;
 
-    Ok(SealedAttachment { ciphertext, key: key_bytes, nonce: nonce_bytes })
+    Ok(SealedAttachment {
+        ciphertext,
+        key: key_bytes,
+        nonce: nonce_bytes,
+    })
 }
 
 /// Odszyfrowuje załącznik pobrany z serwera.
@@ -115,7 +122,9 @@ pub fn open_attachment(
     // Limit sprawdzamy PRZED deszyfrowaniem: bez tego wystarczyłoby podać
     // ogromny szyfrogram, żeby wyczerpać pamięć odbiorcy.
     if ciphertext.len() > MAX_ATTACHMENT_BYTES + 64 {
-        return Err(Error::InvalidInput("szyfrogram załącznika przekracza limit".into()));
+        return Err(Error::InvalidInput(
+            "szyfrogram załącznika przekracza limit".into(),
+        ));
     }
 
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
@@ -123,7 +132,10 @@ pub fn open_attachment(
     cipher
         .decrypt(
             Nonce::from_slice(nonce),
-            Payload { msg: ciphertext, aad: mime_type.as_bytes() },
+            Payload {
+                msg: ciphertext,
+                aad: mime_type.as_bytes(),
+            },
         )
         // Bez szczegółów: rozróżnianie „zły klucz" od „naruszony szyfrogram"
         // dawałoby atakującemu oracle.
@@ -157,9 +169,13 @@ mod tests {
         let plik = b"udawana zawartosc zdjecia".repeat(100);
 
         let zapieczetowany = seal_attachment(&plik, OBRAZ).unwrap();
-        let odczytany =
-            open_attachment(&zapieczetowany.ciphertext, &zapieczetowany.key, &zapieczetowany.nonce, OBRAZ)
-                .unwrap();
+        let odczytany = open_attachment(
+            &zapieczetowany.ciphertext,
+            &zapieczetowany.key,
+            &zapieczetowany.nonce,
+            OBRAZ,
+        )
+        .unwrap();
 
         assert_eq!(odczytany, plik);
     }
@@ -198,8 +214,13 @@ mod tests {
         zapieczetowany.ciphertext[ostatni] ^= 0x01;
 
         assert!(
-            open_attachment(&zapieczetowany.ciphertext, &zapieczetowany.key, &zapieczetowany.nonce, OBRAZ)
-                .is_err()
+            open_attachment(
+                &zapieczetowany.ciphertext,
+                &zapieczetowany.key,
+                &zapieczetowany.nonce,
+                OBRAZ
+            )
+            .is_err()
         );
     }
 
@@ -225,8 +246,13 @@ mod tests {
         let zapieczetowany = seal_attachment(b"tajne", OBRAZ).unwrap();
 
         assert!(
-            open_attachment(&zapieczetowany.ciphertext, &[7u8; 32], &zapieczetowany.nonce, OBRAZ)
-                .is_err()
+            open_attachment(
+                &zapieczetowany.ciphertext,
+                &[7u8; 32],
+                &zapieczetowany.nonce,
+                OBRAZ
+            )
+            .is_err()
         );
     }
 
@@ -234,8 +260,24 @@ mod tests {
     fn nieprawidlowe_rozmiary_sa_odrzucane() {
         let zapieczetowany = seal_attachment(b"x", OBRAZ).unwrap();
 
-        assert!(open_attachment(&zapieczetowany.ciphertext, &[0u8; 16], &zapieczetowany.nonce, OBRAZ).is_err());
-        assert!(open_attachment(&zapieczetowany.ciphertext, &zapieczetowany.key, &[0u8; 8], OBRAZ).is_err());
+        assert!(
+            open_attachment(
+                &zapieczetowany.ciphertext,
+                &[0u8; 16],
+                &zapieczetowany.nonce,
+                OBRAZ
+            )
+            .is_err()
+        );
+        assert!(
+            open_attachment(
+                &zapieczetowany.ciphertext,
+                &zapieczetowany.key,
+                &[0u8; 8],
+                OBRAZ
+            )
+            .is_err()
+        );
     }
 
     #[test]

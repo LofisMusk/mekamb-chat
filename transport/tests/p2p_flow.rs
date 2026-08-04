@@ -29,11 +29,17 @@ impl SkrzynkaTestowa {
 }
 
 fn koperta(tresc: &[u8]) -> Envelope {
-    Envelope::new(b"grupa-testowa".to_vec(), EnvelopeKind::Application, tresc.to_vec())
+    Envelope::new(
+        b"grupa-testowa".to_vec(),
+        EnvelopeKind::Application,
+        tresc.to_vec(),
+    )
 }
 
 async fn wezel(seed: u8) -> Transport {
-    Transport::bind_local(&[seed; 32]).await.expect("węzeł powinien wstać")
+    Transport::bind_local(&[seed; 32])
+        .await
+        .expect("węzeł powinien wstać")
 }
 
 fn adres(t: &Transport) -> SocketAddr {
@@ -41,7 +47,10 @@ fn adres(t: &Transport) -> SocketAddr {
 }
 
 fn peer(t: &Transport) -> PeerAddr {
-    PeerAddr { public_key: t.public_key().to_vec(), addresses: vec![adres(t)] }
+    PeerAddr {
+        public_key: t.public_key().to_vec(),
+        addresses: vec![adres(t)],
+    }
 }
 
 #[tokio::test]
@@ -80,11 +89,17 @@ async fn nadawca_jest_uwierzytelniony_kluczem() {
     let odbior = tokio::spawn(async move { bob.accept_next().await });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    alice.send_direct(&adres_boba, &koperta(b"tresc")).await.unwrap();
+    alice
+        .send_direct(&adres_boba, &koperta(b"tresc"))
+        .await
+        .unwrap();
 
     let odebrane = tokio::time::timeout(Duration::from_secs(10), odbior)
         .await
-        .unwrap().unwrap().unwrap().unwrap();
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
 
     assert_eq!(odebrane.sender_key, klucz_alicji);
 }
@@ -100,7 +115,10 @@ async fn koperta_nie_jest_czytelna_w_sieci() {
     let podsluch = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let adres_podsluchu = podsluch.local_addr().unwrap();
 
-    let cel = PeerAddr { public_key: vec![7u8; 32], addresses: vec![adres_podsluchu] };
+    let cel = PeerAddr {
+        public_key: vec![7u8; 32],
+        addresses: vec![adres_podsluchu],
+    };
 
     tokio::spawn(async move {
         let _ = alice.send_direct(&cel, &koperta(b"tresc")).await;
@@ -144,7 +162,10 @@ async fn brak_adresu_prowadzi_do_skrzynki() {
     let alice = wezel(1).await;
     let skrzynka = SkrzynkaTestowa::default();
 
-    let sposob = alice.deliver(None, "bob", &koperta(b"tresc"), &skrzynka).await.unwrap();
+    let sposob = alice
+        .deliver(None, "bob", &koperta(b"tresc"), &skrzynka)
+        .await
+        .unwrap();
 
     assert_eq!(sposob, Delivery::Mailbox);
     assert_eq!(skrzynka.ile(), 1);
@@ -167,7 +188,10 @@ async fn podstawiony_klucz_uniemozliwia_polaczenie() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     assert!(
-        alice.send_direct(&podszywacz, &koperta(b"tresc")).await.is_err(),
+        alice
+            .send_direct(&podszywacz, &koperta(b"tresc"))
+            .await
+            .is_err(),
         "połączenie z podstawionym kluczem nie powinno dojść do skutku"
     );
 }
@@ -185,8 +209,14 @@ async fn kolejne_wiadomosci_uzywaja_istniejacej_sesji() {
     });
 
     tokio::time::sleep(Duration::from_millis(50)).await;
-    alice.send_direct(&adres_boba, &koperta(b"pierwsza")).await.unwrap();
-    alice.send_direct(&adres_boba, &koperta(b"druga")).await.unwrap();
+    alice
+        .send_direct(&adres_boba, &koperta(b"pierwsza"))
+        .await
+        .unwrap();
+    alice
+        .send_direct(&adres_boba, &koperta(b"druga"))
+        .await
+        .unwrap();
 
     let (pierwsza, druga) = tokio::time::timeout(Duration::from_secs(10), odbior)
         .await
@@ -216,7 +246,10 @@ async fn smieci_z_sieci_nie_zatrzymuja_odbioru() {
     }
 
     tokio::time::sleep(Duration::from_millis(100)).await;
-    alice.send_direct(&peer_boba, &koperta(b"prawdziwa")).await.unwrap();
+    alice
+        .send_direct(&peer_boba, &koperta(b"prawdziwa"))
+        .await
+        .unwrap();
 
     let odebrane = tokio::time::timeout(Duration::from_secs(10), odbior)
         .await

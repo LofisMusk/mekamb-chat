@@ -53,11 +53,15 @@ impl From<mekamb_core::Error> for MekambError {
             E::InvalidSeedLength { .. }
             | E::InvalidInput(_)
             | E::InvalidIdentity(_)
-            | E::Framing(_) => {
-                Self::InvalidInput { powod: error.to_string() }
-            }
-            E::Group(_) => Self::Crypto { powod: error.to_string() },
-            E::Storage(_) => Self::Network { powod: error.to_string() },
+            | E::Framing(_) => Self::InvalidInput {
+                powod: error.to_string(),
+            },
+            E::Group(_) => Self::Crypto {
+                powod: error.to_string(),
+            },
+            E::Storage(_) => Self::Network {
+                powod: error.to_string(),
+            },
         }
     }
 }
@@ -67,7 +71,9 @@ impl From<mekamb_transport::Error> for MekambError {
         use mekamb_transport::Error as E;
         match error {
             // Nieosiągalny odbiorca nie jest awarią — ma prawo być offline.
-            E::PeerUnreachable | E::Transport(_) => Self::Network { powod: error.to_string() },
+            E::PeerUnreachable | E::Transport(_) => Self::Network {
+                powod: error.to_string(),
+            },
             E::Core(inner) => inner.into(),
         }
     }
@@ -188,7 +194,9 @@ impl MekambClient {
     pub fn create_key_package(&self) -> Result<Vec<u8>, MekambError> {
         let state = self.lock();
         let bundle = Conversation::create_key_package(&state.provider, &state.identity)?;
-        Ok(mekamb_core::group::serialize_key_package(bundle.key_package())?)
+        Ok(mekamb_core::group::serialize_key_package(
+            bundle.key_package(),
+        )?)
     }
 
     /// Zakłada rozmowę i zwraca jej identyfikator.
@@ -212,37 +220,58 @@ impl MekambClient {
         // pochodzi z serwera, który nie jest zaufanym źródłem.
         let package = mekamb_core::group::deserialize_key_package(&state.provider, &key_package)?;
 
-        let ClientState { identity, provider, conversations } = &mut *state;
-        let conversation = conversations
-            .get_mut(&group_id)
-            .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })?;
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
 
         let pending = conversation.stage_add_member(provider, identity, &package)?;
 
-        Ok(PendingCommit { commit: pending.commit, welcome: pending.welcome })
+        Ok(PendingCommit {
+            commit: pending.commit,
+            welcome: pending.welcome,
+        })
     }
 
     /// Scala commit po potwierdzeniu przez `GroupRelay`.
     pub fn confirm_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
-        let ClientState { provider, conversations, .. } = &mut *state;
+        let ClientState {
+            provider,
+            conversations,
+            ..
+        } = &mut *state;
         Ok(pobierz(conversations, &group_id)?.confirm_pending_commit(provider)?)
     }
 
     /// Porzuca commit odrzucony przez relay — ktoś był pierwszy.
     pub fn discard_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
-        let ClientState { provider, conversations, .. } = &mut *state;
+        let ClientState {
+            provider,
+            conversations,
+            ..
+        } = &mut *state;
         Ok(pobierz(conversations, &group_id)?.discard_pending_commit(provider)?)
     }
 
     /// Numer epoki — wysyłany razem z commitem do `GroupRelay`.
     pub fn epoch(&self, group_id: Vec<u8>) -> Result<u64, MekambError> {
         let state = self.lock();
-        let conversation = state
-            .conversations
-            .get(&group_id)
-            .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })?;
+        let conversation =
+            state
+                .conversations
+                .get(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
         Ok(conversation.epoch())
     }
 
@@ -252,10 +281,13 @@ impl MekambClient {
     /// urządzenia przez serwer zmienia wynik.
     pub fn safety_number(&self, group_id: Vec<u8>) -> Result<String, MekambError> {
         let state = self.lock();
-        let conversation = state
-            .conversations
-            .get(&group_id)
-            .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })?;
+        let conversation =
+            state
+                .conversations
+                .get(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
         Ok(conversation.safety_number()?)
     }
 
@@ -270,10 +302,13 @@ impl MekambClient {
     /// Identyfikatory `user_id:device_id` członków rozmowy.
     pub fn members(&self, group_id: Vec<u8>) -> Result<Vec<String>, MekambError> {
         let state = self.lock();
-        let conversation = state
-            .conversations
-            .get(&group_id)
-            .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })?;
+        let conversation =
+            state
+                .conversations
+                .get(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
         Ok(conversation.members())
     }
 
@@ -285,7 +320,11 @@ impl MekambClient {
         sent_at_ms: u64,
     ) -> Result<Vec<u8>, MekambError> {
         let mut state = self.lock();
-        let ClientState { identity, provider, conversations } = &mut *state;
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
 
         let message = ChatMessage::text(text, sent_at_ms);
         let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
@@ -308,19 +347,26 @@ impl MekambClient {
             return Ok(IncomingEvent::JoinedConversation { group_id });
         }
 
-        let ClientState { provider, conversations, .. } = &mut *state;
-        let incoming = pobierz(conversations, &envelope.group_id)?.receive(provider, &envelope.payload)?;
+        let ClientState {
+            provider,
+            conversations,
+            ..
+        } = &mut *state;
+        let incoming =
+            pobierz(conversations, &envelope.group_id)?.receive(provider, &envelope.payload)?;
 
         Ok(match incoming {
-            Incoming::Message { sender_user_id, sender_device_id, message } => {
-                IncomingEvent::Message {
-                    sender_user_id,
-                    sender_device_id,
-                    text: message.as_text().unwrap_or_default().to_string(),
-                    sent_at_ms: message.sent_at_ms,
-                    message_id: message.message_id.clone(),
-                }
-            }
+            Incoming::Message {
+                sender_user_id,
+                sender_device_id,
+                message,
+            } => IncomingEvent::Message {
+                sender_user_id,
+                sender_device_id,
+                text: message.as_text().unwrap_or_default().to_string(),
+                sent_at_ms: message.sent_at_ms,
+                message_id: message.message_id.clone(),
+            },
             Incoming::MembershipChanged => IncomingEvent::MembershipChanged,
             Incoming::ProposalQueued => IncomingEvent::ProposalQueued,
         })
@@ -332,7 +378,9 @@ impl MekambClient {
         // Zatrucie muteksu oznacza panikę w innym wątku podczas operacji MLS.
         // Stan jest wtedy niepewny, więc odzyskiwanie go byłoby gorsze niż
         // wyraźne przerwanie.
-        self.inner.lock().expect("stan klienta został uszkodzony przez panikę")
+        self.inner
+            .lock()
+            .expect("stan klienta został uszkodzony przez panikę")
     }
 }
 
@@ -342,7 +390,9 @@ fn pobierz<'a>(
 ) -> Result<&'a mut Conversation, MekambError> {
     conversations
         .get_mut(group_id)
-        .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })
+        .ok_or_else(|| MekambError::InvalidInput {
+            powod: "nie ma takiej rozmowy".into(),
+        })
 }
 
 /// Sieć P2P urządzenia.
@@ -366,9 +416,11 @@ impl MekambTransport {
     #[uniffi::constructor]
     pub fn start(transport_secret: Vec<u8>) -> Result<Self, MekambError> {
         let secret: [u8; 32] =
-            transport_secret.try_into().map_err(|_| MekambError::InvalidInput {
-                powod: "klucz węzła musi mieć 32 bajty".into(),
-            })?;
+            transport_secret
+                .try_into()
+                .map_err(|_| MekambError::InvalidInput {
+                    powod: "klucz węzła musi mieć 32 bajty".into(),
+                })?;
 
         let runtime = tokio::runtime::Runtime::new().map_err(|e| MekambError::Network {
             powod: format!("nie udało się uruchomić runtime: {e}"),
@@ -389,7 +441,11 @@ impl MekambTransport {
     /// Zwykle dwa: lokalny i publiczny poznany przez STUN. Pusta lista znaczy,
     /// że nie udało się poznać żadnego — wtedy działa wyłącznie skrzynka.
     pub fn addresses(&self) -> Vec<String> {
-        self.transport.addresses().iter().map(|a| a.to_string()).collect()
+        self.transport
+            .addresses()
+            .iter()
+            .map(|a| a.to_string())
+            .collect()
     }
 
     /// Odbiera jedną kopertę. Blokuje do nadejścia albo zamknięcia transportu.
@@ -431,7 +487,10 @@ pub fn try_direct_delivery(
         return DeliveryMode::Mailbox;
     };
 
-    let addresses: Vec<_> = peer_addresses.iter().filter_map(|a| a.parse().ok()).collect();
+    let addresses: Vec<_> = peer_addresses
+        .iter()
+        .filter_map(|a| a.parse().ok())
+        .collect();
     if addresses.is_empty() {
         return DeliveryMode::Mailbox;
     }
@@ -440,7 +499,10 @@ pub fn try_direct_delivery(
         return DeliveryMode::Mailbox;
     };
 
-    let peer = PeerAddr { public_key, addresses };
+    let peer = PeerAddr {
+        public_key,
+        addresses,
+    };
 
     match transport
         .runtime
@@ -478,10 +540,12 @@ impl From<mekamb_opaque::Error> for MekambError {
             // „złe hasło" od „nie ma konta" pozwalałoby sprawdzać, które
             // nazwy są zajęte.
             E::AuthenticationFailed => Self::MessageRejected,
-            E::InvalidServerKey | E::MalformedMessage => {
-                Self::InvalidInput { powod: error.to_string() }
-            }
-            E::Protocol => Self::Crypto { powod: error.to_string() },
+            E::InvalidServerKey | E::MalformedMessage => Self::InvalidInput {
+                powod: error.to_string(),
+            },
+            E::Protocol => Self::Crypto {
+                powod: error.to_string(),
+            },
         }
     }
 }
@@ -516,7 +580,10 @@ pub struct OpaqueLoginFinish {
 #[uniffi::export]
 pub fn opaque_register_start(password: String) -> Result<OpaqueStart, MekambError> {
     let w = mekamb_opaque::client_registration_start(&password)?;
-    Ok(OpaqueStart { request: w.request, state: w.state })
+    Ok(OpaqueStart {
+        request: w.request,
+        state: w.state,
+    })
 }
 
 /// Rejestracja, runda 2.
@@ -528,14 +595,20 @@ pub fn opaque_register_finish(
     response: Vec<u8>,
 ) -> Result<OpaqueRegisterFinish, MekambError> {
     let w = mekamb_opaque::client_registration_finish(&state, &password, &username, &response)?;
-    Ok(OpaqueRegisterFinish { upload: w.upload, export_key: w.export_key })
+    Ok(OpaqueRegisterFinish {
+        upload: w.upload,
+        export_key: w.export_key,
+    })
 }
 
 /// Logowanie, runda 1.
 #[uniffi::export]
 pub fn opaque_login_start(password: String) -> Result<OpaqueStart, MekambError> {
     let w = mekamb_opaque::client_login_start(&password)?;
-    Ok(OpaqueStart { request: w.request, state: w.state })
+    Ok(OpaqueStart {
+        request: w.request,
+        state: w.state,
+    })
 }
 
 /// Logowanie, runda 2.

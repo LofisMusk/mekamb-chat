@@ -117,9 +117,12 @@ impl MekambClient {
         seed: &[u8],
         state: &[u8],
     ) -> Result<MekambClient, JsError> {
-        let identity =
-            DeviceIdentity::new(user_id, device_id, DeviceSeed::from_bytes(seed).map_err(to_js)?)
-                .map_err(to_js)?;
+        let identity = DeviceIdentity::new(
+            user_id,
+            device_id,
+            DeviceSeed::from_bytes(seed).map_err(to_js)?,
+        )
+        .map_err(to_js)?;
 
         Ok(Self {
             identity,
@@ -190,8 +193,8 @@ impl MekambClient {
     ) -> Result<PendingCommitJs, JsError> {
         // Weryfikacja podpisu i okresu ważności dzieje się TUTAJ. Key package
         // pochodzi z serwera, który nie jest zaufanym źródłem.
-        let package =
-            mekamb_core::group::deserialize_key_package(&self.provider, key_package).map_err(to_js)?;
+        let package = mekamb_core::group::deserialize_key_package(&self.provider, key_package)
+            .map_err(to_js)?;
 
         let Self {
             identity,
@@ -240,7 +243,8 @@ impl MekambClient {
     /// Dołącza do rozmowy na podstawie wiadomości Welcome.
     #[wasm_bindgen(js_name = joinFromWelcome)]
     pub fn join_from_welcome(&mut self, welcome: &[u8]) -> Result<Vec<u8>, JsError> {
-        let conversation = Conversation::join_from_welcome(&self.provider, welcome).map_err(to_js)?;
+        let conversation =
+            Conversation::join_from_welcome(&self.provider, welcome).map_err(to_js)?;
         let group_id = conversation.group_id().to_vec();
         self.conversations.insert(group_id.clone(), conversation);
         Ok(group_id)
@@ -296,7 +300,11 @@ impl MekambClient {
             sent_at_ms as u64,
         );
 
-        let Self { identity, provider, conversations } = self;
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
 
         pobierz_mut(conversations, group_id)?
             .send(provider, identity, &message)
@@ -342,7 +350,11 @@ impl MekambClient {
             sent_at_ms as u64,
         );
 
-        let Self { identity, provider, conversations } = self;
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
 
         pobierz_mut(conversations, group_id)?
             .send(provider, identity, &message)
@@ -437,7 +449,6 @@ impl MekambClient {
             .get(group_id)
             .ok_or_else(|| JsError::new("nie ma takiej rozmowy w tym kliencie"))
     }
-
 }
 
 /// Wyszukuje rozmowę bez pożyczania całego klienta.
@@ -609,7 +620,10 @@ pub struct OpaqueStart {
 #[wasm_bindgen(js_name = opaqueRegisterStart)]
 pub fn opaque_register_start(password: &str) -> Result<OpaqueStart, JsError> {
     let wynik = mekamb_opaque::client_registration_start(password).map_err(opaque_to_js)?;
-    Ok(OpaqueStart { request: wynik.request, state: wynik.state })
+    Ok(OpaqueStart {
+        request: wynik.request,
+        state: wynik.state,
+    })
 }
 
 /// Wynik drugiej rundy rejestracji.
@@ -632,14 +646,20 @@ pub fn opaque_register_finish(
     let wynik = mekamb_opaque::client_registration_finish(state, password, username, response)
         .map_err(opaque_to_js)?;
 
-    Ok(OpaqueRegisterFinish { upload: wynik.upload, export_key: wynik.export_key })
+    Ok(OpaqueRegisterFinish {
+        upload: wynik.upload,
+        export_key: wynik.export_key,
+    })
 }
 
 /// Logowanie, runda 1.
 #[wasm_bindgen(js_name = opaqueLoginStart)]
 pub fn opaque_login_start(password: &str) -> Result<OpaqueStart, JsError> {
     let wynik = mekamb_opaque::client_login_start(password).map_err(opaque_to_js)?;
-    Ok(OpaqueStart { request: wynik.request, state: wynik.state })
+    Ok(OpaqueStart {
+        request: wynik.request,
+        state: wynik.state,
+    })
 }
 
 /// Wynik drugiej rundy logowania.

@@ -106,9 +106,15 @@ fn sformatuj(digest: &[u8]) -> String {
             let start = i * 5;
             let porcja = &digest[start..start + 5];
 
-            let wartosc = porcja.iter().fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+            let wartosc = porcja
+                .iter()
+                .fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
 
-            format!("{:0width$}", wartosc % modulo, width = DIGITS_PER_GROUP as usize)
+            format!(
+                "{:0width$}",
+                wartosc % modulo,
+                width = DIGITS_PER_GROUP as usize
+            )
         })
         .collect();
 
@@ -140,7 +146,10 @@ mod tests {
     use super::*;
 
     fn uczestnik(identity: &str, klucz: &[u8]) -> Participant {
-        Participant { identity: identity.into(), signature_key: klucz.to_vec() }
+        Participant {
+            identity: identity.into(),
+            signature_key: klucz.to_vec(),
+        }
     }
 
     fn alicja() -> Participant {

@@ -71,10 +71,13 @@ pub fn login_start(
 ) -> Result<LoginStart, JsError> {
     let key = mekamb_opaque::ServerKey::from_bytes(server_key).map_err(to_js)?;
 
-    let wynik =
-        mekamb_opaque::server_login_start(&key, username, record.as_deref(), request).map_err(to_js)?;
+    let wynik = mekamb_opaque::server_login_start(&key, username, record.as_deref(), request)
+        .map_err(to_js)?;
 
-    Ok(LoginStart { response: wynik.response, state: wynik.state })
+    Ok(LoginStart {
+        response: wynik.response,
+        state: wynik.state,
+    })
 }
 
 /// Runda 2 logowania: weryfikuje dowód klienta i zwraca klucz sesji.
@@ -106,7 +109,10 @@ pub struct ClientStart {
 #[wasm_bindgen(js_name = clientRegisterStart)]
 pub fn client_register_start(password: &str) -> Result<ClientStart, JsError> {
     let w = mekamb_opaque::client_registration_start(password).map_err(to_js)?;
-    Ok(ClientStart { request: w.request, state: w.state })
+    Ok(ClientStart {
+        request: w.request,
+        state: w.state,
+    })
 }
 
 #[wasm_bindgen(js_name = clientRegisterFinish)]
@@ -124,7 +130,10 @@ pub fn client_register_finish(
 #[wasm_bindgen(js_name = clientLoginStart)]
 pub fn client_login_start(password: &str) -> Result<ClientStart, JsError> {
     let w = mekamb_opaque::client_login_start(password).map_err(to_js)?;
-    Ok(ClientStart { request: w.request, state: w.state })
+    Ok(ClientStart {
+        request: w.request,
+        state: w.state,
+    })
 }
 
 #[wasm_bindgen(js_name = clientLoginFinish)]

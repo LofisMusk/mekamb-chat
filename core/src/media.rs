@@ -131,14 +131,18 @@ fn strip_jpeg(bytes: &[u8]) -> Result<Vec<u8>> {
 
         let dlugosc = u16::from_be_bytes([bytes[len_pos], bytes[len_pos + 1]]) as usize;
         if dlugosc < 2 {
-            return Err(Error::InvalidInput("nieprawidłowa długość segmentu JPEG".into()));
+            return Err(Error::InvalidInput(
+                "nieprawidłowa długość segmentu JPEG".into(),
+            ));
         }
 
         let koniec = len_pos
             .checked_add(dlugosc)
             .ok_or_else(|| Error::InvalidInput("przepełnienie długości segmentu".into()))?;
         if koniec > bytes.len() {
-            return Err(Error::InvalidInput("segment JPEG wykracza poza plik".into()));
+            return Err(Error::InvalidInput(
+                "segment JPEG wykracza poza plik".into(),
+            ));
         }
 
         if jpeg_segment_dozwolony(marker) {
@@ -163,7 +167,7 @@ fn png_chunk_dozwolony(typ: &[u8]) -> bool {
         b"IHDR" | b"PLTE" | b"IDAT" | b"IEND"     // krytyczne — bez nich nie ma obrazu
             | b"tRNS" | b"gAMA" | b"cHRM" | b"sRGB" | b"iCCP"  // wierność barw
             | b"pHYs" | b"sBIT" | b"bKGD" | b"hIST"            // parametry wyświetlania
-            | b"acTL" | b"fcTL" | b"fdAT"                      // animacja (APNG)
+            | b"acTL" | b"fcTL" | b"fdAT" // animacja (APNG)
     )
 }
 
@@ -179,7 +183,8 @@ fn strip_png(bytes: &[u8]) -> Result<Vec<u8>> {
 
     let mut i = 8;
     while i + 8 <= bytes.len() {
-        let dlugosc = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+        let dlugosc =
+            u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
         let typ = &bytes[i + 4..i + 8];
 
         // 4 bajty długości + 4 typu + dane + 4 CRC.
@@ -257,12 +262,18 @@ mod tests {
         const GPS: &[u8] = b"Exif\0\0GPS 52.2297N 21.0122E Canon EOS";
         let oryginal = jpeg_z_exifem(GPS);
 
-        assert!(zawiera(&oryginal, GPS), "test jest bez sensu, jeśli EXIF-u nie było");
+        assert!(
+            zawiera(&oryginal, GPS),
+            "test jest bez sensu, jeśli EXIF-u nie było"
+        );
 
         let oczyszczony = strip_image_metadata(&oryginal, "image/jpeg").unwrap();
 
         assert!(!zawiera(&oczyszczony, GPS), "EXIF przetrwał czyszczenie");
-        assert!(!zawiera(&oczyszczony, b"52.2297N"), "współrzędne przetrwały");
+        assert!(
+            !zawiera(&oczyszczony, b"52.2297N"),
+            "współrzędne przetrwały"
+        );
     }
 
     /// Piksele muszą zostać nietknięte — inaczej czyszczenie kosztowałoby jakość.
@@ -271,7 +282,10 @@ mod tests {
         let oczyszczony =
             strip_image_metadata(&jpeg_z_exifem(b"Exif\0\0cokolwiek"), "image/jpeg").unwrap();
 
-        assert!(zawiera(&oczyszczony, b"UDAWANE-PIKSELE"), "utracono dane obrazu");
+        assert!(
+            zawiera(&oczyszczony, b"UDAWANE-PIKSELE"),
+            "utracono dane obrazu"
+        );
         assert!(zawiera(&oczyszczony, b"JFIF"), "utracono segment JFIF");
         assert_eq!(&oczyszczony[0..2], &[0xFF, 0xD8], "brak znacznika SOI");
     }
@@ -286,7 +300,10 @@ mod tests {
         let oczyszczony = strip_image_metadata(&oryginal, "image/png").unwrap();
 
         assert!(!zawiera(&oczyszczony, OPIS), "chunk tEXt przetrwał");
-        assert!(zawiera(&oczyszczony, b"UDAWANE-PIKSELE"), "utracono dane obrazu");
+        assert!(
+            zawiera(&oczyszczony, b"UDAWANE-PIKSELE"),
+            "utracono dane obrazu"
+        );
         assert!(zawiera(&oczyszczony, b"IHDR"), "utracono nagłówek");
         assert!(zawiera(&oczyszczony, b"IEND"), "utracono zakończenie");
     }
@@ -306,10 +323,16 @@ mod tests {
     #[test]
     fn wspolne_wejscie_kieruje_do_wlasciwego_parsera() {
         let jpeg = jpeg_z_exifem(b"Exif\0\0GPS 52.2297N");
-        assert!(!zawiera(&strip_metadata(&jpeg, "image/jpeg").unwrap(), b"52.2297N"));
+        assert!(!zawiera(
+            &strip_metadata(&jpeg, "image/jpeg").unwrap(),
+            b"52.2297N"
+        ));
 
         let png = png_z_tekstem(b"Comment\0lokalizacja 21.0122E");
-        assert!(!zawiera(&strip_metadata(&png, "image/png").unwrap(), b"21.0122E"));
+        assert!(!zawiera(
+            &strip_metadata(&png, "image/png").unwrap(),
+            b"21.0122E"
+        ));
     }
 
     /// Pliki od użytkownika bywają uszkodzone albo spreparowane — parser ma
@@ -320,8 +343,8 @@ mod tests {
             vec![],
             vec![0xFF],
             vec![0xFF, 0xD8],
-            vec![0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xFF],       // deklaruje ogromny segment
-            vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x00],       // długość poniżej minimum
+            vec![0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xFF], // deklaruje ogromny segment
+            vec![0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x00], // długość poniżej minimum
             PNG_SIGNATURE.to_vec(),
             [PNG_SIGNATURE.to_vec(), vec![0xFF; 8]].concat(), // chunk poza plikiem
             vec![0xAB; 128],

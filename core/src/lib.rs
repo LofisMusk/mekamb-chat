@@ -36,20 +36,20 @@ pub mod framing;
 pub mod group;
 pub mod identity;
 pub mod media;
-pub mod safety;
 pub mod media_video;
+pub mod safety;
 pub mod storage;
 
 pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
-pub use media::{can_strip, strip_image_metadata};
 pub use calls::{extract_fingerprints, verify_sdp_fingerprint};
-pub use safety::{Participant, device_fingerprint, safety_number};
-pub use media_video::strip_video_metadata;
 pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
 pub use error::{Error, Result};
 pub use framing::ChatMessage;
 pub use group::{CIPHERSUITE, Conversation, Incoming, PendingCommit, Provider};
 pub use identity::{DeviceIdentity, DeviceSeed};
+pub use media::{can_strip, strip_image_metadata};
+pub use media_video::strip_video_metadata;
+pub use safety::{Participant, device_fingerprint, safety_number};
 pub use storage::MekambProvider;
 
 /// Wersja protokołu obsługiwana przez tę wersję rdzenia.

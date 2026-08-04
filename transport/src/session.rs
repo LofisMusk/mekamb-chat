@@ -86,7 +86,9 @@ fn x25519_public(private: &[u8]) -> Vec<u8> {
     let mut bajty = [0u8; 32];
     bajty.copy_from_slice(&private[..32]);
 
-    PublicKey::from(&StaticSecret::from(bajty)).as_bytes().to_vec()
+    PublicKey::from(&StaticSecret::from(bajty))
+        .as_bytes()
+        .to_vec()
 }
 
 /// Sesja w trakcie zestawiania albo już gotowa.
@@ -139,7 +141,9 @@ impl Session {
         };
 
         let mut bufor = vec![0u8; MAX_NOISE_MESSAGE];
-        state.read_message(message, &mut bufor).map_err(blad_noise)?;
+        state
+            .read_message(message, &mut bufor)
+            .map_err(blad_noise)?;
 
         if state.is_handshake_finished() {
             self.przejdz_do_transportu()?;
@@ -147,7 +151,9 @@ impl Session {
         }
 
         let mut odpowiedz = vec![0u8; MAX_NOISE_MESSAGE];
-        let ile = state.write_message(&[], &mut odpowiedz).map_err(blad_noise)?;
+        let ile = state
+            .write_message(&[], &mut odpowiedz)
+            .map_err(blad_noise)?;
         odpowiedz.truncate(ile);
 
         if state.is_handshake_finished() {
@@ -187,7 +193,9 @@ impl Session {
         };
 
         let mut bufor = vec![0u8; MAX_NOISE_MESSAGE];
-        let ile = state.write_message(plaintext, &mut bufor).map_err(blad_noise)?;
+        let ile = state
+            .write_message(plaintext, &mut bufor)
+            .map_err(blad_noise)?;
         bufor.truncate(ile);
 
         Ok(bufor)
@@ -255,7 +263,10 @@ mod tests {
         let (mut inicjator, pierwsza) = Session::initiate(a, b.public()).unwrap();
         let mut odbiorca = Session::respond(b).unwrap();
 
-        let odpowiedz = odbiorca.read_handshake(&pierwsza).unwrap().expect("odpowiedź");
+        let odpowiedz = odbiorca
+            .read_handshake(&pierwsza)
+            .unwrap()
+            .expect("odpowiedź");
         assert!(inicjator.read_handshake(&odpowiedz).unwrap().is_none());
 
         assert!(inicjator.is_ready() && odbiorca.is_ready());
@@ -268,7 +279,10 @@ mod tests {
         let (mut inicjator, mut odbiorca) = zestaw(&a, &b);
 
         let szyfrogram = inicjator.seal(b"koperta z wiadomoscia").unwrap();
-        assert_eq!(odbiorca.open(&szyfrogram).unwrap(), b"koperta z wiadomoscia");
+        assert_eq!(
+            odbiorca.open(&szyfrogram).unwrap(),
+            b"koperta z wiadomoscia"
+        );
 
         let odpowiedz = odbiorca.seal(b"odpowiedz").unwrap();
         assert_eq!(inicjator.open(&odpowiedz).unwrap(), b"odpowiedz");
@@ -285,7 +299,9 @@ mod tests {
         let szyfrogram = inicjator.seal(KOPERTA).unwrap();
 
         assert!(
-            !szyfrogram.windows(KOPERTA.len()).any(|okno| okno == KOPERTA),
+            !szyfrogram
+                .windows(KOPERTA.len())
+                .any(|okno| okno == KOPERTA),
             "zawartość koperty widoczna w bajtach sieciowych"
         );
     }

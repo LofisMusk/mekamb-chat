@@ -34,8 +34,8 @@ use opaque_ke::{
     ClientLoginStartResult, ClientRegistration, ClientRegistrationFinishParameters,
     ClientRegistrationFinishResult, ClientRegistrationStartResult, CredentialFinalization,
     CredentialRequest, CredentialResponse, Identifiers, RegistrationRequest, RegistrationResponse,
-    RegistrationUpload, ServerLogin, ServerLoginParameters, ServerLoginStartResult, ServerRegistration,
-    ServerSetup,
+    RegistrationUpload, ServerLogin, ServerLoginParameters, ServerLoginStartResult,
+    ServerRegistration, ServerSetup,
 };
 
 mod error;
@@ -120,7 +120,8 @@ pub fn server_registration_start(
 /// Z tego rekordu **nie da się** prowadzić ataku słownikowego offline — to
 /// zasadnicza różnica względem hasha hasła.
 pub fn server_registration_finish(upload: &[u8]) -> Result<Vec<u8>> {
-    let upload = RegistrationUpload::<Suite>::deserialize(upload).map_err(|_| Error::MalformedMessage)?;
+    let upload =
+        RegistrationUpload::<Suite>::deserialize(upload).map_err(|_| Error::MalformedMessage)?;
 
     Ok(ServerRegistration::finish(upload).serialize().to_vec())
 }
@@ -160,7 +161,10 @@ pub fn server_login_start(
         record,
         request,
         username.as_bytes(),
-        ServerLoginParameters { context: None, identifiers: identifiers(username) },
+        ServerLoginParameters {
+            context: None,
+            identifiers: identifiers(username),
+        },
     )
     .map_err(|_| Error::Protocol)?;
 
@@ -182,7 +186,10 @@ pub fn server_login_finish(state: &[u8], username: &str, finalization: &[u8]) ->
     let result = state
         .finish(
             finalization,
-            ServerLoginParameters { context: None, identifiers: identifiers(username) },
+            ServerLoginParameters {
+                context: None,
+                identifiers: identifiers(username),
+            },
         )
         // Niepowodzenie znaczy „klient nie znał hasła". Nie rozróżniamy powodów.
         .map_err(|_| Error::AuthenticationFailed)?;
@@ -231,8 +238,10 @@ pub fn client_registration_finish(
     username: &str,
     response: &[u8],
 ) -> Result<ClientRegistrationFinish> {
-    let state = ClientRegistration::<Suite>::deserialize(state).map_err(|_| Error::MalformedMessage)?;
-    let response = RegistrationResponse::deserialize(response).map_err(|_| Error::MalformedMessage)?;
+    let state =
+        ClientRegistration::<Suite>::deserialize(state).map_err(|_| Error::MalformedMessage)?;
+    let response =
+        RegistrationResponse::deserialize(response).map_err(|_| Error::MalformedMessage)?;
 
     let result: ClientRegistrationFinishResult<Suite> = state
         .finish(
@@ -286,7 +295,8 @@ pub fn client_login_finish(
     response: &[u8],
 ) -> Result<ClientLoginFinish> {
     let state = ClientLogin::<Suite>::deserialize(state).map_err(|_| Error::MalformedMessage)?;
-    let response = CredentialResponse::deserialize(response).map_err(|_| Error::MalformedMessage)?;
+    let response =
+        CredentialResponse::deserialize(response).map_err(|_| Error::MalformedMessage)?;
 
     let result: ClientLoginFinishResult<Suite> = state
         .finish(
@@ -315,7 +325,8 @@ mod tests {
     fn zarejestruj(key: &ServerKey, username: &str, password: &str) -> Vec<u8> {
         let start = client_registration_start(password).unwrap();
         let response = server_registration_start(key, username, &start.request).unwrap();
-        let finish = client_registration_finish(&start.state, password, username, &response).unwrap();
+        let finish =
+            client_registration_finish(&start.state, password, username, &response).unwrap();
         server_registration_finish(&finish.upload).unwrap()
     }
 
@@ -363,8 +374,10 @@ mod tests {
         let rekord = zarejestruj(&key, UZYTKOWNIK, HASLO);
 
         let start = client_login_start(HASLO).unwrap();
-        let istniejace = server_login_start(&key, UZYTKOWNIK, Some(&rekord), &start.request).unwrap();
-        let nieistniejace = server_login_start(&key, "nie-ma-takiego", None, &start.request).unwrap();
+        let istniejace =
+            server_login_start(&key, UZYTKOWNIK, Some(&rekord), &start.request).unwrap();
+        let nieistniejace =
+            server_login_start(&key, "nie-ma-takiego", None, &start.request).unwrap();
 
         assert_eq!(
             istniejace.response.len(),
@@ -383,11 +396,13 @@ mod tests {
 
         let start = client_registration_start(HASLO).unwrap();
         let response = server_registration_start(&key, UZYTKOWNIK, &start.request).unwrap();
-        let finish = client_registration_finish(&start.state, HASLO, UZYTKOWNIK, &response).unwrap();
+        let finish =
+            client_registration_finish(&start.state, HASLO, UZYTKOWNIK, &response).unwrap();
         let rekord = server_registration_finish(&finish.upload).unwrap();
 
         let logowanie = client_login_start(HASLO).unwrap();
-        let serwer = server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
+        let serwer =
+            server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
         let klient =
             client_login_finish(&logowanie.state, HASLO, UZYTKOWNIK, &serwer.response).unwrap();
 
@@ -400,7 +415,9 @@ mod tests {
             ("dowód klienta", &klient.finalization),
         ] {
             assert!(
-                !dane.windows(HASLO.len()).any(|okno| okno == HASLO.as_bytes()),
+                !dane
+                    .windows(HASLO.len())
+                    .any(|okno| okno == HASLO.as_bytes()),
                 "hasło znalezione w: {nazwa}"
             );
         }
@@ -440,7 +457,8 @@ mod tests {
         let rekord = server_registration_finish(&rejestracja.upload).unwrap();
 
         let logowanie = client_login_start(HASLO).unwrap();
-        let serwer = server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
+        let serwer =
+            server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
         let klient =
             client_login_finish(&logowanie.state, HASLO, UZYTKOWNIK, &serwer.response).unwrap();
 

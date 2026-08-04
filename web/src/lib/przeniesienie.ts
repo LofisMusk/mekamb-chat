@@ -1,16 +1,29 @@
 import { API_URL } from "./api";
-import { type Account, loadAccount, loadSeed, loadState, saveAccount, saveSeed, saveState } from "./vault";
+import {
+  type Account,
+  loadAccount,
+  loadHistory,
+  loadSeed,
+  loadState,
+  saveAccount,
+  saveHistory,
+  saveSeed,
+  saveState,
+} from "./vault";
 
 /**
  * Przeniesienie konta na inne urządzenie.
  *
  * # Co przenosimy, a czego nie
  *
- * Tożsamość urządzenia i stan MLS — czyli wszystko, co pozwala **kontynuować**
- * rozmowy na nowym urządzeniu. Wcześniejszych wiadomości nie, bo nie ma czego
- * przenosić: klient trzyma je wyłącznie w pamięci karty i traci przy
- * odświeżeniu. Kod przeniesienia nie jest kopią zapasową rozmów i nie wolno go
- * tak przedstawiać.
+ * Tożsamość urządzenia, stan MLS i historię rozmów — czyli wszystko, co
+ * urządzenie o koncie wie.
+ *
+ * Historia doszła dopiero wtedy, gdy zaczęła być zapisywana ([`historia.ts`]).
+ * Wcześniej żyła w pamięci karty i nie było czego przenosić.
+ *
+ * To nadal **nie jest kopia zapasowa**: zrzut jest jednorazowy i wygasa po
+ * kwadransie. Utrata wszystkich urządzeń wciąż oznacza utratę rozmów.
  *
  * # To jest przeniesienie, nie sklonowanie
  *
@@ -31,8 +44,13 @@ import { type Account, loadAccount, loadSeed, loadState, saveAccount, saveSeed, 
 /** Prefiks treści kodu QR. */
 const SCHEMAT = "mekamb://transfer";
 
-/** Wersja formatu zrzutu. Zmiana układu pól wymaga podniesienia. */
-const WERSJA = 1;
+/**
+ * Wersja formatu zrzutu.
+ *
+ * 2 dołożyła historię rozmów. Odbiór odrzuca obcą wersję w całości — zrzut
+ * czytany według niewłaściwego układu dałby klucze pomieszane z wiadomościami.
+ */
+const WERSJA = 2;
 
 export interface KodPrzeniesienia {
   /** Treść do zakodowania w QR. */
@@ -63,9 +81,14 @@ function zBase64url(tekst: string): Uint8Array<ArrayBuffer> {
  * byłyby domyślne, a pomyłka o jeden bajt dałaby zrzut, który wygląda na
  * poprawny i nie działa.
  */
-function zloz(konto: Account, ziarno: Uint8Array, stan: Uint8Array): Uint8Array<ArrayBuffer> {
+function zloz(
+  konto: Account,
+  ziarno: Uint8Array,
+  stan: Uint8Array,
+  historia: Uint8Array,
+): Uint8Array<ArrayBuffer> {
   const nazwa = new TextEncoder().encode(JSON.stringify(konto));
-  const czesci = [nazwa, ziarno, stan];
+  const czesci = [nazwa, ziarno, stan, historia];
 
   const rozmiar = 1 + czesci.reduce((suma, c) => suma + 4 + c.length, 0);
   const wynik = new Uint8Array(new ArrayBuffer(rozmiar));
@@ -81,7 +104,12 @@ function zloz(konto: Account, ziarno: Uint8Array, stan: Uint8Array): Uint8Array<
   return wynik;
 }
 
-function rozloz(zrzut: Uint8Array): { konto: Account; ziarno: Uint8Array; stan: Uint8Array } {
+function rozloz(zrzut: Uint8Array): {
+  konto: Account;
+  ziarno: Uint8Array;
+  stan: Uint8Array;
+  historia: Uint8Array;
+} {
   if (zrzut.length < 1 || zrzut[0] !== WERSJA) {
     throw new Error("zrzut pochodzi z innej wersji aplikacji");
   }
@@ -90,7 +118,7 @@ function rozloz(zrzut: Uint8Array): { konto: Account; ziarno: Uint8Array; stan: 
   const czesci: Uint8Array[] = [];
   let pozycja = 1;
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if (pozycja + 4 > zrzut.length) throw new Error("zrzut jest uszkodzony");
     const dlugosc = widok.getUint32(pozycja);
     if (pozycja + 4 + dlugosc > zrzut.length) throw new Error("zrzut jest uszkodzony");
@@ -98,11 +126,17 @@ function rozloz(zrzut: Uint8Array): { konto: Account; ziarno: Uint8Array; stan: 
     pozycja += 4 + dlugosc;
   }
 
-  const [nazwa, ziarno, stan] = czesci as [Uint8Array, Uint8Array, Uint8Array];
+  const [nazwa, ziarno, stan, historia] = czesci as [
+    Uint8Array,
+    Uint8Array,
+    Uint8Array,
+    Uint8Array,
+  ];
   return {
     konto: JSON.parse(new TextDecoder().decode(nazwa)) as Account,
     ziarno,
     stan,
+    historia,
   };
 }
 
@@ -121,7 +155,10 @@ export async function przygotujPrzeniesienie(token: string): Promise<KodPrzenies
     throw new Error("na tym urządzeniu nie ma pełnego konta do przeniesienia");
   }
 
-  const zrzut = zloz(konto, ziarno, stan);
+  // Historia bywa pusta — nowe konto albo urządzenie bez rozmów. To nie błąd,
+  // więc pakujemy zero bajtów zamiast przerywać.
+  const historia = (await loadHistory()) ?? new Uint8Array(0);
+  const zrzut = zloz(konto, ziarno, stan, historia);
 
   // Świeży klucz na każde przeniesienie. Wyprowadzanie go z czegoś stałego
   // sprawiłoby, że jeden podejrzany kod QR otwiera wszystkie przyszłe.
@@ -202,13 +239,14 @@ export async function odbierzPrzeniesienie(kod: string): Promise<Account> {
     ),
   );
 
-  const { konto, ziarno, stan } = rozloz(zrzut);
+  const { konto, ziarno, stan, historia } = rozloz(zrzut);
 
   // Kolejność ma znaczenie: konto na końcu. To ono decyduje, czy aplikacja
   // uzna urządzenie za skonfigurowane, więc zapisane jako pierwsze zostawiłoby
   // przy przerwanym zapisie konto bez kluczy — czyli stan nie do naprawienia.
   await saveSeed(ziarno);
   await saveState(stan);
+  if (historia.length > 0) await saveHistory(historia);
   await saveAccount(konto);
 
   return konto;

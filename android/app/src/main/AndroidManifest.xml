@@ -29,6 +29,26 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!--
+              Kod przeniesienia konta. Dzięki temu wystarczy zeskanować kod QR
+              APARATEM SYSTEMOWYM — Android sam otworzy tę aplikację z kodem
+              w intencji. Własny skaner wymagałby uprawnienia do kamery
+              i biblioteki dekodującej, czyli kilkuset kilobajtów APK za coś,
+              co system już umie.
+
+              Schemat jest własny (`mekamb://`), więc nie ma tu weryfikacji
+              domeny jak przy App Links. Nie szkodzi: kod bez klucza jest
+              bezużyteczny, a klucz jest w samym kodzie. Podstawiona intencja
+              może najwyżej podsunąć cudzy zrzut, którego i tak nie da się
+              odszyfrować.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mekamb" android:host="transfer" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

@@ -17,7 +17,11 @@ import java.util.UUID
  * Świadomie płaski i niemutowalny — Compose przerysowuje się na podstawie
  * podmiany całego obiektu, więc nie ma miejsca na częściowo zaktualizowany stan.
  */
+/** Który ekran pokazujemy, dopóki nie ma zalogowanego klienta. */
+enum class Ekran { LOGOWANIE, REJESTRACJA, POTWIERDZENIE, ODBIOR }
+
 data class StanCzatu(
+    val ekran: Ekran = Ekran.LOGOWANIE,
     val zalogowany: Boolean = false,
     val pracuje: Boolean = false,
     val blad: String? = null,
@@ -26,6 +30,14 @@ data class StanCzatu(
     val wiadomosci: List<Wiadomosc> = emptyList(),
     /** Jak poszła ostatnia wysyłka — pokazywane użytkownikowi. */
     val trybPolaczenia: DeliveryMode? = null,
+    /** Sekret TOTP do wpisania w authenticatorze. Tylko przy rejestracji. */
+    val sekretTotp: String? = null,
+    /** Odnośnik `otpauth://` otwierający authenticator na tym telefonie. */
+    val otpauthUri: String? = null,
+    /** Nazwa, na którą właśnie zakładamy konto — potrzebna przy potwierdzeniu. */
+    val zakladaneKonto: String? = null,
+    /** Komunikat powodzenia, np. po odebraniu konta. */
+    val informacja: String? = null,
 ) {
     // ByteArray nie ma sensownego equals, a data class go potrzebuje.
     override fun equals(other: Any?): Boolean = this === other
@@ -43,6 +55,100 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var stan by mutableStateOf(StanCzatu())
         private set
 
+    /** Przełącza ekran, czyszcząc komunikaty z poprzedniego. */
+    fun pokaz(ekran: Ekran) {
+        stan = stan.copy(ekran = ekran, blad = null, informacja = null)
+    }
+
+    /**
+     * Zakłada konto.
+     *
+     * Konto powstaje nieaktywne — do użycia trzeba jeszcze potwierdzić je
+     * kodem z authenticatora. Bez tego kroku ktoś, kto zgadnie hasło, miałby
+     * konto bez drugiego składnika.
+     */
+    fun zarejestruj(username: String, haslo: String) {
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null, informacja = null)
+
+            runCatching { Auth.register(api, username, haslo) }
+                .onSuccess { wynik ->
+                    stan = stan.copy(
+                        ekran = Ekran.POTWIERDZENIE,
+                        pracuje = false,
+                        sekretTotp = wynik.totpSecret,
+                        otpauthUri = wynik.otpauthUri,
+                        zakladaneKonto = username,
+                    )
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się założyć konta",
+                    )
+                }
+        }
+    }
+
+    /** Aktywuje świeżo założone konto pierwszym kodem z authenticatora. */
+    fun potwierdzRejestracje(kod: String) {
+        val username = stan.zakladaneKonto ?: return
+
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            runCatching { Auth.confirmRegistration(api, username, kod) }
+                .onSuccess {
+                    stan = stan.copy(
+                        ekran = Ekran.LOGOWANIE,
+                        pracuje = false,
+                        sekretTotp = null,
+                        otpauthUri = null,
+                        // Ten kod jest już zużyty — serwer odrzuca powtórzenia,
+                        // więc do logowania trzeba poczekać na następny.
+                        informacja = "Konto gotowe. Poczekaj na kolejny kod " +
+                            "z authenticatora — ten został już zużyty.",
+                    )
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się potwierdzić konta",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Odbiera konto przeniesione z innego urządzenia.
+     *
+     * Po tym kroku trzeba się jeszcze zalogować: przeniesiony jest skarbiec,
+     * a nie sesja. Token dostępowy żyje krócej niż tożsamość i celowo nie
+     * wchodzi do zrzutu — inaczej przechwycony kod dawałby od razu dostęp
+     * do serwera.
+     */
+    fun odbierzKonto(kod: String) {
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null, informacja = null)
+
+            runCatching { Przeniesienie.odbierz(vault, BuildConfig.API_URL, kod) }
+                .onSuccess { konto ->
+                    stan = stan.copy(
+                        ekran = Ekran.LOGOWANIE,
+                        pracuje = false,
+                        informacja = "Konto ${konto.username} odebrane. " +
+                            "Zaloguj się i przestań używać starego urządzenia.",
+                    )
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się odebrać konta",
+                    )
+                }
+        }
+    }
+
     /** Loguje użytkownika i uruchamia klienta. */
     fun zaloguj(username: String, haslo: String, kod: String) {
         viewModelScope.launch {
@@ -52,6 +158,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // Identyfikator urządzenia odtwarzamy z magazynu, gdy istnieje.
                 // Nowy przy każdym logowaniu zostawiałby w katalogu stos
                 // martwych urządzeń, do których nikt się nie dodzwoni.
+                // Po przeniesieniu w magazynie leży już konto ze źródła —
+                // wraz z jego identyfikatorem urządzenia i stanem MLS. Nadanie
+                // tu nowego identyfikatora unieważniłoby przeniesiony stan.
                 val konto = vault.loadAccount()
                     ?: Account(username, "android-${UUID.randomUUID().toString().take(8)}")
                 vault.saveAccount(konto)

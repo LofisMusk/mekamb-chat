@@ -8,12 +8,16 @@ vi.mock("./api", () => ({ API_URL: "https://serwer.test" }));
 const KONTO: Account = { userId: "u-1", username: "alicja", deviceId: "web-abcd1234" };
 const ZIARNO = new Uint8Array(32).fill(7);
 const STAN = new TextEncoder().encode("UDAWANY-STAN-MLS-".repeat(20));
+const HISTORIA = new TextEncoder().encode(
+  JSON.stringify({ wersja: 1, rozmowy: { ab12: [{ tresc: "TAJNA-TRESC-ROZMOWY" }] } }),
+);
 
 /** Skarbiec w pamięci — podmieniany, bo IndexedDB w testach nie ma. */
 const skarbiec = {
   konto: null as Account | null,
   ziarno: null as Uint8Array | null,
   stan: null as Uint8Array | null,
+  historia: null as Uint8Array | null,
 };
 
 vi.mock("./vault", () => ({
@@ -23,6 +27,8 @@ vi.mock("./vault", () => ({
   saveAccount: async (k: Account) => void (skarbiec.konto = k),
   saveSeed: async (z: Uint8Array) => void (skarbiec.ziarno = z),
   saveState: async (s: Uint8Array) => void (skarbiec.stan = s),
+  loadHistory: async () => skarbiec.historia,
+  saveHistory: async (h: Uint8Array) => void (skarbiec.historia = h),
 }));
 
 /** Udawany serwer: pamięta ładunki i pozwala zajrzeć, co dostał. */
@@ -54,6 +60,7 @@ describe("przeniesienie konta", () => {
     skarbiec.konto = KONTO;
     skarbiec.ziarno = ZIARNO;
     skarbiec.stan = STAN;
+    skarbiec.historia = HISTORIA;
     podepnijFetch();
   });
 
@@ -64,6 +71,7 @@ describe("przeniesienie konta", () => {
     skarbiec.konto = null;
     skarbiec.ziarno = null;
     skarbiec.stan = null;
+    skarbiec.historia = null;
 
     const odebraneKonto = await odbierzPrzeniesienie(tresc);
 
@@ -71,6 +79,16 @@ describe("przeniesienie konta", () => {
     expect(skarbiec.konto).toEqual(KONTO);
     expect(skarbiec.ziarno).toEqual(ZIARNO);
     expect(skarbiec.stan).toEqual(STAN);
+    expect(skarbiec.historia).toEqual(HISTORIA);
+  });
+
+  /// Konto bez rozmów to normalna sytuacja, nie błąd.
+  it("brak historii nie blokuje przeniesienia", async () => {
+    skarbiec.historia = null;
+    const { tresc } = await przygotujPrzeniesienie("token");
+
+    skarbiec.konto = null;
+    await expect(odbierzPrzeniesienie(tresc)).resolves.toEqual(KONTO);
   });
 
   /// Sedno całej konstrukcji: serwer przechowuje zrzut, więc nie może w nim
@@ -86,6 +104,7 @@ describe("przeniesienie konta", () => {
     expect(jakoTekst).not.toContain("alicja");
     expect(jakoTekst).not.toContain("web-abcd1234");
     expect(jakoTekst).not.toContain("UDAWANY-STAN-MLS");
+    expect(jakoTekst).not.toContain("TAJNA-TRESC-ROZMOWY");
 
     // Bajtowo też — nazwa użytkownika mogła trafić tam w innym kodowaniu.
     const igla = new TextEncoder().encode("alicja");

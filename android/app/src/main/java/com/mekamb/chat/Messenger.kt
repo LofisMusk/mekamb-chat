@@ -103,7 +103,7 @@ class Messenger private constructor(
         val groupId = client.createConversation()
         val oczekujacy = client.addMember(groupId, keyPackage)
 
-        val przyjety = api.submitCommit(groupId, client.epoch(groupId), oczekujacy.commit)
+        val przyjety = api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit)
         if (!przyjety) {
             // Relay odrzucił commit — ktoś zmienił grupę w międzyczasie.
             // Scalenie na siłę wypchnęłoby nas poza rozmowę.

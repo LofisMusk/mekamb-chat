@@ -190,15 +190,26 @@ class Api(private val baseUrl: String) {
         return Base64.decode(odpowiedz["keyPackage"]!!.jsonPrimitive.content, Base64.NO_WRAP)
     }
 
-    /** Zgłasza commit do rozstrzygnięcia kolejności. */
-    suspend fun submitCommit(groupId: ByteArray, epoch: ULong, commit: ByteArray): Boolean {
+    /**
+     * Zgłasza commit do rozstrzygnięcia kolejności.
+     *
+     * Wymaga tokenu — inaczej serwer odrzuca żądanie i **żadna rozmowa nie
+     * daje się rozpocząć**. Relay porządkuje epoki grupy, więc dopuszczenie tu
+     * kogokolwiek pozwalałoby obcemu wywracać kolejność commitów.
+     */
+    suspend fun submitCommit(
+        token: String,
+        groupId: ByteArray,
+        epoch: ULong,
+        commit: ByteArray,
+    ): Boolean {
         val body = buildJsonObject {
             put("epoch", epoch.toLong())
             put("commit", base64(commit))
         }
 
         return try {
-            postJson("/groups/${hex(groupId)}/commit", body, null)
+            postJson("/groups/${hex(groupId)}/commit", body, token)
             true
         } catch (e: ApiException) {
             // 409 nie jest błędem klienta — znaczy „ktoś był pierwszy".

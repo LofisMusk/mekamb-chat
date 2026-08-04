@@ -29,6 +29,7 @@ const KEY_ID = "klucz-szyfrujacy";
 const SEED_ID = "ziarno-urzadzenia";
 const STATE_ID = "stan-mls";
 const ACCOUNT_ID = "konto";
+const HISTORY_ID = "historia";
 
 const IV_BYTES = 12;
 
@@ -125,6 +126,23 @@ export async function loadSeed(): Promise<Uint8Array | null> {
 
 export async function loadState(): Promise<Uint8Array | null> {
   const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(STATE_ID));
+  return packed ? decrypt(packed) : null;
+}
+
+/**
+ * Historia rozmów — szyfrowana tak samo jak reszta skarbca.
+ *
+ * Serwer jej nie ma i mieć nie będzie. Trafia w całości do zrzutu przy
+ * przeniesieniu konta, więc rośnie razem z nim — stąd limit po stronie
+ * [`historia.ts`].
+ */
+export async function saveHistory(history: Uint8Array): Promise<void> {
+  const packed = await encrypt(history);
+  await tx("readwrite", (store) => store.put(packed, HISTORY_ID));
+}
+
+export async function loadHistory(): Promise<Uint8Array | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(HISTORY_ID));
   return packed ? decrypt(packed) : null;
 }
 

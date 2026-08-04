@@ -4,7 +4,9 @@ import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
 import { KodQr } from "./KodQr";
 import { OdbierzTutaj, PrzeniesStad } from "./Przeniesienie";
+import { type Wiadomosc, wczytajRozmowe, zapiszRozmowe } from "./lib/historia";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
+import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
 import type { CallState } from "./lib/calls";
@@ -39,15 +41,6 @@ type Ekran =
   | { nazwa: "odbior-przeniesienia" }
   | { nazwa: "drugi-skladnik"; username: string; sesja: LoginSession }
   | { nazwa: "czat"; messenger: Messenger };
-
-interface Wiadomosc {
-  id: string;
-  autor: string;
-  tresc: string;
-  czas: number;
-  wlasna: boolean;
-  zalacznik?: ReceivedAttachment;
-}
 
 export function App() {
   const [ekran, setEkran] = useState<Ekran>({ nazwa: "ladowanie" });
@@ -398,7 +391,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [rozmowca, setRozmowca] = useState("");
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
   const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
-  const gniazdo = useRef<WebSocket | null>(null);
+  const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
    *
@@ -422,12 +415,15 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
     ]);
   }, []);
 
-  useEffect(() => {
-    const socket = api.connectInbox(messenger.account.userId);
-    gniazdo.current = socket;
+  // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
+  // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
+  // zrywałaby połączenie.
+  const biezacaGrupa = useRef<Uint8Array | null>(null);
+  biezacaGrupa.current = groupId;
 
-    socket.onmessage = async (event) => {
-      const ramka = new Uint8Array(event.data as ArrayBuffer);
+  const obsluzKoperte = useCallback(
+    async (ramkaBuf: ArrayBuffer, potwierdz: (id: bigint) => void) => {
+      const ramka = new Uint8Array(ramkaBuf);
 
       // Pierwsze osiem bajtów to identyfikator wpisu w kolejce serwera.
       const id = new DataView(ramka.buffer, ramka.byteOffset, 8).getBigUint64(0);
@@ -439,16 +435,16 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         // Potwierdzamy DOPIERO po przetworzeniu i zapisaniu stanu. Wcześniejsze
         // potwierdzenie kasowałoby kopertę, której jeszcze nie umiemy odtworzyć
         // po odświeżeniu strony — czyli gubiłoby wiadomość bezpowrotnie.
-        socket.send(`ack:${id}`);
+        potwierdz(id);
 
         if (odebrana?.call) {
           // Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia —
           // trafia do komponentu rozmowy.
           setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
-          if (!groupId) setGroupId(odebrana.groupId);
+          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
         } else if (odebrana) {
           dodaj(odebrana);
-          if (!groupId) setGroupId(odebrana.groupId);
+          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
         }
         poSukcesie(nieudane.current, String(id));
       } catch (err) {
@@ -463,19 +459,69 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         // krążyła w nieskończoność — ale dopiero po kilku, bo koperta, która
         // wyprzedziła swój commit, może przejść za drugim razem.
         if (poNiepowodzeniu(nieudane.current, String(id)).rodzaj === "odrzuc") {
-          socket.send(`ack:${id}`);
+          potwierdz(id);
         }
       }
-    };
+    },
+    [messenger, dodaj],
+  );
 
-    return () => socket.close();
-  }, [messenger, dodaj, onBlad, groupId]);
+  // Połączenie zależy WYŁĄCZNIE od konta. Wcześniej wisiało na `groupId`
+  // i na niememoizowanej funkcji błędu, więc każde przerysowanie zrywało je
+  // i otwierało nowe.
+  useEffect(() => {
+    const polaczenie = polaczZeSkrzynka({
+      otworz: () => api.connectInbox(messenger.account.userId),
+      naRamke: (ramka, potwierdz) => void obsluzKoperte(ramka, potwierdz),
+      naStan: setStanSieci,
+    });
+
+    return () => polaczenie.zamknij();
+  }, [messenger, obsluzKoperte]);
+
+  // Historia rozmowy z dysku. Bez tego odświeżenie strony kasowało rozmowę,
+  // a odświeżenie było jedynym ratunkiem na zerwane połączenie.
+  useEffect(() => {
+    if (!groupId) return;
+    let aktualne = true;
+
+    void wczytajRozmowe(groupId).then((zapisane) => {
+      if (!aktualne || zapisane.length === 0) return;
+
+      // Scalamy z tym, co przyszło w międzyczasie — koperta mogła dotrzeć,
+      // zanim odczyt z dysku się skończył.
+      setWiadomosci((biezace) => {
+        const znane = new Set(biezace.map((w) => w.id));
+        return [...zapisane.filter((w) => !znane.has(w.id)), ...biezace].sort(
+          (a, b) => a.czas - b.czas,
+        );
+      });
+    });
+
+    return () => {
+      aktualne = false;
+    };
+  }, [groupId]);
+
+  // Zapis po każdej zmianie. Zapisujemy całą rozmowę, bo leży w jednym
+  // zaszyfrowanym rekordzie — dopisywanie po jednej wiadomości i tak
+  // wymagałoby odczytania oraz przepisania całości.
+  useEffect(() => {
+    if (!groupId || wiadomosci.length === 0) return;
+    void zapiszRozmowe(groupId, wiadomosci).catch((err) => {
+      console.warn("nie udało się zapisać historii", err);
+    });
+  }, [groupId, wiadomosci]);
 
   return (
     <section className="czat">
       <div className="pasek">
+        {/* Stan połączenia jest tu istotny, nie ozdobny: przy zerwanej sieci
+            wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
         <span className="tryb" title="Przeglądarka nie potrafi łączyć się bezpośrednio">
-          przez serwer
+          {stanSieci === "polaczone" && "przez serwer"}
+          {stanSieci === "laczenie" && "łączę…"}
+          {stanSieci === "rozlaczone" && "brak połączenia — ponawiam"}
         </span>
         <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
         <button

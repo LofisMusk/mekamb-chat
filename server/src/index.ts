@@ -34,7 +34,10 @@ app.use("*", async (c, next) =>
         .filter(Boolean);
       return dozwolone.includes(origin) ? origin : null;
     },
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    // PUT jest tu potrzebny dla przeniesienia konta. Jego brak nie objawia
+    // się błędem serwera, tylko „Failed to fetch" w przeglądarce — żądanie
+    // ginie na preflighcie i nigdy nie dociera do kodu.
+    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     maxAge: 86_400,
   })(c, next),

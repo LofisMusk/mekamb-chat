@@ -26,6 +26,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -95,30 +99,42 @@ private fun Zawartosc(
         }
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("mekamb-chat", style = MaterialTheme.typography.headlineSmall)
-
-        // Tryb połączenia jest widoczny cały czas. Użytkownik ma prawo wiedzieć,
-        // czy rozmowa omija infrastrukturę, czy idzie przez serwer.
-        Text(
-            text = when (stan.trybPolaczenia) {
-                DeliveryMode.DIRECT -> "połączenie bezpośrednie"
-                DeliveryMode.MAILBOX -> "przez serwer"
-                null -> "brak połączenia"
-            },
-            style = MaterialTheme.typography.labelSmall,
-        )
-
-        stan.blad?.let { komunikat ->
-            Card(Modifier.fillMaxWidth()) {
-                Text(komunikat, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+        // Znak i droga dostarczania dopiero po zalogowaniu. Ekrany wejścia mają
+        // własne nagłówki, a tryb połączenia nic tam jeszcze nie znaczy.
+        if (stan.zalogowany) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+            ) {
+                Icon(
+                    imageVector = when (stan.trybPolaczenia) {
+                        DeliveryMode.DIRECT -> Ikony.Bezposrednio
+                        DeliveryMode.MAILBOX -> Ikony.PrzezSerwer
+                        null -> Ikony.BrakSieci
+                    },
+                    contentDescription = null,
+                    tint = if (stan.trybPolaczenia == null) Neutral600 else Akcent,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = when (stan.trybPolaczenia) {
+                        DeliveryMode.DIRECT -> "bezpośrednio — rozmówca zna Twój adres IP"
+                        DeliveryMode.MAILBOX -> "przez serwer"
+                        null -> "brak połączenia"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TekstPrzygaszony,
+                )
             }
         }
 
+        stan.blad?.let { komunikat ->
+            PasekBledu(komunikat, onZamknij = { model.wyczyscBlad() })
+        }
+
         stan.informacja?.let { komunikat ->
-            Card(Modifier.fillMaxWidth()) {
-                Text(komunikat, Modifier.padding(12.dp))
-            }
+            Karta { Text(komunikat, style = MaterialTheme.typography.bodySmall) }
         }
 
         when {
@@ -127,63 +143,9 @@ private fun Zawartosc(
             stan.ekran == Ekran.REJESTRACJA -> FormularzRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)
             stan.ekran == Ekran.ODBIOR -> OdbiorKonta(model, kodZIntencji, onKodZuzyty)
-            else -> FormularzLogowania(model)
-        }
-    }
-}
-
-@Composable
-private fun FormularzLogowania(model: ChatViewModel) {
-    var username by remember { mutableStateOf("") }
-    var haslo by remember { mutableStateOf("") }
-    var kod by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Logowanie", style = MaterialTheme.typography.titleMedium)
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Nazwa użytkownika") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = haslo,
-            onValueChange = { haslo = it },
-            label = { Text("Hasło") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = kod,
-            onValueChange = { kod = it },
-            label = { Text("Kod z authenticatora") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Text(
-            "Hasło nie opuszcza tego urządzenia. Serwer nigdy go nie zobaczy.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        Button(
-            onClick = { model.zaloguj(username, haslo, kod) },
-            enabled = !stanZajety(model),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (stanZajety(model)) "Loguję…" else "Zaloguj")
-        }
-
-        TextButton(
-            onClick = { model.pokaz(Ekran.REJESTRACJA) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Załóż konto")
-        }
-        TextButton(
-            onClick = { model.pokaz(Ekran.ODBIOR) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Przenoszę konto z innego urządzenia")
+            stan.ekran == Ekran.LOGOWANIE -> EkranLogowania(model)
+            stan.ekran == Ekran.KOD_LOGOWANIA -> EkranKoduLogowania(model)
+            else -> EkranPowitania(model)
         }
     }
 }

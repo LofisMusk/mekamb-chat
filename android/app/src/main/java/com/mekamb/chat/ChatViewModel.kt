@@ -18,10 +18,19 @@ import java.util.UUID
  * podmiany całego obiektu, więc nie ma miejsca na częściowo zaktualizowany stan.
  */
 /** Który ekran pokazujemy, dopóki nie ma zalogowanego klienta. */
-enum class Ekran { LOGOWANIE, REJESTRACJA, POTWIERDZENIE, ODBIOR }
+enum class Ekran {
+    /** Ekran startowy: trzy drogi wejścia. */
+    POWITANIE,
+    LOGOWANIE,
+    /** Drugi krok logowania — kod z authenticatora. */
+    KOD_LOGOWANIA,
+    REJESTRACJA,
+    POTWIERDZENIE,
+    ODBIOR,
+}
 
 data class StanCzatu(
-    val ekran: Ekran = Ekran.LOGOWANIE,
+    val ekran: Ekran = Ekran.POWITANIE,
     val zalogowany: Boolean = false,
     val pracuje: Boolean = false,
     val blad: String? = null,
@@ -56,6 +65,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     /** Przełącza ekran, czyszcząc komunikaty z poprzedniego. */
+    /** Chowa komunikat błędu. Ma znikać, gdy użytkownik go przeczyta. */
+    fun wyczyscBlad() {
+        stan = stan.copy(blad = null)
+    }
+
     fun pokaz(ekran: Ekran) {
         stan = stan.copy(ekran = ekran, blad = null, informacja = null)
     }
@@ -150,7 +164,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Loguje użytkownika i uruchamia klienta. */
-    fun zaloguj(username: String, haslo: String, kod: String) {
+    /**
+     * Sesja między krokiem hasła a krokiem kodu.
+     *
+     * W modelu, nie w stanie ekranu: to materiał uwierzytelniający, a stan
+     * ekranu bywa logowany i zrzucany przy diagnostyce.
+     */
+    private var sesjaLogowania: SesjaLogowania? = null
+
+    /** Pierwszy krok logowania. Złe hasło odpada tutaj, przed pytaniem o kod. */
+    fun zalogujHaslem(username: String, haslo: String) {
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            runCatching { Auth.loginPassword(api, username, haslo) }
+                .onSuccess { sesja ->
+                    sesjaLogowania = sesja
+                    stan = stan.copy(pracuje = false, ekran = Ekran.KOD_LOGOWANIA)
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "logowanie nie powiodło się",
+                    )
+                }
+        }
+    }
+
+    /** Drugi krok logowania. */
+    fun zalogujKodem(kod: String) {
+        val sesja = sesjaLogowania ?: return
         viewModelScope.launch {
             stan = stan.copy(pracuje = true, blad = null)
 
@@ -162,10 +205,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // wraz z jego identyfikatorem urządzenia i stanem MLS. Nadanie
                 // tu nowego identyfikatora unieważniłoby przeniesiony stan.
                 val konto = vault.loadAccount()
-                    ?: Account(username, "android-${UUID.randomUUID().toString().take(8)}")
+                    ?: Account(sesja.username, "android-${UUID.randomUUID().toString().take(8)}")
                 vault.saveAccount(konto)
 
-                val token = Auth.login(api, username, haslo, kod, konto.deviceId)
+                val token = Auth.loginCode(api, sesja, kod, konto.deviceId)
 
                 val klient = Messenger.open(vault, api, konto, token)
 
@@ -178,9 +221,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 klient
             }.onSuccess { klient ->
                 messenger = klient
+                sesjaLogowania = null
                 stan = stan.copy(zalogowany = true, pracuje = false)
             }.onFailure { blad ->
-                stan = stan.copy(pracuje = false, blad = blad.message ?: "logowanie nie powiodło się")
+                // Sesja zostaje: kod mógł być po prostu przepisany z pomyłką
+                // albo zdążył wygasnąć, a przepisywanie hasła od nowa byłoby
+                // karą za literówkę.
+                stan = stan.copy(pracuje = false, blad = blad.message ?: "kod nie został przyjęty")
             }
         }
     }

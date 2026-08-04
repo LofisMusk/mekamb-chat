@@ -59,13 +59,21 @@ object Auth {
      * Trzy rundy: wymiana OPAQUE, dowód klienta, drugi składnik. Samo hasło
      * nie wystarcza — serwer wydaje token dopiero po kodzie z authenticatora.
      */
-    suspend fun login(
+    /**
+     * Pierwszy krok: hasło.
+     *
+     * Rozdzielenie na dwa kroki nie jest kosmetyką. Przy jednym wywołaniu
+     * z hasłem i kodem naraz każde niepowodzenie wyglądało tak samo, więc
+     * użytkownik z pomyłką w haśle przepisywał kod z authenticatora w kółko.
+     * Teraz złe hasło odpada tutaj i mówi o sobie wprost.
+     *
+     * Zwrócona sesja żyje po stronie serwera do czasu podania kodu.
+     */
+    suspend fun loginPassword(
         api: Api,
         username: String,
         password: String,
-        code: String,
-        deviceId: String,
-    ): String = withContext(Dispatchers.Default) {
+    ): SesjaLogowania = withContext(Dispatchers.Default) {
         val start = opaqueLoginStart(password)
         val (loginId, ke2) = api.loginStart(username, start.request)
 
@@ -78,9 +86,22 @@ object Auth {
         }
 
         api.loginFinish(loginId, username, finish.finalization)
-        api.loginTotp(loginId, code, deviceId)
+        SesjaLogowania(loginId, username)
+    }
+
+    /** Drugi krok: kod z authenticatora. Zwraca token dostępowy. */
+    suspend fun loginCode(
+        api: Api,
+        sesja: SesjaLogowania,
+        code: String,
+        deviceId: String,
+    ): String = withContext(Dispatchers.Default) {
+        api.loginTotp(sesja.loginId, code, deviceId)
     }
 }
+
+/** Sesja między krokiem hasła a krokiem kodu. */
+data class SesjaLogowania(val loginId: String, val username: String)
 
 data class RegistrationResult(val totpSecret: String, val otpauthUri: String)
 

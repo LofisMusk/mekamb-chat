@@ -23,6 +23,12 @@ async function token(userId = "alicja"): Promise<string> {
   });
 }
 
+/** Kubełek jest w typach opcjonalny, bo produkcja może działać bez R2. */
+function magazyn(): R2Bucket {
+  if (!env.ATTACHMENTS) throw new Error("testy wymagają kubełka R2");
+  return env.ATTACHMENTS;
+}
+
 function zrzut(tresc = "udawany-zaszyfrowany-skarbiec"): ArrayBuffer {
   return new TextEncoder().encode(tresc).buffer as ArrayBuffer;
 }
@@ -58,24 +64,24 @@ describe("przeniesienie konta", () => {
     expect((await odbierz(ID)).status).toBe(404);
 
     // I naprawdę zniknął z magazynu, a nie tylko przestał być wydawany.
-    expect(await env.ATTACHMENTS.get(`transfer/${ID}`)).toBeNull();
+    expect(await magazyn().get(`transfer/${ID}`)).toBeNull();
   });
 
   /// Sedno drugie: po czasie zrzut przestaje być wydawany, nawet gdy nikt po
   /// niego nie przyszedł.
   it("zrzut po terminie nie jest wydawany i znika", async () => {
-    await env.ATTACHMENTS.put(`transfer/${ID}`, zrzut(), {
+    await magazyn().put(`transfer/${ID}`, zrzut(), {
       customMetadata: { wygasa: String(Date.now() - 1000) },
     });
 
     expect((await odbierz(ID)).status).toBe(404);
-    expect(await env.ATTACHMENTS.get(`transfer/${ID}`)).toBeNull();
+    expect(await magazyn().get(`transfer/${ID}`)).toBeNull();
   });
 
   /// Zrzut bez daty ważności to zrzut, którego nie umiemy przeterminować —
   /// leżałby bez końca, więc traktujemy go jak przeterminowany.
   it("zrzut bez daty ważności jest odrzucany", async () => {
-    await env.ATTACHMENTS.put(`transfer/${ID}`, zrzut());
+    await magazyn().put(`transfer/${ID}`, zrzut());
 
     expect((await odbierz(ID)).status).toBe(404);
   });
@@ -119,14 +125,14 @@ describe("przeniesienie konta", () => {
 
   /// Odbiór kasuje zrzut sam, więc sprzątanie dotyczy tylko porzuconych.
   it("sprzątanie usuwa porzucone zrzuty i nie rusza świeżych", async () => {
-    await env.ATTACHMENTS.put(`transfer/${ID}`, zrzut(), {
+    await magazyn().put(`transfer/${ID}`, zrzut(), {
       customMetadata: { wygasa: String(Date.now() - 1000) },
     });
     await wyslij(INNY_ID, zrzut(), await token());
 
     expect(await cleanupExpiredTransfers(env)).toBe(1);
-    expect(await env.ATTACHMENTS.get(`transfer/${ID}`)).toBeNull();
-    expect(await env.ATTACHMENTS.get(`transfer/${INNY_ID}`)).not.toBeNull();
+    expect(await magazyn().get(`transfer/${ID}`)).toBeNull();
+    expect(await magazyn().get(`transfer/${INNY_ID}`)).not.toBeNull();
   });
 
   /// Zrzut jest jednorazowy — pośrednik, który by go zapamiętał, zostawiłby

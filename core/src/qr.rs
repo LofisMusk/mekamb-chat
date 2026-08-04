@@ -113,8 +113,8 @@ impl Galois {
         let mut log = [0u8; 256];
 
         let mut x: u16 = 1;
-        for i in 0..255 {
-            exp[i] = x as u8;
+        for (i, wpis) in exp.iter_mut().enumerate().take(255) {
+            *wpis = x as u8;
             log[x as usize] = i as u8;
             x <<= 1;
             if x & 0x100 != 0 {
@@ -240,8 +240,8 @@ fn uloz_dane(bajty: &[u8], wersja: usize) -> Vec<u8> {
     }
 
     // Resztę wypełniają na przemian 0xEC i 0x11 — tak stanowi norma.
-    for i in pelne_bajty..pojemnosc_bajtow {
-        dane[i] = if (i - pelne_bajty) % 2 == 0 {
+    for (i, bajt) in dane.iter_mut().enumerate().skip(pelne_bajty) {
+        *bajt = if (i - pelne_bajty) % 2 == 0 {
             0xec
         } else {
             0x11
@@ -391,8 +391,7 @@ fn wzory_stale(m: &mut Macierz, wersja: usize) {
     let ostatni = rozmiar - 7;
     for &y in srodki {
         for &x in srodki {
-            let na_wzorze =
-                (y == 6 && x == 6) || (y == 6 && x == ostatni) || (y == ostatni && x == 6);
+            let na_wzorze = (y == 6 && (x == 6 || x == ostatni)) || (y == ostatni && x == 6);
             if na_wzorze {
                 continue;
             }

@@ -103,10 +103,13 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 2** — transport iroh: koperty, wysyłka P2P, fallback na skrzynkę
 - [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
 - [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
-- [~] **Faza 5** — Android: bindingi UniFFI, transport P2P, UI (zostaje logowanie)
+- [~] **Faza 5** — Android: bindingi UniFFI, transport P2P, UI, logowanie (APK niezbudowany — brak NDK)
 - [x] **Faza 6** — załączniki: zdjęcia i wideo szyfrowane end-to-end
 - [x] **Faza 7** — grupy wieloosobowe: dodawanie członków, rozsyłanie do grupy
-- [ ] Fazy 8–11 — rozmowy audio/wideo, multi-device, hardening
+- [ ] **Faza 8** — safety numbers i linkowanie urządzeń przez QR
+- [ ] **Faza 9** — rozmowy audio/wideo 1:1
+- [ ] **Faza 10** — rozmowy grupowe mesh do 4 osób
+- [ ] **Faza 11** — hardening: powtarzalne buildy, audyt, wdrożenie produkcyjne
 
 ## Licencja
 

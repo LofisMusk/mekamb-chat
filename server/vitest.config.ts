@@ -14,6 +14,11 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
+        // R2 jest w konfiguracji produkcyjnej zakomentowane, dopóki nie zostanie
+        // włączone na koncie Cloudflare. Testy i tak muszą sprawdzać załączniki,
+        // a miniflare symuluje kubełek bez sięgania po prawdziwy R2.
+        r2Buckets: ["ATTACHMENTS"],
+
         bindings: {
           TEST_MIGRATIONS: migrations,
 

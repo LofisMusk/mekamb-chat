@@ -312,6 +312,27 @@ impl Conversation {
             .map(|m| String::from_utf8_lossy(m.credential.serialized_content()).into_owned())
             .collect()
     }
+
+    /// Uczestnicy wraz z kluczami podpisu — materiał do safety number.
+    ///
+    /// Klucze bierzemy z **drzewa MLS**, a nie z katalogu na serwerze. To jest
+    /// istota rzeczy: gdyby serwer podstawił cudze urządzenie, znalazłoby się
+    /// ono w drzewie i zmieniło safety number. Odczyt z katalogu pozwalałby
+    /// serwerowi pokazać jedno, a wprowadzić do grupy co innego.
+    pub fn participants(&self) -> Vec<crate::safety::Participant> {
+        self.group
+            .members()
+            .map(|m| crate::safety::Participant {
+                identity: String::from_utf8_lossy(m.credential.serialized_content()).into_owned(),
+                signature_key: m.signature_key.as_slice().to_vec(),
+            })
+            .collect()
+    }
+
+    /// Safety number rozmowy — do porównania z rozmówcą innym kanałem.
+    pub fn safety_number(&self) -> Result<String> {
+        crate::safety::safety_number(&self.participants())
+    }
 }
 
 /// Konfiguracja zakładania grupy.

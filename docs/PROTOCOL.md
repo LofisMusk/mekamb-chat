@@ -243,7 +243,39 @@ Koszt: plik nie chudnie. To rozsądna cena za pewność, że nagranie nadal dzia
 kontenera lepiej dostarczyć niż odrzucić — pod warunkiem, że interfejs powie,
 iż akurat ten poszedł z metadanymi.
 
-## 7. Rozmowy audio/wideo
+## 7. Safety number
+
+Kod do porównania poza aplikacją, liczony wyłącznie z tożsamości uczestników.
+
+```
+material = "mekamb-chat/v1/safety-number"
+         || dla każdego uczestnika (posortowanych, bez duplikatów):
+              len(identity) || identity || len(signature_key) || signature_key
+
+digest = SHA-512(material)
+powtórz 5200 razy:  digest = SHA-512(digest || etykieta)
+
+kod = 12 grup po 5 cyfr, każda z kolejnych 5 bajtów skrótu modulo 100000
+```
+
+Decyzje, które są tu istotne:
+
+- **Sortowanie i deduplikacja.** Bez nich dwie osoby w tej samej rozmowie
+  zobaczyłyby różne kody i porównanie nigdy by się nie udało.
+- **Prefiksy długości.** Bez nich dałoby się przesunąć granicę między nazwą
+  a kluczem i spreparować inny skład dający ten sam kod.
+- **Powtórzone haszowanie.** Kod ma ~200 bitów, czyli mniej niż klucz — atak
+  polega na szukaniu innej pary kluczy dającej ten sam wynik. Iteracje mnożą
+  koszt takiego poszukiwania. Domieszka etykiety w każdej rundzie wymusza
+  przejście całego łańcucha zamiast zrównoleglenia.
+- **Klucze z drzewa MLS, nie z katalogu.** Gdyby serwer podstawił cudze
+  urządzenie, znalazłoby się ono w drzewie i zmieniło kod. Odczyt z katalogu
+  pozwalałby serwerowi pokazać jedno, a wprowadzić do grupy co innego.
+
+Kod zmienia się przy każdej zmianie składu rozmowy — uczestnicy mają wtedy
+porównać go ponownie.
+
+## 8. Rozmowy audio/wideo
 
 WebRTC, topologia mesh, maksymalnie 4 uczestników. Bez serwera mediów.
 
@@ -261,7 +293,7 @@ kryptograficznej na osobę, która nie ma jak jej ocenić.
 Limit 4 osób wynika z pasma: przy 5 uczestnikach każdy wysyła 4 strumienie
 w górę, co przekracza możliwości typowego łącza domowego.
 
-## 8. Uwierzytelnienie do infrastruktury
+## 9. Uwierzytelnienie do infrastruktury
 
 ```
 rejestracja:  register/start → register/finish → register/confirm
@@ -298,7 +330,7 @@ infrastruktury: skrzynki offline, katalogu i publikowania key packages. Klucze
 wiadomości nigdy nie opuszczają urządzenia, więc przejęcie konta nie daje
 dostępu do historii.
 
-## 9. Wersjonowanie
+## 10. Wersjonowanie
 
 Każda koperta niesie wersję protokołu. Odbiorca odrzuca nieznaną wersję główną
 zamiast zgadywać — czytelny błąd jest lepszy niż ciche błędne parsowanie.

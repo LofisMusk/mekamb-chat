@@ -368,6 +368,22 @@ export class Messenger {
     return this.client.members(groupId);
   }
 
+  /**
+   * Safety number rozmowy — kod do porównania z rozmówcą innym kanałem.
+   *
+   * Liczony z kluczy tożsamości w drzewie MLS, więc podstawienie cudzego
+   * urządzenia przez serwer zmienia wynik. To jedyne, co odróżnia „szyfrowane"
+   * od „szyfrowane do właściwej osoby".
+   */
+  safetyNumber(groupId: Uint8Array): string {
+    return this.client.safetyNumber(groupId);
+  }
+
+  /** Odcisk tego urządzenia. */
+  deviceFingerprint(): string {
+    return this.client.deviceFingerprint();
+  }
+
   /** Bieżąca epoka rozmowy — rośnie z każdą zmianą składu. */
   epoch(groupId: Uint8Array): number {
     return Number(this.client.epoch(groupId));

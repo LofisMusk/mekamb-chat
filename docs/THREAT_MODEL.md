@@ -113,9 +113,14 @@ Może natomiast: odmówić usługi, opóźniać lub gubić wiadomości ze skrzyn
 zbierać metadane oraz **podmienić key package albo rekord katalogowy**, próbując
 podstawić własne urządzenie do grupy.
 
-Ostatni atak wykrywa **safety number**. Bez weryfikacji safety number złośliwy
-serwer jest realnym zagrożeniem dla poufności — dlatego nie jest to funkcja
-opcjonalna.
+Ostatni atak wykrywa **safety number** — liczony z kluczy tożsamości
+w drzewie MLS, więc podstawienie cudzego urządzenia go zmienia. Kod jest
+widoczny w interfejsie przy każdej rozmowie.
+
+Ochrona działa **tylko wtedy, gdy uczestnicy faktycznie porównają kod innym
+kanałem** — na żywo, telefonicznie, przez wideo. Porównanie przez sam
+komunikator nic nie daje, bo to dokładnie ten kanał, któremu nie ufamy.
+Aplikacja może kod pokazać i wytłumaczyć; nie może wymusić porównania.
 
 ### Aktywny atakujący w sieci
 

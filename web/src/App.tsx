@@ -686,6 +686,71 @@ function Uczestnicy({
             Nowa osoba zobaczy wiadomości wysłane od momentu dołączenia. Wcześniejszych
             nie da się jej pokazać i jest to zamierzone.
           </p>
+
+          <SafetyNumber messenger={messenger} groupId={groupId} odswiezenie={odswiezenie} />
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Kod bezpieczeństwa rozmowy.
+ *
+ * # Po co to jest widoczne
+ *
+ * Szyfrowanie chroni przed podsłuchem, ale nie przed serwerem, który podstawi
+ * cudze urządzenie do rozmowy — wiadomości byłyby wtedy szyfrowane poprawnie,
+ * tylko do niego. Ten kod liczy się wyłącznie z kluczy uczestników, więc
+ * podmiana któregokolwiek go zmienia.
+ *
+ * Porównanie musi odbyć się **innym kanałem** niż ta aplikacja: na żywo,
+ * telefonicznie, przez wideo. Porównanie przez sam komunikator nie ma sensu,
+ * bo to dokładnie ten kanał, któremu nie ufamy.
+ */
+function SafetyNumber({
+  messenger,
+  groupId,
+  odswiezenie,
+}: {
+  messenger: Messenger;
+  groupId: Uint8Array;
+  odswiezenie: number;
+}) {
+  const [pokazany, setPokazany] = useState(false);
+
+  const kod = useMemo(
+    () => {
+      try {
+        return messenger.safetyNumber(groupId);
+      } catch {
+        return null;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messenger, groupId, odswiezenie],
+  );
+
+  if (!kod) return null;
+
+  return (
+    <section className="safety">
+      <button className="safety-przelacz" onClick={() => setPokazany((p) => !p)}>
+        {pokazany ? "Ukryj kod bezpieczeństwa" : "Pokaż kod bezpieczeństwa"}
+      </button>
+
+      {pokazany && (
+        <>
+          <code className="safety-kod">{kod}</code>
+          <p className="wskazowka">
+            Porównaj ten kod z rozmówcą <strong>innym kanałem</strong> — na żywo albo
+            telefonicznie. Jeśli się zgadza, nikt nie podstawił się w środek rozmowy.
+            Porównanie przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.
+          </p>
+          <p className="wskazowka">
+            Kod zmienia się przy każdej zmianie składu rozmowy i przy dołączeniu nowego
+            urządzenia — wtedy trzeba porównać go ponownie.
+          </p>
         </>
       )}
     </section>

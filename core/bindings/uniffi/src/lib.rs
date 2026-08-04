@@ -235,6 +235,27 @@ impl MekambClient {
         Ok(conversation.epoch())
     }
 
+    /// Safety number rozmowy — kod do porównania z rozmówcą innym kanałem.
+    ///
+    /// Liczony z kluczy tożsamości **z drzewa MLS**, więc podstawienie cudzego
+    /// urządzenia przez serwer zmienia wynik.
+    pub fn safety_number(&self, group_id: Vec<u8>) -> Result<String, MekambError> {
+        let state = self.lock();
+        let conversation = state
+            .conversations
+            .get(&group_id)
+            .ok_or_else(|| MekambError::InvalidInput { powod: "nie ma takiej rozmowy".into() })?;
+        Ok(conversation.safety_number()?)
+    }
+
+    /// Odcisk tego urządzenia — do przepisania z ekranu na ekran przy linkowaniu.
+    pub fn device_fingerprint(&self) -> Result<String, MekambError> {
+        let state = self.lock();
+        Ok(mekamb_core::device_fingerprint(
+            &state.identity.signature_keypair().to_public_vec(),
+        )?)
+    }
+
     /// Identyfikatory `user_id:device_id` członków rozmowy.
     pub fn members(&self, group_id: Vec<u8>) -> Result<Vec<String>, MekambError> {
         let state = self.lock();

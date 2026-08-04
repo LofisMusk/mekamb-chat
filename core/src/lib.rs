@@ -14,6 +14,7 @@
 //! - [`framing`] — ładunek aplikacyjny przenoszony wewnątrz MLS
 //! - [`envelope`] — jawna koperta routingu na zewnątrz MLS
 //! - [`attachments`] — szyfrowanie plików kluczem podróżującym w MLS
+//! - [`safety`] — safety number do porównania poza aplikacją
 //! - [`media`] — usuwanie metadanych ze zdjęć przed zaszyfrowaniem
 //! - [`media_video`] — to samo dla kontenerów MP4 i MOV
 //! - [`storage`] — dostawca kryptografii i zrzut stanu MLS
@@ -33,11 +34,13 @@ pub mod framing;
 pub mod group;
 pub mod identity;
 pub mod media;
+pub mod safety;
 pub mod media_video;
 pub mod storage;
 
 pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
 pub use media::{can_strip, strip_image_metadata};
+pub use safety::{Participant, device_fingerprint, safety_number};
 pub use media_video::strip_video_metadata;
 pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
 pub use error::{Error, Result};

@@ -5,7 +5,7 @@
 //! kryptograficzna jest kompletna i sieć jest już tylko transportem.
 
 use mekamb_core::framing::ChatMessage;
-use mekamb_core::group::{Conversation, Incoming, Provider};
+use mekamb_core::group::{serialize_key_package, deserialize_key_package, Conversation, Incoming, Provider};
 use mekamb_core::identity::DeviceIdentity;
 
 /// Zestaw jednej strony rozmowy: tożsamość plus jej własny magazyn.
@@ -374,4 +374,65 @@ fn rozmowa_przezywa_zrzut_i_odtworzenie_stanu() {
         panic!("oczekiwano wiadomości aplikacyjnej");
     };
     assert_eq!(message.as_text(), Some("po restarcie"));
+}
+
+/// Bez tego safety number byłby bezużyteczny: dwie osoby porównujące kody
+/// przez telefon nigdy by się nie zgodziły.
+#[test]
+fn obie_strony_widza_ten_sam_safety_number() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob = Uczestnik::nowy("bob", "laptop");
+    let (u_alice, u_boba) = zaloz_rozmowe(&alice, &bob);
+
+    let kod_alicji = u_alice.safety_number().unwrap();
+    let kod_boba = u_boba.safety_number().unwrap();
+
+    assert_eq!(kod_alicji, kod_boba, "kody się różnią — porównanie nie miałoby sensu");
+    assert_eq!(kod_alicji.split(' ').count(), 12);
+}
+
+/// Sedno ochrony: gdyby serwer podstawił własne urządzenie zamiast Boba,
+/// kod u Alicji przestałby zgadzać się z tym, co widzi prawdziwy Bob.
+#[test]
+fn podstawione_urzadzenie_zmienia_safety_number() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob = Uczestnik::nowy("bob", "laptop");
+    let (u_alice, _) = zaloz_rozmowe(&alice, &bob);
+
+    // Ta sama nazwa, inne urządzenie — dokładnie to, co zrobiłby serwer
+    // wydając spreparowany key package.
+    let podszywacz = Uczestnik::nowy("bob", "laptop");
+    let (u_z_podszywaczem, _) = zaloz_rozmowe(&alice, &podszywacz);
+
+    assert_ne!(
+        u_alice.safety_number().unwrap(),
+        u_z_podszywaczem.safety_number().unwrap(),
+        "podstawienie urządzenia nie zmieniło kodu"
+    );
+}
+
+/// Dołączenie kolejnej osoby zmienia kod — uczestnicy mają szansę zauważyć,
+/// że skład rozmowy nie jest już ten, na który się umawiali.
+#[test]
+fn dodanie_osoby_zmienia_safety_number() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob = Uczestnik::nowy("bob", "laptop");
+    let (mut u_alice, _) = zaloz_rozmowe(&alice, &bob);
+
+    let przed = u_alice.safety_number().unwrap();
+
+    let czarek = Uczestnik::nowy("czarek", "tablet");
+    let pakiet = Conversation::create_key_package(&czarek.provider, &czarek.tozsamosc).unwrap();
+    let package = deserialize_key_package(
+        &alice.provider,
+        &serialize_key_package(pakiet.key_package()).unwrap(),
+    )
+    .unwrap();
+
+    u_alice
+        .stage_add_member(&alice.provider, &alice.tozsamosc, &package)
+        .unwrap();
+    u_alice.confirm_pending_commit(&alice.provider).unwrap();
+
+    assert_ne!(przed, u_alice.safety_number().unwrap());
 }

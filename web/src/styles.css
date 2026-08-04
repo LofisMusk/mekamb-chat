@@ -166,3 +166,23 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .dodaj-osobe { display: flex; gap: .4rem; margin: .5rem 0; }
 .dodaj-osobe input { flex: 1; font-size: .9rem; padding: .45rem .6rem; }
+
+.safety { margin-top: .6rem; }
+.safety-przelacz {
+  background: none;
+  padding: .3rem 0;
+  font-size: .8rem;
+  color: var(--akcent);
+}
+.safety-kod {
+  display: block;
+  background: #24242e;
+  padding: .7rem;
+  border-radius: .5rem;
+  margin: .4rem 0;
+  font-family: ui-monospace, monospace;
+  font-size: .95rem;
+  letter-spacing: .04em;
+  line-height: 1.7;
+  word-spacing: .35em;
+}

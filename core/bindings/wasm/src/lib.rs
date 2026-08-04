@@ -329,6 +329,24 @@ impl MekambClient {
         Ok(self.conversation(group_id)?.members())
     }
 
+    /// Safety number rozmowy — kod do porównania z rozmówcą innym kanałem.
+    ///
+    /// Liczony z kluczy tożsamości **z drzewa MLS**, więc podstawienie cudzego
+    /// urządzenia przez serwer zmienia wynik. Bez porównania tego kodu
+    /// szyfrowanie broni przed podsłuchem, ale nie przed podstawieniem
+    /// uczestnika rozmowy.
+    #[wasm_bindgen(js_name = safetyNumber)]
+    pub fn safety_number(&self, group_id: &[u8]) -> Result<String, JsError> {
+        self.conversation(group_id)?.safety_number().map_err(to_js)
+    }
+
+    /// Odcisk tego urządzenia — do przepisania z ekranu na ekran przy linkowaniu.
+    #[wasm_bindgen(js_name = deviceFingerprint)]
+    pub fn device_fingerprint(&self) -> Result<String, JsError> {
+        mekamb_core::device_fingerprint(&self.identity.signature_keypair().to_public_vec())
+            .map_err(to_js)
+    }
+
     /// Numer bieżącej epoki — wysyłany razem z commitem do `GroupRelay`.
     pub fn epoch(&self, group_id: &[u8]) -> Result<u64, JsError> {
         Ok(self.conversation(group_id)?.epoch())

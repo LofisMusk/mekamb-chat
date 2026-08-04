@@ -23,7 +23,7 @@ function odczytaj(tekst: string): string | null {
 
   for (let y = 0; y < m.length; y++) {
     for (let x = 0; x < m.length; x++) {
-      if (!m[y][x]) continue;
+      if (!m[y]?.[x]) continue;
       for (let dy = 0; dy < SKALA; dy++) {
         for (let dx = 0; dx < SKALA; dx++) {
           const px = MARGINES + x * SKALA + dx;
@@ -44,9 +44,9 @@ function referencja(tekst: string, maska: number): boolean[][] {
   // segmenty i przełącza tryby, żeby wyszło krócej — przy adresie `otpauth://`
   // zapisałby sekret z wielkich liter trybem alfanumerycznym. To też poprawny
   // kod QR, tylko inny, a porównanie ma wykrywać błędy, nie różnice strategii.
-  const qr = QRCode.create([{ data: tekst, mode: "byte" }], {
+  const qr = QRCode.create([{ data: new TextEncoder().encode(tekst), mode: "byte" }], {
     errorCorrectionLevel: "M",
-    maskPattern: maska,
+    maskPattern: maska as QRCode.QRCodeMaskPattern,
   });
   const bok = qr.modules.size;
   const dane = qr.modules.data;

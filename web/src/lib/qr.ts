@@ -6,8 +6,8 @@
 //! przenosi klucze konta, ma być w całości czytelny w tym repozytorium.
 //! Kod QR nie jest przy tym elementem bezpieczeństwa — to sposób zapisu, nie
 //! szyfr — więc własna implementacja niczego nie osłabia. Osłabiłby ją błąd
-//! dający kod nie do zeskanowania, dlatego testy przepuszczają wynik przez
-//! **niezależny dekoder** (`jsqr`), a nie przez ten sam kod w drugą stronę.
+//! dający kod nie do zeskanowania, dlatego testy porównują wynik z **osobną
+//! implementacją**, a nie z tym samym kodem puszczonym w drugą stronę.
 //!
 //! # Zakres
 //!
@@ -26,7 +26,7 @@ const MAX_VERSION = 10;
  * przy niektórych wersjach dane nie dzielą się równo, więc część bloków jest
  * o jeden bajt dłuższa.
  */
-const BLOKI: { ec: number; grupy: [number, number][] }[] = [
+const BLOKI: readonly { ec: number; grupy: readonly (readonly [number, number])[] }[] = [
   { ec: 10, grupy: [[1, 16]] }, // 1
   { ec: 16, grupy: [[1, 28]] }, // 2
   { ec: 26, grupy: [[1, 44]] }, // 3
@@ -40,10 +40,16 @@ const BLOKI: { ec: number; grupy: [number, number][] }[] = [
 ];
 
 /** Środki wzorów wyrównania. Wersja 1 ich nie ma. */
-const WYROWNANIE: number[][] = [
+const WYROWNANIE: readonly (readonly number[])[] = [
   [], [6, 18], [6, 22], [6, 26], [6, 30],
   [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50],
 ];
+
+function parametry(wersja: number): { ec: number; grupy: readonly (readonly [number, number])[] } {
+  const wpis = BLOKI[wersja - 1];
+  if (!wpis) throw new Error(`nieobsługiwana wersja kodu QR: ${wersja}`);
+  return wpis;
+}
 
 // ---------------------------------------------------------------------------
 // Arytmetyka GF(256) — potrzebna do kodu Reeda-Solomona
@@ -61,12 +67,15 @@ const LOG = new Uint8Array(256);
     x <<= 1;
     if (x & 0x100) x ^= 0x11d;
   }
-  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255] ?? 0;
 }
+
+const exp = (i: number): number => EXP[i] ?? 0;
+const log = (i: number): number => LOG[i] ?? 0;
 
 function mnoz(a: number, b: number): number {
   if (a === 0 || b === 0) return 0;
-  return EXP[LOG[a] + LOG[b]];
+  return exp(log(a) + log(b));
 }
 
 /** Wielomian generujący dla zadanej liczby bajtów korekcji. */
@@ -76,8 +85,9 @@ function generator(stopien: number): Uint8Array {
   for (let i = 0; i < stopien; i++) {
     const nowy = new Uint8Array(wielomian.length + 1);
     for (let j = 0; j < wielomian.length; j++) {
-      nowy[j] ^= wielomian[j];
-      nowy[j + 1] ^= mnoz(wielomian[j], EXP[i]);
+      const wspolczynnik = wielomian[j] ?? 0;
+      nowy[j] = (nowy[j] ?? 0) ^ wspolczynnik;
+      nowy[j + 1] = (nowy[j + 1] ?? 0) ^ mnoz(wspolczynnik, exp(i));
     }
     wielomian = nowy;
   }
@@ -91,10 +101,10 @@ function korekcja(dane: Uint8Array, ileEc: number): Uint8Array {
   reszta.set(dane);
 
   for (let i = 0; i < dane.length; i++) {
-    const czynnik = reszta[i];
+    const czynnik = reszta[i] ?? 0;
     if (czynnik === 0) continue;
     for (let j = 0; j < gen.length; j++) {
-      reszta[i + j] ^= mnoz(gen[j], czynnik);
+      reszta[i + j] = (reszta[i + j] ?? 0) ^ mnoz(gen[j] ?? 0, czynnik);
     }
   }
   return reszta.subarray(dane.length);
@@ -106,8 +116,7 @@ function korekcja(dane: Uint8Array, ileEc: number): Uint8Array {
 
 /** Ile bajtów danych mieści wersja przy korekcji M. */
 function pojemnosc(wersja: number): number {
-  const { grupy } = BLOKI[wersja - 1];
-  return grupy.reduce((suma, [ile, dlugosc]) => suma + ile * dlugosc, 0);
+  return parametry(wersja).grupy.reduce((suma, [ile, dlugosc]) => suma + ile * dlugosc, 0);
 }
 
 /**
@@ -136,22 +145,23 @@ function ulozDane(bajty: Uint8Array, wersja: number): Uint8Array {
   for (const bajt of bajty) dopisz(bajt, 8);
 
   // Terminator — do czterech zer, o ile jest jeszcze miejsce.
-  const wolneBity = pojemnoscBajtow * 8 - bity.length;
-  dopisz(0, Math.min(4, wolneBity));
+  dopisz(0, Math.min(4, pojemnoscBajtow * 8 - bity.length));
 
   // Wyrównanie do pełnego bajtu.
   while (bity.length % 8 !== 0) bity.push(0);
 
   const dane = new Uint8Array(pojemnoscBajtow);
-  for (let i = 0; i < bity.length; i += 8) {
+  const pelneBajty = bity.length / 8;
+
+  for (let i = 0; i < pelneBajty; i++) {
     let bajt = 0;
-    for (let j = 0; j < 8; j++) bajt = (bajt << 1) | bity[i + j];
-    dane[i / 8] = bajt;
+    for (let j = 0; j < 8; j++) bajt = (bajt << 1) | (bity[i * 8 + j] ?? 0);
+    dane[i] = bajt;
   }
 
   // Resztę wypełniają na przemian 0xEC i 0x11 — tak stanowi norma.
-  for (let i = bity.length / 8; i < pojemnoscBajtow; i++) {
-    dane[i] = (i - bity.length / 8) % 2 === 0 ? 0xec : 0x11;
+  for (let i = pelneBajty; i < pojemnoscBajtow; i++) {
+    dane[i] = (i - pelneBajty) % 2 === 0 ? 0xec : 0x11;
   }
   return dane;
 }
@@ -164,7 +174,7 @@ function ulozDane(bajty: Uint8Array, wersja: number): Uint8Array {
  * wszystkie zamiast zniszczyć jeden.
  */
 function przeplec(dane: Uint8Array, wersja: number): Uint8Array {
-  const { ec, grupy } = BLOKI[wersja - 1];
+  const { ec, grupy } = parametry(wersja);
 
   const blokiDanych: Uint8Array[] = [];
   let pozycja = 0;
@@ -180,10 +190,12 @@ function przeplec(dane: Uint8Array, wersja: number): Uint8Array {
   const najdluzszy = Math.max(...blokiDanych.map((b) => b.length));
 
   for (let i = 0; i < najdluzszy; i++) {
-    for (const blok of blokiDanych) if (i < blok.length) wynik.push(blok[i]);
+    for (const blok of blokiDanych) {
+      if (i < blok.length) wynik.push(blok[i] ?? 0);
+    }
   }
   for (let i = 0; i < ec; i++) {
-    for (const blok of blokiEc) wynik.push(blok[i]);
+    for (const blok of blokiEc) wynik.push(blok[i] ?? 0);
   }
   return new Uint8Array(wynik);
 }
@@ -192,18 +204,36 @@ function przeplec(dane: Uint8Array, wersja: number): Uint8Array {
 // Budowa macierzy
 // ---------------------------------------------------------------------------
 
-/** `null` znaczy „moduł jeszcze nieustalony". */
-type Macierz = (boolean | null)[][];
+/**
+ * Macierz modułów trzymana płasko.
+ *
+ * `NIEUSTALONY` odróżnia moduł jeszcze niewypełniony od jasnego — bez tego
+ * rozróżnienia nie da się wiedzieć, gdzie wolno wpisywać dane.
+ */
+const NIEUSTALONY = -1;
+const JASNY = 0;
+const CIEMNY = 1;
 
-function pusta(rozmiar: number): Macierz {
-  return Array.from({ length: rozmiar }, () => Array<boolean | null>(rozmiar).fill(null));
+interface Macierz {
+  bok: number;
+  pola: Int8Array;
 }
 
+function pusta(bok: number): Macierz {
+  return { bok, pola: new Int8Array(bok * bok).fill(NIEUSTALONY) };
+}
+
+const pobierz = (m: Macierz, y: number, x: number): number => m.pola[y * m.bok + x] ?? NIEUSTALONY;
+
+const ustaw = (m: Macierz, y: number, x: number, ciemny: boolean): void => {
+  m.pola[y * m.bok + x] = ciemny ? CIEMNY : JASNY;
+};
+
 function wzoryStale(m: Macierz, wersja: number): void {
-  const rozmiar = m.length;
+  const rozmiar = m.bok;
 
   // Trzy wzory pozycjonujące wraz z separatorami.
-  for (const [wY, wX] of [[0, 0], [0, rozmiar - 7], [rozmiar - 7, 0]]) {
+  for (const [wY, wX] of [[0, 0], [0, rozmiar - 7], [rozmiar - 7, 0]] as const) {
     for (let y = -1; y <= 7; y++) {
       for (let x = -1; x <= 7; x++) {
         const py = wY + y;
@@ -213,43 +243,44 @@ function wzoryStale(m: Macierz, wersja: number): void {
         // Pierścień wokół wzoru to separator i musi być CAŁY jasny.
         // Liczenie go tą samą regułą co wzór zapalało jego naroża.
         if (y < 0 || y > 6 || x < 0 || x > 6) {
-          m[py][px] = false;
+          ustaw(m, py, px, false);
           continue;
         }
 
         const naBrzegu = y === 0 || y === 6 || x === 0 || x === 6;
         const wSrodku = y >= 2 && y <= 4 && x >= 2 && x <= 4;
-        m[py][px] = naBrzegu || wSrodku;
+        ustaw(m, py, px, naBrzegu || wSrodku);
       }
     }
   }
 
   // Linie taktujące.
   for (let i = 8; i < rozmiar - 8; i++) {
-    m[6][i] = i % 2 === 0;
-    m[i][6] = i % 2 === 0;
+    ustaw(m, 6, i, i % 2 === 0);
+    ustaw(m, i, 6, i % 2 === 0);
   }
 
   // Wzory wyrównania. Pomijamy TYLKO te trzy, które nachodzą na wzory
-  // pozycjonujące. Wcześniejszy warunek „pole już zajęte" odrzucał też te
-  // leżące na linii taktującej — a one są wymagane i mają ją przykryć.
-  const srodki = WYROWNANIE[wersja - 1];
+  // pozycjonujące. Warunek „pole już zajęte" odrzucał też te leżące na linii
+  // taktującej — a one są wymagane i mają ją przykryć.
+  const srodki = WYROWNANIE[wersja - 1] ?? [];
   const ostatni = rozmiar - 7;
   for (const y of srodki) {
     for (const x of srodki) {
       const naWzorzePozycjonujacym =
         (y === 6 && x === 6) || (y === 6 && x === ostatni) || (y === ostatni && x === 6);
       if (naWzorzePozycjonujacym) continue;
+
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
-          m[y + dy][x + dx] = Math.max(Math.abs(dy), Math.abs(dx)) !== 1;
+          ustaw(m, y + dy, x + dx, Math.max(Math.abs(dy), Math.abs(dx)) !== 1);
         }
       }
     }
   }
 
   // Moduł, który zawsze jest ciemny.
-  m[rozmiar - 8][8] = true;
+  ustaw(m, rozmiar - 8, 8, true);
 
   // Informacja o wersji — dopiero od wersji 7.
   if (wersja >= 7) {
@@ -258,8 +289,8 @@ function wzoryStale(m: Macierz, wersja: number): void {
       const bit = ((bity >> i) & 1) === 1;
       const y = Math.floor(i / 3);
       const x = rozmiar - 11 + (i % 3);
-      m[y][x] = bit;
-      m[x][y] = bit;
+      ustaw(m, y, x, bit);
+      ustaw(m, x, y, bit);
     }
   }
 }
@@ -284,7 +315,7 @@ function infoFormatu(maska: number): number {
 }
 
 function wpiszFormat(m: Macierz, maska: number): void {
-  const rozmiar = m.length;
+  const rozmiar = m.bok;
   const bity = infoFormatu(maska);
   const bit = (i: number) => ((bity >> i) & 1) === 1;
 
@@ -293,15 +324,15 @@ function wpiszFormat(m: Macierz, maska: number): void {
   // poziomu korekcji ani maski, więc żaden czytnik go nie odczyta.
 
   // Kopia pierwsza: wiersz 8 od lewej, potem kolumna 8 od góry.
-  for (let x = 0; x <= 5; x++) m[8][x] = bit(14 - x);
-  m[8][7] = bit(8);
-  m[8][8] = bit(7);
-  m[7][8] = bit(6);
-  for (let y = 0; y <= 5; y++) m[y][8] = bit(y);
+  for (let x = 0; x <= 5; x++) ustaw(m, 8, x, bit(14 - x));
+  ustaw(m, 8, 7, bit(8));
+  ustaw(m, 8, 8, bit(7));
+  ustaw(m, 7, 8, bit(6));
+  for (let y = 0; y <= 5; y++) ustaw(m, y, 8, bit(y));
 
   // Kopia druga: wiersz 8 od prawej, potem kolumna 8 od dołu.
-  for (let j = 0; j <= 7; j++) m[8][rozmiar - 1 - j] = bit(j);
-  for (let i = 0; i <= 6; i++) m[rozmiar - 1 - i][8] = bit(14 - i);
+  for (let j = 0; j <= 7; j++) ustaw(m, 8, rozmiar - 1 - j, bit(j));
+  for (let i = 0; i <= 6; i++) ustaw(m, rozmiar - 1 - i, 8, bit(14 - i));
 }
 
 /** Osiem masek z normy. */
@@ -320,7 +351,7 @@ function maskuj(maska: number, y: number, x: number): boolean {
 
 /** Wpisuje dane zygzakiem od prawego dolnego rogu, z nałożoną maską. */
 function wpiszDane(m: Macierz, dane: Uint8Array, maska: number): void {
-  const rozmiar = m.length;
+  const rozmiar = m.bok;
   let bit = 0;
   let doGory = true;
 
@@ -332,13 +363,13 @@ function wpiszDane(m: Macierz, dane: Uint8Array, maska: number): void {
       const y = doGory ? rozmiar - 1 - i : i;
 
       for (const x of [prawa, prawa - 1]) {
-        if (m[y][x] !== null) continue;
+        if (pobierz(m, y, x) !== NIEUSTALONY) continue;
 
         const wartosc =
-          bit < dane.length * 8 && ((dane[bit >> 3] >> (7 - (bit % 8))) & 1) === 1;
+          bit < dane.length * 8 && (((dane[bit >> 3] ?? 0) >> (7 - (bit % 8))) & 1) === 1;
         bit++;
 
-        m[y][x] = wartosc !== maskuj(maska, y, x);
+        ustaw(m, y, x, wartosc !== maskuj(maska, y, x));
       }
     }
     doGory = !doGory;
@@ -353,6 +384,7 @@ function wpiszDane(m: Macierz, dane: Uint8Array, maska: number): void {
  */
 function kara(m: boolean[][]): number {
   const rozmiar = m.length;
+  const pole = (y: number, x: number): boolean => m[y]?.[x] ?? false;
   let suma = 0;
 
   // Reguła 1: pasma pięciu i więcej modułów tego samego koloru.
@@ -360,8 +392,8 @@ function kara(m: boolean[][]): number {
     for (const poziomo of [true, false]) {
       let dlugosc = 1;
       for (let j = 1; j < rozmiar; j++) {
-        const teraz = poziomo ? m[i][j] : m[j][i];
-        const poprzednio = poziomo ? m[i][j - 1] : m[j - 1][i];
+        const teraz = poziomo ? pole(i, j) : pole(j, i);
+        const poprzednio = poziomo ? pole(i, j - 1) : pole(j - 1, i);
 
         if (teraz === poprzednio) {
           dlugosc++;
@@ -377,8 +409,8 @@ function kara(m: boolean[][]): number {
   // Reguła 2: jednolite kwadraty 2×2.
   for (let y = 0; y < rozmiar - 1; y++) {
     for (let x = 0; x < rozmiar - 1; x++) {
-      const a = m[y][x];
-      if (a === m[y][x + 1] && a === m[y + 1][x] && a === m[y + 1][x + 1]) suma += 3;
+      const a = pole(y, x);
+      if (a === pole(y, x + 1) && a === pole(y + 1, x) && a === pole(y + 1, x + 1)) suma += 3;
     }
   }
 
@@ -393,8 +425,8 @@ function kara(m: boolean[][]): number {
         let poziomo = true;
         let pionowo = true;
         for (let k = 0; k < 11; k++) {
-          if (m[i][j + k] !== wzor[k]) poziomo = false;
-          if (m[j + k][i] !== wzor[k]) pionowo = false;
+          if (pole(i, j + k) !== wzor[k]) poziomo = false;
+          if (pole(j + k, i) !== wzor[k]) pionowo = false;
         }
         if (poziomo) suma += 40;
         if (pionowo) suma += 40;
@@ -417,10 +449,10 @@ function kara(m: boolean[][]): number {
  * i bierzemy najniższą.
  */
 export function qrMatrix(tekst: string): boolean[][] {
-  let najlepsza: boolean[][] | null = null;
-  let najnizsza = Infinity;
+  let najlepsza = qrMatrixZMaska(tekst, 0);
+  let najnizsza = kara(najlepsza);
 
-  for (let maska = 0; maska < 8; maska++) {
+  for (let maska = 1; maska < 8; maska++) {
     const gotowa = qrMatrixZMaska(tekst, maska);
     const wynik = kara(gotowa);
     if (wynik < najnizsza) {
@@ -429,15 +461,15 @@ export function qrMatrix(tekst: string): boolean[][] {
     }
   }
 
-  return najlepsza!;
+  return najlepsza;
 }
 
 /**
  * Kod z narzuconą maską.
  *
- * Wyłącznie dla testów: pozwala porównać wynik z niezależnym generatorem
- * maska po masce. Bez tego różnica w wyborze maski maskuje różnicę w danych
- * i nie da się odróżnić jednego od drugiego.
+ * Wyłącznie dla testów: pozwala porównać wynik z osobną implementacją maska
+ * po masce. Bez tego różnica w wyborze maski przykrywa różnicę w danych i nie
+ * da się odróżnić jednego od drugiego.
  */
 export function qrMatrixZMaska(tekst: string, maska: number): boolean[][] {
   const bajty = new TextEncoder().encode(tekst);
@@ -449,7 +481,9 @@ export function qrMatrixZMaska(tekst: string, maska: number): boolean[][] {
   wpiszFormat(m, maska);
   wpiszDane(m, dane, maska);
 
-  return m.map((wiersz) => wiersz.map((pole) => pole === true));
+  return Array.from({ length: m.bok }, (_, y) =>
+    Array.from({ length: m.bok }, (_, x) => pobierz(m, y, x) === CIEMNY),
+  );
 }
 
 /**
@@ -466,10 +500,10 @@ export function qrSvgPath(tekst: string): { d: string; rozmiar: number } {
 
   let d = "";
   for (let y = 0; y < m.length; y++) {
-    for (let x = 0; x < m.length; x++) {
-      if (m[y][x]) d += `M${x + MARGINES} ${y + MARGINES}h1v1h-1z`;
+    const wiersz = m[y] ?? [];
+    for (let x = 0; x < wiersz.length; x++) {
+      if (wiersz[x]) d += `M${x + MARGINES} ${y + MARGINES}h1v1h-1z`;
     }
   }
   return { d, rozmiar };
 }
-

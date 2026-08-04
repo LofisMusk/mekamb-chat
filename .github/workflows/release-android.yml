@@ -2,9 +2,12 @@ name: Wydanie Androida
 
 # Budowanie APK i opublikowanie go jako wydanie.
 #
-# Uruchamiane etykietą `v*` albo ręcznie. Ręczne uruchomienie buduje APK
-# i wystawia je jako artefakt przebiegu, ale NIE tworzy wydania — wydanie
-# bez etykiety nie dałoby się później odtworzyć z repozytorium.
+# Z etykietą `v*`: wersją jest numer z etykiety, a APK trafia do wydania.
+#
+# Bez etykiety (uruchomienie ręczne): APK też powstaje, ale jako artefakt
+# przebiegu, i wersją jest skrócony hasz commita. Wydania nie tworzymy, bo
+# wydania bez etykiety nie dałoby się później odtworzyć z repozytorium — a hasz
+# w nazwie pliku i tak wskazuje dokładnie ten commit, z którego plik powstał.
 
 on:
   push:
@@ -25,31 +28,31 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # ------------------------------------------------------------------
-      # Wersja z etykiety
-      #
       # `versionCode` musi rosnąć, bo Android odmawia aktualizacji na niższy.
-      # Liczymy go z numeru wersji (1.2.3 → 10203), a nie z licznika
-      # przebiegów: ten sam tag ma zawsze dać ten sam plik.
-      # ------------------------------------------------------------------
       - name: Ustal wersję
         id: wersja
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # Wydanie: wersja z etykiety. versionCode liczony z numeru wersji
+            # (1.2.3 → 10203), a nie z licznika przebiegów — ten sam tag ma dać
+            # zawsze ten sam plik.
             NAZWA="${GITHUB_REF_NAME#v}"
+            MAJOR="$(echo "$NAZWA" | cut -d. -f1)"
+            MINOR="$(echo "$NAZWA" | cut -d. -f2)"
+            PATCH="$(echo "$NAZWA" | cut -d. -f3 | cut -d- -f1)"
+            KOD=$(( ${MAJOR:-0} * 10000 + ${MINOR:-0} * 100 + ${PATCH:-0} ))
+            [ "$KOD" -lt 1 ] && KOD=1
           else
-            NAZWA="0.0.0-$(git rev-parse --short HEAD)"
+            # Bez etykiety: buduje się zwykłe APK, a wersją jest skrócony hasz
+            # commita, z którego powstało. Po numerze wersji nie da się dojść,
+            # co w środku siedzi; po haszu owszem — jednoznacznie.
+            NAZWA="$(git rev-parse --short HEAD)"
+
+            # versionCode musi być liczbą i musi rosnąć, więc hasz się tu nie
+            # nadaje. Licznik przebiegów rośnie, dzięki czemu kolejne APK
+            # roboczne instalują się jedno na drugim bez odinstalowywania.
+            KOD="${GITHUB_RUN_NUMBER}"
           fi
-
-          # Człony wersji semantycznej, bez ewentualnego sufiksu po myślniku.
-          RDZEN="${NAZWA%%-*}"
-          MAJOR="$(echo "$RDZEN" | cut -d. -f1)"
-          MINOR="$(echo "$RDZEN" | cut -d. -f2)"
-          PATCH="$(echo "$RDZEN" | cut -d. -f3)"
-          KOD=$(( ${MAJOR:-0} * 10000 + ${MINOR:-0} * 100 + ${PATCH:-0} ))
-
-          # versionCode musi być dodatni — ręczny przebieg ma wersję 0.0.0.
-          [ "$KOD" -lt 1 ] && KOD=1
 
           echo "nazwa=$NAZWA" >> "$GITHUB_OUTPUT"
           echo "kod=$KOD" >> "$GITHUB_OUTPUT"

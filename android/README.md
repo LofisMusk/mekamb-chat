@@ -79,3 +79,36 @@ transport został napisany od nowa: UDP, STUN i Noise. Ani `reqwest`, ani
 - **Rozmów audio/wideo.** Klient webowy je ma; Android wymaga osobnej
   integracji z WebRTC.
 - **Działającego transportu.** Patrz sekcja o blokerze powyżej.
+
+## Klucz podpisu wydania
+
+APK bez podpisu nie da się zainstalować — Android odmawia. Klucz **nie leży
+w repozytorium**; workflow wydania czyta go z sekretów GitHuba i przerywa, gdy
+ich nie ma. Podpisywanie kluczem debugowym byłoby gorsze niż brak podpisu: plik
+dałoby się zainstalować, więc nikt by nie zauważył, że komunikator „szyfrowany
+end-to-end" jest sygnowany kluczem, który każdy ma na dysku.
+
+Klucz tworzy się raz:
+
+```bash
+keytool -genkeypair -v -keystore wydanie.jks -alias mekamb -keyalg RSA -keysize 4096 -validity 10950
+```
+
+Potem cztery sekrety w repozytorium (`Settings → Secrets and variables →
+Actions`):
+
+| Sekret | Zawartość |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -i wydanie.jks \| tr -d '\n'` |
+| `ANDROID_KEYSTORE_PASSWORD` | hasło magazynu |
+| `ANDROID_KEY_ALIAS` | alias klucza (`mekamb`) |
+| `ANDROID_KEY_PASSWORD` | hasło klucza |
+
+**Plik `wydanie.jks` trzeba zachować poza repozytorium.** Sekretów GitHuba nie
+da się odczytać po zapisaniu, więc kopia z dysku jest jedyną. Bez tego klucza
+nie da się już wydać aktualizacji — Android odmawia instalacji aktualizacji
+podpisanej innym kluczem i jedynym wyjściem byłoby odinstalowanie aplikacji
+przez każdego użytkownika, co kasuje klucze i całą historię rozmów.
+
+Katalog `android/keystore/` jest w `.gitignore` i jest wygodnym miejscem na tę
+kopię — ale to nadal tylko jeden dysk.

@@ -100,9 +100,18 @@ pub enum IncomingEvent {
 }
 
 /// Commit oczekujący na potwierdzenie przez `GroupRelay`.
+///
+/// Oba pola są **gotowymi kopertami**, nie surowymi bajtami MLS. Wcześniej
+/// wychodziły stąd surowe i Kotlin miał je opakować sam — czego nie robił,
+/// więc serwer odrzucał commit, a odbiorca nie miał jak rozpoznać welcome.
+/// Kodowanie kopert zostaje po stronie Rusta, jak przy `seal_text`: drugi
+/// enkoder po stronie interfejsu prędzej czy później rozjechałby się
+/// z pierwszym.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct PendingCommit {
+    /// Koperta rodzaju `commit` — do zgłoszenia w `GroupRelay`.
     pub commit: Vec<u8>,
+    /// Koperta rodzaju `welcome` — do wysłania nowemu członkowi.
     pub welcome: Option<Vec<u8>>,
 }
 
@@ -235,8 +244,11 @@ impl MekambClient {
         let pending = conversation.stage_add_member(provider, identity, &package)?;
 
         Ok(PendingCommit {
-            commit: pending.commit,
-            welcome: pending.welcome,
+            commit: Envelope::new(group_id.clone(), EnvelopeKind::Commit, pending.commit)
+                .encode_to_vec(),
+            welcome: pending.welcome.map(|welcome| {
+                Envelope::new(group_id.clone(), EnvelopeKind::Welcome, welcome).encode_to_vec()
+            }),
         })
     }
 

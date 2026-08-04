@@ -252,7 +252,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun wyslij(tresc: String) {
+    /**
+     * Wysyła wiadomość.
+     *
+     * `onWyslane` woła się dopiero po powodzeniu. Pole tekstowe czyszczone od
+     * razu po dotknięciu przycisku gubiło treść za każdym razem, gdy wysyłka
+     * się nie udała — a wtedy trzeba ją napisać od nowa, mimo że to sieć
+     * zawiodła, nie użytkownik.
+     */
+    fun wyslij(tresc: String, onWyslane: () -> Unit = {}) {
         val klient = messenger ?: return
         val groupId = stan.groupId ?: return
         val rozmowca = stan.rozmowca ?: return
@@ -266,6 +274,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         trybPolaczenia = sposob,
                         blad = null,
                     )
+                    onWyslane()
                 }
                 .onFailure { blad ->
                     stan = stan.copy(blad = blad.message ?: "nie udało się wysłać wiadomości")

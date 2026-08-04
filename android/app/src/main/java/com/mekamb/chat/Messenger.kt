@@ -103,7 +103,15 @@ class Messenger private constructor(
         val groupId = client.createConversation()
         val oczekujacy = client.addMember(groupId, keyPackage)
 
-        val przyjety = api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit)
+        // Skład PO commicie: nowa osoba musi znaleźć się na liście, do której
+        // relay rozsyła, inaczej nie dostanie kolejnych commitów. `members()`
+        // zwraca `user_id:device_id`, a serwer adresuje skrzynki po user_id.
+        val czlonkowie = (
+            client.members(groupId).map { it.substringBefore(':') } + peerUsername
+        ).distinct()
+
+        val przyjety =
+            api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit, czlonkowie)
         if (!przyjety) {
             // Relay odrzucił commit — ktoś zmienił grupę w międzyczasie.
             // Scalenie na siłę wypchnęłoby nas poza rozmowę.

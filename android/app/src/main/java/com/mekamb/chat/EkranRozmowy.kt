@@ -103,10 +103,7 @@ fun EkranRozmowy(
             tresc = tresc,
             onZmiana = { tresc = it },
             wlaczone = !stan.pracuje,
-            onWyslij = {
-                model.wyslij(tresc)
-                tresc = ""
-            },
+            onWyslij = { model.wyslij(tresc) { tresc = "" } },
         )
     }
 }

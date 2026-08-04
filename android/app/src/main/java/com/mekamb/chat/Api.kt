@@ -5,6 +5,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
@@ -201,11 +203,16 @@ class Api(private val baseUrl: String) {
         token: String,
         groupId: ByteArray,
         epoch: ULong,
-        commit: ByteArray,
+        envelope: ByteArray,
+        members: List<String>,
     ): Boolean {
+        // Pola muszą nazywać się tak, jak czyta je serwer. Wcześniej szło stąd
+        // `commit` bez listy członków, więc serwer odrzucał każdy commit
+        // i ROZPOCZĘCIE ROZMOWY NA ANDROIDZIE BYŁO NIEMOŻLIWE.
         val body = buildJsonObject {
             put("epoch", epoch.toLong())
-            put("commit", base64(commit))
+            put("envelope", base64(envelope))
+            put("members", buildJsonArray { members.forEach { add(it) } })
         }
 
         return try {

@@ -388,7 +388,12 @@ impl MekambTransport {
         }
     }
 
-    pub fn close(&self) {
+    /// Zamyka węzeł P2P.
+    ///
+    /// Nazwa celowo inna niż `close`: UniFFI generuje dla każdego obiektu
+    /// `AutoCloseable.close()` do zwalniania uchwytu natywnego, a własna
+    /// metoda o tej nazwie tworzy w Kotlinie kolizję przeciążeń.
+    pub fn shutdown(&self) {
         self.runtime.block_on(self.transport.close());
     }
 }

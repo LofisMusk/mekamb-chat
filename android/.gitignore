@@ -1,0 +1,10 @@
+# Wyniki budowania.
+build/
+app/build/
+.gradle/
+
+# Biblioteki natywne generowane przez cargo-ndk przy każdym buildzie.
+app/src/main/jniLibs/
+
+# Ścieżka do SDK jest lokalna dla maszyny.
+local.properties

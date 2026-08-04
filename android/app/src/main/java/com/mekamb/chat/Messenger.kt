@@ -59,7 +59,9 @@ class Messenger private constructor(
 
             // Klucz węzła iroh jest wyprowadzany z tego samego ziarna, ale
             // rozłączną etykietą HKDF — patrz docs/PROTOCOL.md.
-            val transport = MekambTransport(client.irohSecret())
+            // `start` jest w UniFFI konstruktorem drugorzędnym, więc trafia do
+            // companion object — konstruktor klasy przyjmuje uchwyt natywny.
+            val transport = MekambTransport.start(client.irohSecret())
 
             Messenger(client, transport, api, vault, account, token)
         }
@@ -177,6 +179,6 @@ class Messenger private constructor(
     }
 
     fun close() {
-        transport.close()
+        transport.shutdown()
     }
 }

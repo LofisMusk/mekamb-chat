@@ -110,24 +110,48 @@ val buildRustLibs by tasks.registering(Exec::class) {
     )
 
     inputs.dir(rustRoot.resolve("core"))
+    inputs.dir(rustRoot.resolve("opaque"))
     inputs.dir(rustRoot.resolve("transport"))
     outputs.dir(jniLibsDir)
+}
+
+/**
+ * Buduje bibliotekę dla hosta — wyłącznie po to, żeby odczytać z niej metadane.
+ *
+ * Naturalne byłoby czytać je z pliku, który trafia do APK. Nie da się: profil
+ * `release` usuwa sekcję z metadanymi UniFFI przy strippingu, a artefakty
+ * androidowe budujemy właśnie w tym profilu.
+ *
+ * Ryzyko rozjazdu jest tu żadne — obie biblioteki powstają z tego samego
+ * źródła w jednym przebiegu builda.
+ */
+val buildHostLib by tasks.registering(Exec::class) {
+    group = "rust"
+    description = "Buduje rdzeń dla hosta, żeby odczytać metadane UniFFI"
+
+    workingDir = rustRoot
+    commandLine("cargo", "build", "-p", "mekamb-ffi")
+
+    // Katalog z bindingami MUSI tu być. Bez niego zmiana w warstwie UniFFI
+    // nie unieważnia zadania, Gradle uznaje je za aktualne i kompiluje Kotlin
+    // przeciw nieaktualnym wiązaniom — błąd wygląda wtedy jak problem
+    // w kodzie Kotlina, choć jest w konfiguracji builda.
+    inputs.dir(rustRoot.resolve("core"))
+    inputs.dir(rustRoot.resolve("opaque"))
+    inputs.dir(rustRoot.resolve("transport"))
 }
 
 val generateUniffiBindings by tasks.registering(Exec::class) {
     group = "rust"
     description = "Generuje wiązania Kotlina z metadanych zbudowanej biblioteki"
-    dependsOn(buildRustLibs)
+    dependsOn(buildRustLibs, buildHostLib)
 
-    // Metadane czytamy wprost z biblioteki, KTÓRA TRAFIA DO APK. Czytanie
-    // z osobnej kopii dla hosta wymagałoby zbudowania rdzenia drugi raz i
-    // otwierałoby możliwość, że wiązania opisują coś innego niż to, co się
-    // faktycznie uruchomi na telefonie.
-    val biblioteka = jniLibsDir.file("arm64-v8a/libmekamb_ffi.so").asFile
+    val rozszerzenie = if (System.getProperty("os.name").startsWith("Mac")) "dylib" else "so"
+    val biblioteka = rustRoot.resolve("target/debug/libmekamb_ffi.$rozszerzenie")
 
     workingDir = rustRoot
     commandLine(
-        "cargo", "run", "--release", "-p", "mekamb-ffi", "--bin", "uniffi-bindgen", "--",
+        "cargo", "run", "-p", "mekamb-ffi", "--bin", "uniffi-bindgen", "--",
         "generate", "--library", biblioteka.absolutePath,
         "--language", "kotlin",
         "--out-dir", generatedKotlin.get().asFile.absolutePath,
@@ -136,6 +160,12 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
 
     outputs.dir(generatedKotlin)
 }
+
+// jniLibs jest jednocześnie katalogiem źródeł i wynikiem zadania budującego
+// rdzeń. Bez jawnej zależności Gradle nie wie, w jakiej kolejności je wykonać,
+// i zgłasza to jako problem konfiguracji.
+tasks.matching { it.name.contains("JniLibFolders") || it.name.contains("MergeNativeLibs") }
+    .configureEach { dependsOn(buildRustLibs) }
 
 // Wygenerowany Kotlin dokładamy do źródeł modułu.
 android.sourceSets.getByName("main") {

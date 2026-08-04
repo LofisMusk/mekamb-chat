@@ -307,7 +307,12 @@ impl MekambClient {
     ///
     /// `dtls_fingerprint` podróżuje **wewnątrz** MLS, niezależnie od SDP.
     /// Odbiorca porówna jedno z drugim przed zestawieniem połączenia.
+    ///
+    /// Lista argumentów jest długa, ale każdy jest osobnym polem protokołu —
+    /// zwinięcie ich w strukturę tylko przeniosłoby to samo o poziom wyżej,
+    /// a przy granicy WASM dołożyłoby konwersję.
     #[wasm_bindgen(js_name = sendCallSignal)]
+    #[allow(clippy::too_many_arguments)]
     pub fn send_call_signal(
         &mut self,
         group_id: &[u8],

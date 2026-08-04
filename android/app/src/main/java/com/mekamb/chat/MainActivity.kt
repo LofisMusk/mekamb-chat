@@ -248,42 +248,47 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
     var kod by remember { mutableStateOf("") }
     val stan = model.stan
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Drugi składnik", style = MaterialTheme.typography.titleMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+        NaglowekEkranu("Drugi składnik", "Second factor")
 
+        // Trzy drogi obok siebie, bo żadna nie działa wszędzie: kod QR wymaga
+        // drugiego urządzenia, odnośnik działa tylko na tym samym telefonie,
+        // a przepisanie sekretu działa zawsze i jest ostatnią deską ratunku.
         stan.otpauthUri?.let { uri ->
-            Button(
-                onClick = {
-                    runCatching {
-                        kontekst.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Dodaj w aplikacji authenticator")
+            Text(
+                "Zeskanuj aplikacją authenticator:",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TekstPrzygaszony,
+            )
+            KodQr(
+                tresc = uri,
+                opis = "Kod QR do dodania konta w aplikacji authenticator",
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+
+            PrzyciskDrugi("Otwórz w aplikacji na tym telefonie") {
+                runCatching {
+                    kontekst.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+                }
             }
         }
 
         stan.sekretTotp?.let { sekret ->
-            Text("Albo wpisz ten sekret ręcznie:", style = MaterialTheme.typography.bodySmall)
-            Card(Modifier.fillMaxWidth()) {
-                Text(sekret, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
-            }
+            Text(
+                "Albo wpisz ten sekret ręcznie:",
+                style = MaterialTheme.typography.labelMedium,
+                color = Neutral500,
+            )
+            Karta { Text(sekret, style = MaterialTheme.typography.bodyMedium) }
         }
 
-        OutlinedTextField(
-            value = kod,
-            onValueChange = { kod = it },
-            label = { Text("Kod z authenticatora") },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Pole("Kod z authenticatora · Code", kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
 
-        Button(
-            onClick = { model.potwierdzRejestracje(kod) },
-            enabled = !stanZajety(model) && kod.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
+        PrzyciskGlowny(
+            if (stanZajety(model)) "Potwierdzam…" else "Potwierdź · Confirm",
+            wlaczony = !stanZajety(model) && kod.length == 6,
         ) {
-            Text(if (stanZajety(model)) "Potwierdzam…" else "Potwierdź")
+            model.potwierdzRejestracje(kod)
         }
     }
 }

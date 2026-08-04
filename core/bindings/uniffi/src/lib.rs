@@ -99,6 +99,33 @@ pub enum IncomingEvent {
     JoinedConversation { group_id: Vec<u8> },
 }
 
+/// Kod QR jako płaska tablica modułów.
+///
+/// Płasko, bo UniFFI nie przenosi zagnieżdżonych list bez kosztu po obu
+/// stronach, a odbiorca i tak rysuje to w pętli po współrzędnych.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct KodQr {
+    /// Bok kodu w modułach, bez cichego marginesu.
+    pub bok: u32,
+    /// `true` znaczy moduł ciemny. Długość to `bok * bok`.
+    pub moduly: Vec<bool>,
+}
+
+/// Generuje kod QR.
+///
+/// Jedna implementacja dla obu klientów — patrz [`mekamb_core::qr`]. Kod niesie
+/// klucz przeniesienia konta i sekret TOTP, więc druga implementacja po drugiej
+/// stronie prędzej czy później rozjechałaby się z pierwszą.
+#[uniffi::export]
+pub fn qr_code(text: String) -> Result<KodQr, MekambError> {
+    let macierz = mekamb_core::qr::qr_matrix(&text)?;
+
+    Ok(KodQr {
+        bok: macierz.len() as u32,
+        moduly: macierz.into_iter().flatten().collect(),
+    })
+}
+
 /// Commit oczekujący na potwierdzenie przez `GroupRelay`.
 ///
 /// Oba pola są **gotowymi kopertami**, nie surowymi bajtami MLS. Wcześniej

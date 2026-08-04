@@ -37,6 +37,7 @@ pub mod group;
 pub mod identity;
 pub mod media;
 pub mod media_video;
+pub mod qr;
 pub mod safety;
 pub mod storage;
 

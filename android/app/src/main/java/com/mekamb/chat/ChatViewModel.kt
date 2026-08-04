@@ -39,6 +39,8 @@ data class StanCzatu(
     val wiadomosci: List<Wiadomosc> = emptyList(),
     /** Wszystkie rozmowy z dysku, od najświeższej. */
     val rozmowy: List<PozycjaListy> = emptyList(),
+    /** Kod przeniesienia, gdy ekran przenoszenia jest otwarty. */
+    val kodPrzeniesienia: Przeniesienie.Kod? = null,
     /** Jak poszła ostatnia wysyłka — pokazywane użytkownikowi. */
     val trybPolaczenia: DeliveryMode? = null,
     /** Sekret TOTP do wpisania w authenticatorze. Tylko przy rejestracji. */
@@ -92,6 +94,46 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /** Konto z magazynu — do pokazania w panelu. */
+    val konto: Account? get() = vault.loadAccount()
+
+    /**
+     * Przygotowuje przeniesienie konta.
+     *
+     * Klucz zostaje w kodzie, serwer dostaje wyłącznie szyfrogram.
+     */
+    fun przygotujPrzeniesienie() {
+        val klient = messenger ?: return
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            runCatching { Przeniesienie.przygotuj(vault, BuildConfig.API_URL, klient.token) }
+                .onSuccess { kod ->
+                    stan = stan.copy(pracuje = false, kodPrzeniesienia = kod)
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się przygotować przeniesienia",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Kasuje konto z tego urządzenia.
+     *
+     * Nieodwracalne: historia jest tylko tutaj, a serwer nie ma czego wydać.
+     * Przeładowanie stanu do początkowego zamiast restartu procesu — użytkownik
+     * ma zobaczyć powitanie, a nie zniknięcie aplikacji.
+     */
+    fun usunKonto() {
+        messenger = null
+        sesjaLogowania = null
+        vault.wipe()
+        stan = StanCzatu()
+    }
+
     fun wyczyscBlad() {
         stan = stan.copy(blad = null)
     }
@@ -132,7 +174,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Aktywuje świeżo założone konto pierwszym kodem z authenticatora. */
     fun potwierdzRejestracje(kod: String) {
-        val username = stan.zakladaneKonto ?: return
+        // Ciche `return` przy braku nazwy dawało ekran, na którym przycisk nic
+        // nie robi i nic nie tłumaczy — najgorszy rodzaj usterki, bo nie da się
+        // jej ani zgłosić, ani obejść.
+        val username = stan.zakladaneKonto
+        if (username == null) {
+            stan = stan.copy(
+                blad = "zgubiliśmy nazwę zakładanego konta — zacznij rejestrację od nowa",
+            )
+            return
+        }
 
         viewModelScope.launch {
             stan = stan.copy(pracuje = true, blad = null)
@@ -299,10 +350,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * zawiodła, nie użytkownik.
      */
     fun wyslij(tresc: String, onWyslane: () -> Unit = {}) {
-        val klient = messenger ?: return
-        val groupId = stan.groupId ?: return
-        val rozmowca = stan.rozmowca ?: return
         if (tresc.isBlank()) return
+
+        val klient = messenger
+        val groupId = stan.groupId
+        val rozmowca = stan.rozmowca
+        if (klient == null || groupId == null || rozmowca == null) {
+            stan = stan.copy(blad = "rozmowa nie jest gotowa — wróć na listę i wejdź ponownie")
+            return
+        }
 
         viewModelScope.launch {
             runCatching { klient.sendText(groupId, tresc, rozmowca) }

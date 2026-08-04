@@ -34,7 +34,13 @@ class Messenger private constructor(
     private val api: Api,
     private val vault: Vault,
     val account: Account,
-    private val token: String,
+    /**
+     * Token dostępowy.
+     *
+     * Widoczny na zewnątrz, bo przeniesienie konta wysyła zrzut własnym
+     * żądaniem — nie przez `Messenger`, który zajmuje się rozmowami.
+     */
+    val token: String,
 ) {
 
     companion object {

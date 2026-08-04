@@ -99,6 +99,7 @@ private fun Zawartosc(
     // z rozmowy przez skasowanie `groupId` odcięłoby drogę powrotną, bo bez
     // niego nie da się do rozmowy wrócić.
     var wRozmowie by remember { mutableStateOf(false) }
+    var wPrzeniesieniu by remember { mutableStateOf(false) }
 
     // Nowa rozmowa — własna albo przychodząca — otwiera się od razu.
     LaunchedEffect(stan.groupId) {
@@ -160,6 +161,19 @@ private fun Zawartosc(
             // formularz „z kim rozmawiasz". Wybór rozmówcy zszedł pod
             // „Nowa rozmowa", bo dotyczy pierwszego kontaktu, a nie każdego
             // wejścia do aplikacji.
+            stan.zalogowany && wPrzeniesieniu ->
+                EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
+
+            stan.zalogowany && galaz == Galaz.KONTO ->
+                EkranKonta(
+                    model = model,
+                    onPrzeniesienie = { wPrzeniesieniu = true },
+                    // Kody bezpieczeństwa nie mają jeszcze własnego ekranu;
+                    // pusta akcja jest uczciwsza niż przejście donikąd.
+                    onUczestnicy = {},
+                    onGalaz = { galaz = it },
+                )
+
             stan.zalogowany && stan.groupId != null && wRozmowie ->
                 EkranRozmowy(
                     model = model,

@@ -65,9 +65,11 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # Bez x86_64: wydanie go nie pakuje, więc budowanie byłoby czystą stratą
+      # czasu. Lokalne buildy nadal go mają — bez niego nie ruszy emulator.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -109,6 +111,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon assembleRelease \
+            -Pabi=arm64-v8a,armeabi-v7a \
             -PapiUrl="${{ inputs.apiUrl || 'https://mekamb.grubyogon10.workers.dev' }}" \
             -PversionName="${{ steps.wersja.outputs.nazwa }}" \
             -PversionCode="${{ steps.wersja.outputs.kod }}"
@@ -177,6 +180,12 @@ jobs:
           \`\`\`bash
           sha256sum ${{ steps.apk.outputs.plik }}
           \`\`\`
+
+          ### Architektury
+
+          `arm64-v8a` i `armeabi-v7a`, czyli telefony i tablety z Androidem.
+          Bez `x86_64` — urządzenia z tą architekturą to w praktyce emulatory
+          i Chromebooki, a biblioteka dla niej waży 2,7 MB.
 
           ### O historii rozmów
 

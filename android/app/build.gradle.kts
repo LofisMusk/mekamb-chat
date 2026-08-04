@@ -20,6 +20,23 @@ plugins {
  */
 val magazynKluczy: File? = System.getenv("ANDROID_KEYSTORE_PATH")?.let(::File)?.takeIf { it.exists() }
 
+/**
+ * Architektury, na które budujemy i które trafiają do APK.
+ *
+ * Domyślnie z `x86_64`, bo bez niego nie da się uruchomić aplikacji
+ * w emulatorze. Wydanie przekazuje `-Pabi=arm64-v8a,armeabi-v7a` — x86_64
+ * waży 2,7 MB, a telefony z tą architekturą praktycznie nie istnieją.
+ *
+ * Jedna lista steruje i budowaniem rdzenia, i pakowaniem. Rozjazd między nimi
+ * dałby albo APK bez biblioteki dla zadeklarowanej architektury (aplikacja
+ * wywala się przy starcie), albo bibliotekę zbudowaną na darmo.
+ */
+val abi = (findProperty("abi") as String?)
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+
 android {
     namespace = "com.mekamb.chat"
     compileSdk = 36
@@ -39,6 +56,14 @@ android {
         // nadpisuje to przez -PapiUrl=... (patrz workflow release-android).
         val apiUrl = (findProperty("apiUrl") as String?) ?: "http://10.0.2.2:8787"
         buildConfigField("String", "API_URL", "\"$apiUrl\"")
+
+        // Bez tego APK niesie biblioteki natywne wszystkich architektur, jakie
+        // ma w sobie którakolwiek zależność. JNA dokłada między innymi `mips`,
+        // `mips64` i `armeabi` — wycofane z NDK w 2018 roku i nieuruchamialne
+        // na żadnym dzisiejszym urządzeniu. To pół megabajta martwego balastu.
+        ndk {
+            abiFilters += abi
+        }
     }
 
     signingConfigs {
@@ -63,6 +88,11 @@ android {
             // komentarz przy `magazynKluczy`.
             signingConfig = signingConfigs.findByName("wydanie")
             isMinifyEnabled = true
+
+            // Usuwa zasoby, do których nie prowadzi żadne odwołanie. Działa
+            // tylko razem z `isMinifyEnabled`, bo to R8 ustala, co jest
+            // osiągalne.
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -84,7 +114,16 @@ android {
     }
 
     packaging {
-        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            // Teksty licencji i pliki wersji zależności. Nie są nikomu
+            // potrzebne w czasie działania, a same licencje AndroidX zajmują
+            // 50 kB. Informacja o licencjach zostaje w repozytorium.
+            "/META-INF/**/LICENSE.txt",
+            "/META-INF/*.version",
+            "/META-INF/*.kotlin_module",
+            "DebugProbesKt.bin",
+        )
     }
 }
 
@@ -119,9 +158,6 @@ dependencies {
 // generowane są z artefaktu, więc nie mają jak rozjechać się z Rustem.
 // ---------------------------------------------------------------------------
 
-/** Architektury, na które budujemy. */
-val abi = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-
 /**
  * Rozszerzenie biblioteki współdzielonej na maszynie budującej.
  *
@@ -142,6 +178,15 @@ val generatedKotlin = layout.buildDirectory.dir("generated/uniffi")
 val buildRustLibs by tasks.registering(Exec::class) {
     group = "rust"
     description = "Buduje rdzeń Rust dla architektur Androida (wymaga NDK i cargo-ndk)"
+
+    // Katalog jest wynikiem tego zadania, ale cargo-ndk tylko dokłada do niego
+    // pliki. Po usunięciu zależności jej biblioteka zostawała tu na zawsze
+    // i trafiała do APK — tak przez pewien czas jechało 624 kB po `iroh`,
+    // wymienionym na własny transport. W CI tego nie widać, bo checkout jest
+    // czysty; widać dopiero w wydaniu zbudowanym lokalnie.
+    doFirst {
+        jniLibsDir.asFile.deleteRecursively()
+    }
 
     workingDir = rustRoot
     commandLine(

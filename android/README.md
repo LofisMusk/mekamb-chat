@@ -112,3 +112,26 @@ przez każdego użytkownika, co kasuje klucze i całą historię rozmów.
 
 Katalog `android/keystore/` jest w `.gitignore` i jest wygodnym miejscem na tę
 kopię — ale to nadal tylko jeden dysk.
+
+## Rozmiar APK
+
+Wydanie pakuje wyłącznie `arm64-v8a` i `armeabi-v7a`. Sterowana tym jest
+właściwość `-Pabi`, ta sama, która decyduje o tym, co buduje cargo-ndk —
+jedna lista, bo rozjazd dałby albo APK bez biblioteki dla zadeklarowanej
+architektury (aplikacja wywala się przy starcie), albo bibliotekę zbudowaną
+na darmo.
+
+Lokalnie domyślnie dochodzi `x86_64`, bo bez niego nie ruszy emulator:
+
+```bash
+./gradlew assembleDebug
+```
+
+Filtr ABI odcina też architektury dorzucane przez JNA — `mips`, `mips64`
+i `armeabi` zostały wycofane z NDK w 2018 roku i nie działają na żadnym
+dzisiejszym urządzeniu.
+
+Uwaga na `jniLibs/`: cargo-ndk tylko dokłada tam pliki, więc zadanie budujące
+czyści katalog przed każdym przebiegiem. Bez tego biblioteka po usuniętej
+zależności zostawała na dysku i trafiała do APK zbudowanego lokalnie —
+w CI tego nie widać, bo checkout jest czysty.

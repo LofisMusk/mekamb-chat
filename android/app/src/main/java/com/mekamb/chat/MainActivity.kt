@@ -20,7 +20,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,7 +49,7 @@ class MainActivity : ComponentActivity() {
         kodZIntencji = kodPrzeniesienia(intent)
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MotywNocturne {
                 Scaffold(modifier = Modifier.fillMaxSize()) { wciecia ->
                     Zawartosc(
                         kodZIntencji = kodZIntencji,
@@ -58,7 +57,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(wciecia)
-                            .padding(16.dp),
+                            .padding(Odstep.ekran),
                     )
                 }
             }

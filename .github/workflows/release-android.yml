@@ -1,0 +1,188 @@
+name: Wydanie Androida
+
+# Budowanie APK i opublikowanie go jako wydanie.
+#
+# Uruchamiane etykietą `v*` albo ręcznie. Ręczne uruchomienie buduje APK
+# i wystawia je jako artefakt przebiegu, ale NIE tworzy wydania — wydanie
+# bez etykiety nie dałoby się później odtworzyć z repozytorium.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      apiUrl:
+        description: "Adres backendu wkompilowany w APK"
+        default: "https://mekamb.grubyogon10.workers.dev"
+
+permissions:
+  contents: write # potrzebne do utworzenia wydania
+
+jobs:
+  apk:
+    name: APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # ------------------------------------------------------------------
+      # Wersja z etykiety
+      #
+      # `versionCode` musi rosnąć, bo Android odmawia aktualizacji na niższy.
+      # Liczymy go z numeru wersji (1.2.3 → 10203), a nie z licznika
+      # przebiegów: ten sam tag ma zawsze dać ten sam plik.
+      # ------------------------------------------------------------------
+      - name: Ustal wersję
+        id: wersja
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            NAZWA="${GITHUB_REF_NAME#v}"
+          else
+            NAZWA="0.0.0-$(git rev-parse --short HEAD)"
+          fi
+
+          # Człony wersji semantycznej, bez ewentualnego sufiksu po myślniku.
+          RDZEN="${NAZWA%%-*}"
+          MAJOR="$(echo "$RDZEN" | cut -d. -f1)"
+          MINOR="$(echo "$RDZEN" | cut -d. -f2)"
+          PATCH="$(echo "$RDZEN" | cut -d. -f3)"
+          KOD=$(( ${MAJOR:-0} * 10000 + ${MINOR:-0} * 100 + ${PATCH:-0} ))
+
+          # versionCode musi być dodatni — ręczny przebieg ma wersję 0.0.0.
+          [ "$KOD" -lt 1 ] && KOD=1
+
+          echo "nazwa=$NAZWA" >> "$GITHUB_OUTPUT"
+          echo "kod=$KOD" >> "$GITHUB_OUTPUT"
+          echo "Wersja $NAZWA (versionCode $KOD)"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # cargo-ndk szuka NDK pod ANDROID_NDK_HOME. Obraz runnera ma go
+      # zainstalowanego, ale pod inną zmienną.
+      - name: Wskaż NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # Klucz podpisu
+      #
+      # Bez podpisu Android odmawia instalacji, więc niepodpisane APK jest
+      # bezużyteczne. Zamiast podpisywać kluczem debugowym — co dałoby plik
+      # instalowalny, ale sygnowany kluczem, który każdy ma na dysku —
+      # przerywamy z instrukcją, jak dołożyć własny.
+      # ------------------------------------------------------------------
+      - name: Rozpakuj magazyn kluczy
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::Brak sekretu ANDROID_KEYSTORE_BASE64 — nie ma czym podpisać APK."
+            echo "Utwórz magazyn kluczy i dodaj sekrety; instrukcja w android/README.md."
+            exit 1
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/wydanie.jks"
+
+      - name: Zbuduj APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/wydanie.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease \
+            -PapiUrl="${{ inputs.apiUrl || 'https://mekamb.grubyogon10.workers.dev' }}" \
+            -PversionName="${{ steps.wersja.outputs.nazwa }}" \
+            -PversionCode="${{ steps.wersja.outputs.kod }}"
+
+      # ------------------------------------------------------------------
+      # Sprawdzenie, czy APK naprawdę jest podpisane.
+      #
+      # Gradle nie przerywa, gdy konfiguracja podpisu jest pusta — wypuszcza
+      # plik `-unsigned.apk`. Bez tego kroku wydanie zawierałoby plik, którego
+      # nikt nie zainstaluje, a dowiedzielibyśmy się o tym od użytkowników.
+      # ------------------------------------------------------------------
+      - name: Sprawdź podpis
+        id: apk
+        run: |
+          PLIK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+
+          if [ -z "$PLIK" ]; then
+            echo "::error::Build nie wyprodukował żadnego APK."
+            exit 1
+          fi
+          case "$PLIK" in
+            *unsigned*)
+              echo "::error::APK jest niepodpisane ($PLIK) — sprawdź sekrety podpisu."
+              exit 1
+              ;;
+          esac
+
+          NAZWA="mekamb-chat-${{ steps.wersja.outputs.nazwa }}.apk"
+          mv "$PLIK" "$NAZWA"
+
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose "$NAZWA"
+
+          echo "plik=$NAZWA" >> "$GITHUB_OUTPUT"
+          echo "suma=$(sha256sum "$NAZWA" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.plik }}
+          path: ${{ steps.apk.outputs.plik }}
+
+      # Wydanie tylko z etykiety — patrz komentarz na górze pliku.
+      - name: Opublikuj wydanie
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > uwagi.md <<UWAGI
+          ## mekamb-chat ${{ steps.wersja.outputs.nazwa }} — Android
+
+          Backend: \`${{ inputs.apiUrl || 'https://mekamb.grubyogon10.workers.dev' }}\`
+
+          ### Instalacja
+
+          Android domyślnie blokuje pliki spoza sklepu. Po pobraniu APK system
+          zapyta o zgodę dla przeglądarki — trzeba jej udzielić raz.
+
+          ### Sprawdź, co instalujesz
+
+          \`\`\`
+          sha256  ${{ steps.apk.outputs.suma }}
+          \`\`\`
+
+          Suma z pobranego pliku musi się zgadzać:
+
+          \`\`\`bash
+          sha256sum ${{ steps.apk.outputs.plik }}
+          \`\`\`
+
+          ### O historii rozmów
+
+          Klucze i historia są **wyłącznie na urządzeniu** — serwer ich nie ma
+          i nikt ich nie odtworzy. Przed zmianą telefonu przenieś konto kodem QR
+          (*Przenieś na inne urządzenie*), bo po odinstalowaniu nie ma powrotu.
+          UWAGI
+
+          gh release create "${GITHUB_REF_NAME}" \
+            "${{ steps.apk.outputs.plik }}" \
+            --title "mekamb-chat ${{ steps.wersja.outputs.nazwa }}" \
+            --notes-file uwagi.md

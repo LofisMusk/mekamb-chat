@@ -6,6 +6,20 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/**
+ * Konfiguracja podpisu wydania, o ile jest czym podpisać.
+ *
+ * Klucz NIE leży w repozytorium — przychodzi ze zmiennych środowiskowych
+ * ustawianych z sekretów GitHuba. Bez nich `assembleRelease` zbuduje APK
+ * niepodpisany; workflow wydania sprawdza to i odmawia opublikowania takiego
+ * pliku, bo Android odmówiłby jego instalacji.
+ *
+ * Podpisywanie kluczem debugowym byłoby gorsze niż brak podpisu: APK dałoby
+ * się zainstalować, więc nikt by nie zauważył, że komunikator „szyfrowany
+ * end-to-end" jest sygnowany kluczem, który każdy ma na dysku.
+ */
+val magazynKluczy: File? = System.getenv("ANDROID_KEYSTORE_PATH")?.let(::File)?.takeIf { it.exists() }
+
 android {
     namespace = "com.mekamb.chat"
     compileSdk = 36
@@ -14,11 +28,28 @@ android {
         applicationId = "com.mekamb.chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // Wersja pochodzi z etykiety gita przy wydaniu. Android odmawia
+        // aktualizacji na niższy `versionCode`, więc musi rosnąć — workflow
+        // liczy go z numeru wersji, a nie z licznika przebiegów, żeby ten sam
+        // tag dał zawsze ten sam APK.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("versionName") as String?) ?: "0.1.0"
 
-        // Adres backendu. Nadpisywany przy budowaniu wydania.
-        buildConfigField("String", "API_URL", "\"http://10.0.2.2:8787\"")
+        // Adres backendu. 10.0.2.2 to host widziany z emulatora; wydanie
+        // nadpisuje to przez -PapiUrl=... (patrz workflow release-android).
+        val apiUrl = (findProperty("apiUrl") as String?) ?: "http://10.0.2.2:8787"
+        buildConfigField("String", "API_URL", "\"$apiUrl\"")
+    }
+
+    signingConfigs {
+        if (magazynKluczy != null) {
+            create("wydanie") {
+                storeFile = magazynKluczy
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -28,6 +59,9 @@ android {
             isMinifyEnabled = false
         }
         release {
+            // Brak konfiguracji zostawia APK niepodpisany — świadomie, patrz
+            // komentarz przy `magazynKluczy`.
+            signingConfig = signingConfigs.findByName("wydanie")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -88,6 +122,19 @@ dependencies {
 /** Architektury, na które budujemy. */
 val abi = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
+/**
+ * Rozszerzenie biblioteki współdzielonej na maszynie budującej.
+ *
+ * Liczone raz i używane przez oba zadania. Wpisane na sztywno `dylib` działało
+ * tylko na macOS — w CI na Linuksie zadeklarowany wynik nigdy by nie powstał,
+ * więc Gradle uznawałby zadanie za wiecznie nieaktualne.
+ */
+val hostLibExt = when {
+    System.getProperty("os.name").startsWith("Mac") -> "dylib"
+    System.getProperty("os.name").startsWith("Windows") -> "dll"
+    else -> "so"
+}
+
 val rustRoot = rootProject.file("..")
 val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
 val generatedKotlin = layout.buildDirectory.dir("generated/uniffi")
@@ -135,7 +182,7 @@ val buildHostLib by tasks.registering(Exec::class) {
     inputs.dir(rustRoot.resolve("core"))
     inputs.dir(rustRoot.resolve("opaque"))
     inputs.dir(rustRoot.resolve("transport"))
-    outputs.file(rustRoot.resolve("target/debug/libmekamb_ffi.dylib"))
+    outputs.file(rustRoot.resolve("target/debug/libmekamb_ffi.$hostLibExt"))
 }
 
 val generateUniffiBindings by tasks.registering(Exec::class) {
@@ -143,8 +190,7 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
     description = "Generuje wiązania Kotlina z metadanych zbudowanej biblioteki"
     dependsOn(buildRustLibs, buildHostLib)
 
-    val rozszerzenie = if (System.getProperty("os.name").startsWith("Mac")) "dylib" else "so"
-    val biblioteka = rustRoot.resolve("target/debug/libmekamb_ffi.$rozszerzenie")
+    val biblioteka = rustRoot.resolve("target/debug/libmekamb_ffi.$hostLibExt")
 
     workingDir = rustRoot
     commandLine(

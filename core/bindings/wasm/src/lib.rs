@@ -58,6 +58,8 @@ pub struct CallSignalInfo {
     /// Odcisk DTLS **uwierzytelniony przez MLS**. Przed zestawieniem
     /// połączenia trzeba porównać go z tym w SDP.
     pub dtls_fingerprint: String,
+    /// Adresat sygnału. Puste = dla wszystkich.
+    pub target: String,
 }
 
 /// Metadane załącznika odebrane z kanału MLS.
@@ -313,6 +315,7 @@ impl MekambClient {
         call_id: &[u8],
         payload: &str,
         dtls_fingerprint: &str,
+        target: &str,
         sent_at_ms: f64,
     ) -> Result<Vec<u8>, JsError> {
         let rodzaj = match kind {
@@ -329,6 +332,7 @@ impl MekambClient {
                 call_id: call_id.to_vec(),
                 payload: payload.to_string(),
                 dtls_fingerprint: dtls_fingerprint.to_string(),
+                target: target.to_string(),
             },
             sent_at_ms as u64,
         );
@@ -379,6 +383,7 @@ impl MekambClient {
                     call_id: c.call_id.clone(),
                     payload: c.payload.clone(),
                     dtls_fingerprint: c.dtls_fingerprint.clone(),
+                    target: c.target.clone(),
                 }),
                 attachment: message.as_attachment().map(|a| AttachmentInfo {
                     blob_id: a.blob_id.clone(),

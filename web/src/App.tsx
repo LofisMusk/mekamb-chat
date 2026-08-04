@@ -780,18 +780,24 @@ interface SygnalRozmowy {
   callId: Uint8Array;
   payload: string;
   dtlsFingerprint: string;
+  /** Adresat — w rozmowie mesh każda para negocjuje osobno. */
+  target: string;
   nadawca: string;
 }
 
 /**
- * Rozmowa audio i wideo.
+ * Rozmowa audio i wideo — dwuosobowa albo grupowa.
  *
  * # Co widzi użytkownik i dlaczego
  *
- * Interfejs pokazuje **drogę połączenia**: „bezpośrednio" znaczy, że media idą
- * wprost do rozmówcy — i że rozmówca zna wtedy Twój adres IP. „Przez
- * przekaźnik" znaczy, że adres widzi serwer TURN zamiast rozmówcy. Jedno albo
- * drugie; milczenie sugerowałoby, że nie ujawnia się nic.
+ * Przy każdym uczestniku pokazujemy **drogę połączenia**: „bezpośrednio" znaczy,
+ * że media idą wprost — i że ta osoba zna wtedy Twój adres IP. „Przez
+ * przekaźnik" znaczy, że adres widzi serwer TURN. Milczenie sugerowałoby,
+ * że nie ujawnia się nic.
+ *
+ * Rozmowa grupowa to topologia mesh: każda para ma osobne połączenie i osobne
+ * zaufanie. Zerwanie jednego przez niezgodny odcisk certyfikatu nie kończy
+ * rozmowy z pozostałymi.
  */
 function Rozmowa({
   messenger,
@@ -807,27 +813,46 @@ function Rozmowa({
   const [call, setCall] = useState<Call | null>(null);
   const [stan, setStan] = useState<CallState | null>(null);
   const [przychodzace, setPrzychodzace] = useState<SygnalRozmowy | null>(null);
-  const wideoRef = useRef<HTMLVideoElement | null>(null);
+  const strumienie = useRef(new Map<string, MediaStream>());
+  const [wersjaStrumieni, setWersjaStrumieni] = useState(0);
 
-  const pokazStrumien = useCallback((stream: MediaStream) => {
-    if (wideoRef.current) wideoRef.current.srcObject = stream;
+  const zapamietajStrumien = useCallback((username: string, stream: MediaStream) => {
+    strumienie.current.set(username, stream);
+    setWersjaStrumieni((n) => n + 1);
   }, []);
 
   useEffect(() => {
     if (!sygnal) return;
 
+    // Oferta, gdy nie mamy jeszcze rozmowy — to zaproszenie przychodzące.
     if (sygnal.kind === "offer" && !call) {
       setPrzychodzace(sygnal);
       return;
     }
 
-    void call?.przyjmijSygnal(sygnal.kind, sygnal.payload, sygnal.dtlsFingerprint).catch(onBlad);
+    void call
+      ?.przyjmijSygnal(
+        sygnal.nadawca,
+        sygnal.kind,
+        sygnal.callId,
+        sygnal.payload,
+        sygnal.dtlsFingerprint,
+        sygnal.target,
+      )
+      .catch(onBlad);
   }, [sygnal, call, onBlad]);
 
   const zadzwon = async (wideo: boolean) => {
     try {
       setCall(
-        await Call.zadzwon(messenger, groupId, messenger.accessToken, wideo, setStan, pokazStrumien),
+        await Call.rozpocznij(
+          messenger,
+          groupId,
+          messenger.accessToken,
+          wideo,
+          setStan,
+          zapamietajStrumien,
+        ),
       );
     } catch (err) {
       onBlad(err);
@@ -836,33 +861,42 @@ function Rozmowa({
 
   const odbierz = async (wideo: boolean) => {
     if (!przychodzace) return;
+    const zaproszenie = przychodzace;
+    setPrzychodzace(null);
 
     try {
       const nowa = await Call.odbierz(
         messenger,
         groupId,
         messenger.accessToken,
-        przychodzace.callId,
-        przychodzace.payload,
-        przychodzace.dtlsFingerprint,
+        zaproszenie.callId,
         wideo,
         setStan,
-        pokazStrumien,
+        zapamietajStrumien,
       );
       setCall(nowa);
-      setPrzychodzace(null);
+
+      // Ofertę, która nas obudziła, trzeba przetworzyć po zestawieniu rozmowy.
+      await nowa.przyjmijSygnal(
+        zaproszenie.nadawca,
+        zaproszenie.kind,
+        zaproszenie.callId,
+        zaproszenie.payload,
+        zaproszenie.dtlsFingerprint,
+        zaproszenie.target,
+      );
     } catch (err) {
       // Najczęstsza przyczyna: odcisk certyfikatu nie zgadza się z tym,
       // który przyszedł zaszyfrowanym kanałem.
-      setPrzychodzace(null);
       onBlad(err);
     }
   };
 
   const rozlacz = () => {
-    call?.zakoncz(true);
+    call?.zakoncz();
     setCall(null);
     setStan(null);
+    strumienie.current.clear();
   };
 
   if (przychodzace) {
@@ -896,28 +930,59 @@ function Rozmowa({
   return (
     <section className="rozmowa">
       <div className="rozmowa-pasek">
-        <span>
-          {stan?.faza === "dzwoni" && "Dzwonię…"}
-          {stan?.faza === "laczenie" && "Łączę…"}
-          {stan?.faza === "trwa" && "Rozmowa trwa"}
-          {stan?.faza === "zakonczona" && "Zakończona"}
-        </span>
-
-        {stan?.faza === "trwa" && (
-          <span className="tryb" title="Bezpośrednio: rozmówca zna Twój adres IP. Przez przekaźnik: zna go serwer TURN.">
-            {stan.droga === "direct" && "bezpośrednio"}
-            {stan.droga === "relay" && "przez przekaźnik"}
-            {stan.droga === "unknown" && "ustalam drogę"}
-          </span>
-        )}
-
+        <span>{stan?.uczestnicy.length ?? 0} rozmówców</span>
         <button className="rozlacz" onClick={rozlacz}>
           Rozłącz
         </button>
       </div>
 
-      {call.wideo && <video ref={wideoRef} autoPlay playsInline className="rozmowa-wideo" />}
-      {!call.wideo && <audio ref={wideoRef as never} autoPlay />}
+      <ul className="rozmowa-lista">
+        {stan?.uczestnicy.map((uczestnik) => (
+          <li key={uczestnik.username}>
+            <span>{uczestnik.username}</span>
+            <span className="tryb" title="Bezpośrednio: rozmówca zna Twój adres IP. Przez przekaźnik: zna go serwer TURN.">
+              {uczestnik.odrzuconyOdcisk && "zerwane — obcy certyfikat"}
+              {!uczestnik.odrzuconyOdcisk && uczestnik.faza === "laczenie" && "łączę…"}
+              {!uczestnik.odrzuconyOdcisk &&
+                uczestnik.faza === "trwa" &&
+                (uczestnik.droga === "relay" ? "przez przekaźnik" : "bezpośrednio")}
+              {!uczestnik.odrzuconyOdcisk && uczestnik.faza === "zakonczona" && "rozłączony"}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {call.wideo &&
+        [...strumienie.current.entries()].map(([username, stream]) => (
+          <WideoUczestnika key={`${username}-${wersjaStrumieni}`} stream={stream} />
+        ))}
+
+      {!call.wideo &&
+        [...strumienie.current.entries()].map(([username, stream]) => (
+          <AudioUczestnika key={`${username}-${wersjaStrumieni}`} stream={stream} />
+        ))}
     </section>
   );
+}
+
+/** Obraz jednego uczestnika. */
+function WideoUczestnika({ stream }: { stream: MediaStream }) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+
+  return <video ref={ref} autoPlay playsInline className="rozmowa-wideo" />;
+}
+
+/** Dźwięk jednego uczestnika — bez elementu nie byłoby go słychać. */
+function AudioUczestnika({ stream }: { stream: MediaStream }) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream;
+  }, [stream]);
+
+  return <audio ref={ref} autoPlay />;
 }

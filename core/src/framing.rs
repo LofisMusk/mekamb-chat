@@ -83,6 +83,15 @@ pub struct CallSignalBody {
     /// niezgodność = zerwanie, bez pytania użytkownika.
     #[prost(string, tag = "4")]
     pub dtls_fingerprint: String,
+    /// Adresat sygnału — `user_id` uczestnika.
+    ///
+    /// Wiadomości MLS trafiają do CAŁEJ grupy, a w rozmowie mesh każda para
+    /// negocjuje osobne połączenie. Bez adresata trzecia osoba próbowałaby
+    /// przetworzyć ofertę przeznaczoną dla kogoś innego.
+    ///
+    /// Puste = sygnał dla wszystkich.
+    #[prost(string, tag = "5")]
+    pub target: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
@@ -281,6 +290,7 @@ mod tests {
                 call_id: vec![9; 16],
                 payload: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n".into(),
                 dtls_fingerprint: "sha-256 AB:CD".into(),
+                target: "bob".into(),
             })),
             reply_to: None,
         };

@@ -47,6 +47,8 @@ export interface ReceivedCallSignal {
   payload: string;
   /** Odcisk DTLS **uwierzytelniony przez MLS**. */
   dtlsFingerprint: string;
+  /** Adresat sygnału. Puste = dla wszystkich. */
+  target: string;
 }
 
 export interface ReceivedMessage {
@@ -371,6 +373,7 @@ export class Messenger {
             callId: incoming.call.call_id,
             payload: incoming.call.payload,
             dtlsFingerprint: incoming.call.dtls_fingerprint,
+            target: incoming.call.target,
           }
         : undefined,
       attachment: incoming.attachment
@@ -403,6 +406,7 @@ export class Messenger {
     callId: Uint8Array,
     payload: string,
     dtlsFingerprint: string,
+    target = "",
   ): Promise<void> {
     const ciphertext = this.client.sendCallSignal(
       groupId,
@@ -410,6 +414,7 @@ export class Messenger {
       callId,
       payload,
       dtlsFingerprint,
+      target,
       Date.now(),
     );
 

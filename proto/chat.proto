@@ -103,4 +103,13 @@ message CallSignalBody {
   bytes call_id = 2;
   string payload = 3;          // SDP albo kandydat ICE
   string dtls_fingerprint = 4; // weryfikowany przed zestawieniem połączenia
+
+  // Adresat sygnału.
+  //
+  // Wiadomości MLS trafiają do CAŁEJ grupy, a w rozmowie mesh każda para
+  // uczestników negocjuje osobne połączenie. Bez adresata trzecia osoba
+  // próbowałaby przetworzyć ofertę przeznaczoną dla kogoś innego.
+  //
+  // Puste = sygnał dla wszystkich (rozmowa dwuosobowa, zaproszenie do grupowej).
+  string target = 5;
 }

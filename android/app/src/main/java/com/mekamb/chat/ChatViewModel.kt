@@ -53,7 +53,13 @@ data class StanCzatu(
     override fun hashCode(): Int = System.identityHashCode(this)
 }
 
-data class Wiadomosc(val autor: String, val tresc: String, val wlasna: Boolean)
+data class Wiadomosc(
+    val autor: String,
+    val tresc: String,
+    val wlasna: Boolean,
+    /** Czas lokalny odebrania albo wysłania — do pokazania godziny. */
+    val czas: Long = System.currentTimeMillis(),
+)
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 

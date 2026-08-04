@@ -138,6 +138,9 @@ object Ikony {
             "M7.5 12 A4.5 4.5 0 0 1 16.5 12 V15 M12 12 V18 M7.5 15 V17.5",
     )
 
+    /** Wysłanie wiadomości. */
+    val Wyslij = ikona("wyslij", "M4 11.5 L20 4 L12.5 20 L11 13 Z M11 13 L20 4")
+
     /** Powiadomienia. */
     val Dzwonek = ikona(
         "dzwonek",

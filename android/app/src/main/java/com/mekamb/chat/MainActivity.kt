@@ -90,6 +90,24 @@ private fun Zawartosc(
     val model: ChatViewModel = viewModel()
     val stan = model.stan
 
+    // Gałąź dolnej nawigacji i to, czy pokazujemy wybór rozmówcy. Stan
+    // wyłącznie widoku — model nie musi o nim wiedzieć.
+    var galaz by remember { mutableStateOf(Galaz.ROZMOWY) }
+    var nowaRozmowa by remember { mutableStateOf(false) }
+
+    // Czy pokazujemy rozmowę, czy listę. To stan WIDOKU, nie modelu: wyjście
+    // z rozmowy przez skasowanie `groupId` odcięłoby drogę powrotną, bo bez
+    // niego nie da się do rozmowy wrócić.
+    var wRozmowie by remember { mutableStateOf(false) }
+
+    // Nowa rozmowa — własna albo przychodząca — otwiera się od razu.
+    LaunchedEffect(stan.groupId) {
+        if (stan.groupId != null) {
+            nowaRozmowa = false
+            wRozmowie = true
+        }
+    }
+
     // Kod zeskanowany aparatem otwiera od razu ekran odbioru. Robimy to tylko
     // przed zalogowaniem: odebranie konta na zalogowanym urządzeniu podmieniłoby
     // skarbiec pod działającym klientem.
@@ -138,8 +156,27 @@ private fun Zawartosc(
         }
 
         when {
-            stan.zalogowany && stan.groupId == null -> FormularzRozmowy(model)
-            stan.zalogowany -> Rozmowa(model)
+            // Po zalogowaniu ekranem startowym jest lista, a nie od razu
+            // formularz „z kim rozmawiasz". Wybór rozmówcy zszedł pod
+            // „Nowa rozmowa", bo dotyczy pierwszego kontaktu, a nie każdego
+            // wejścia do aplikacji.
+            stan.zalogowany && stan.groupId != null && wRozmowie ->
+                EkranRozmowy(
+                    model = model,
+                    onWstecz = { wRozmowie = false },
+                    onUczestnicy = {},
+                    onRozmowa = {},
+                )
+
+            stan.zalogowany && nowaRozmowa -> FormularzRozmowy(model)
+
+            stan.zalogowany ->
+                EkranListy(
+                    model = model,
+                    onOtworzRozmowe = { wRozmowie = true },
+                    onNowaRozmowa = { nowaRozmowa = true },
+                    onGalaz = { galaz = it },
+                )
             stan.ekran == Ekran.REJESTRACJA -> FormularzRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)
             stan.ekran == Ekran.ODBIOR -> OdbiorKonta(model, kodZIntencji, onKodZuzyty)

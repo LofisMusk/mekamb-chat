@@ -8,7 +8,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
@@ -43,8 +45,15 @@ object Przeniesienie {
     private const val SCHEMAT = "mekamb"
     private const val HOST = "transfer"
 
-    /** Wersja formatu zrzutu. Musi zgadzać się z klientem webowym. */
-    private const val WERSJA: Byte = 1
+    /**
+     * Wersja formatu zrzutu. Musi zgadzać się z klientem webowym.
+     *
+     * 2 dołożyła historię rozmów jako czwarte pole. Klient webowy podniósł ją
+     * wtedy, gdy zaczął zapisywać historię — bez tej samej zmiany tutaj
+     * przeniesienie z weba na Androida przestałoby działać, czyli dokładnie
+     * w przypadku, dla którego istnieje.
+     */
+    private const val WERSJA: Byte = 2
 
     /** Długość nonce'a AES-GCM. */
     private const val NONCE = 12
@@ -58,6 +67,8 @@ object Przeniesienie {
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    private val BINARNE = "application/octet-stream".toMediaType()
 
     /** Czy tekst w ogóle wygląda na kod przeniesienia. */
     fun czyKodPrzeniesienia(tekst: String): Boolean =
@@ -82,18 +93,108 @@ object Przeniesienie {
 
             val ladunek = pobierz(baseUrl, identyfikator)
             val zrzut = odszyfruj(ladunek, zBase64url(kluczBase64))
-            val (konto, ziarno, stan) = rozloz(zrzut)
+            val odczytane = rozloz(zrzut)
 
             // Kolejność ma znaczenie: konto na końcu. To ono decyduje, czy
             // aplikacja uzna urządzenie za skonfigurowane, więc zapisane jako
             // pierwsze zostawiłoby przy przerwanym zapisie konto bez kluczy —
             // stan nie do naprawienia.
-            vault.saveSeed(ziarno)
-            vault.saveState(stan)
-            vault.saveAccount(konto)
+            vault.saveSeed(odczytane.ziarno)
+            vault.saveState(odczytane.stan)
 
-            konto
+            // Historia bywa pusta — konto bez rozmów albo urządzenie, które
+            // ich nie zdążyło zapisać. To nie błąd, więc nie nadpisujemy
+            // wtedy tego, co jest tutaj.
+            if (odczytane.historia.isNotEmpty()) vault.saveHistory(odczytane.historia)
+
+            vault.saveAccount(odczytane.konto)
+
+            odczytane.konto
         }
+
+    /** Kod do pokazania jako QR wraz z czasem, jaki mu został. */
+    data class Kod(val tresc: String, val wygasaZaSekund: Int)
+
+    /**
+     * Przygotowuje przeniesienie: szyfruje skarbiec i wysyła na serwer.
+     *
+     * Klucz zostaje w zwróconym kodzie — serwer dostaje wyłącznie szyfrogram
+     * i nie ma go czym otworzyć. Kto zobaczy ten kod, przejmuje konto.
+     */
+    suspend fun przygotuj(vault: Vault, baseUrl: String, token: String): Kod =
+        withContext(Dispatchers.IO) {
+            val konto = vault.loadAccount()
+            val ziarno = vault.loadSeed()
+            val stan = vault.loadState()
+            require(konto != null && ziarno != null && stan != null) {
+                "na tym urządzeniu nie ma pełnego konta do przeniesienia"
+            }
+
+            val zrzut = zloz(konto, ziarno, stan, vault.loadHistory() ?: ByteArray(0))
+
+            // Świeży klucz na każde przeniesienie. Wyprowadzanie go z czegoś
+            // stałego sprawiłoby, że jeden podejrzany kod otwiera wszystkie
+            // przyszłe.
+            val losowy = java.security.SecureRandom()
+            val klucz = ByteArray(32).also(losowy::nextBytes)
+            val nonce = ByteArray(NONCE).also(losowy::nextBytes)
+            val identyfikator = ByteArray(16).also(losowy::nextBytes)
+
+            val szyfr = Cipher.getInstance("AES/GCM/NoPadding")
+            szyfr.init(
+                Cipher.ENCRYPT_MODE,
+                SecretKeySpec(klucz, "AES"),
+                GCMParameterSpec(TAG_BITOW, nonce),
+            )
+
+            // Nonce przed szyfrogramem — odbiorca musi go mieć przed
+            // odszyfrowaniem, a w kodzie QR nie ma na niego miejsca obok klucza.
+            val ladunek = nonce + szyfr.doFinal(zrzut)
+
+            val id = doBase64url(identyfikator)
+            val zadanie = Request.Builder()
+                .url("$baseUrl/transfer/$id")
+                .header("Authorization", "Bearer $token")
+                .put(ladunek.toRequestBody(BINARNE))
+                .build()
+
+            val wygasaZa = http.newCall(zadanie).execute().use { odpowiedz ->
+                require(odpowiedz.isSuccessful) { "nie udało się przygotować przeniesienia" }
+                json.parseToJsonElement(odpowiedz.body?.string().orEmpty())
+                    .jsonObject["wygasaZa"]?.jsonPrimitive?.content?.toIntOrNull() ?: 900
+            }
+
+            Kod("$SCHEMAT://$HOST?i=$id&k=${doBase64url(klucz)}", wygasaZa)
+        }
+
+    /**
+     * Składa zrzut skarbca.
+     *
+     * Każde pole poprzedzone długością. Bez tego granice między ziarnem
+     * a stanem byłyby domyślne, a pomyłka o jeden bajt dałaby zrzut, który
+     * wygląda na poprawny i nie działa.
+     */
+    private fun zloz(
+        konto: Account,
+        ziarno: ByteArray,
+        stan: ByteArray,
+        historia: ByteArray,
+    ): ByteArray {
+        // Pole `userId` jest w formacie webowym, więc musi tu być — po obu
+        // stronach równe nazwie użytkownika.
+        val opis = """{"userId":"${konto.username}","username":"${konto.username}","deviceId":"${konto.deviceId}"}"""
+            .toByteArray(Charsets.UTF_8)
+
+        val czesci = listOf(opis, ziarno, stan, historia)
+        val bufor = ByteBuffer.allocate(1 + czesci.sumOf { 4 + it.size })
+
+        bufor.put(WERSJA)
+        czesci.forEach { bufor.putInt(it.size).put(it) }
+        return bufor.array()
+    }
+
+    private fun doBase64url(bajty: ByteArray): String =
+        Base64.encodeToString(bajty, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     private fun pobierz(baseUrl: String, identyfikator: String): ByteArray {
         val zadanie = Request.Builder()
@@ -139,13 +240,21 @@ object Przeniesienie {
      * byłyby domyślne, a pomyłka o jeden bajt dałaby zrzut, który wygląda na
      * poprawny i nie działa.
      */
-    private fun rozloz(zrzut: ByteArray): Triple<Account, ByteArray, ByteArray> {
+    /** Zawartość zrzutu. Nazwane pola zamiast krotki — czterech nie da się czytać. */
+    private data class Zrzut(
+        val konto: Account,
+        val ziarno: ByteArray,
+        val stan: ByteArray,
+        val historia: ByteArray,
+    )
+
+    private fun rozloz(zrzut: ByteArray): Zrzut {
         require(zrzut.isNotEmpty() && zrzut[0] == WERSJA) {
             "zrzut pochodzi z innej wersji aplikacji"
         }
 
         val bufor = ByteBuffer.wrap(zrzut, 1, zrzut.size - 1)
-        val czesci = List(3) {
+        val czesci = List(4) {
             require(bufor.remaining() >= 4) { "zrzut jest uszkodzony" }
             val dlugosc = bufor.int
             require(dlugosc >= 0 && dlugosc <= bufor.remaining()) { "zrzut jest uszkodzony" }
@@ -162,7 +271,7 @@ object Przeniesienie {
         // `userId` z klienta webowego pomijamy świadomie: po obu stronach jest
         // równy nazwie użytkownika, a `Account` wylicza go z niej sam. Zapisanie
         // go osobno pozwoliłoby tym dwóm wartościom się rozjechać.
-        return Triple(Account(username, deviceId), czesci[1], czesci[2])
+        return Zrzut(Account(username, deviceId), czesci[1], czesci[2], czesci[3])
     }
 
     /** base64url bez wypełniania — takie, jakie wkłada do kodu klient webowy. */

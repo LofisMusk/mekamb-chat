@@ -111,6 +111,21 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [~] **Faza 10** — rozmowy grupowe mesh do 4 osób (jak wyżej)
 - [ ] **Faza 11** — hardening: powtarzalne buildy, audyt, wdrożenie produkcyjne
 
+## Wdrożenie
+
+| | |
+|---|---|
+| Klient webowy | https://lofismusk.github.io/mekamb-chat/ |
+| Backend | https://mekamb.grubyogon10.workers.dev |
+
+**Załączniki są wyłączone**, dopóki na koncie Cloudflare nie zostanie włączone
+R2. Do tego czasu endpointy zwracają czytelne 503 zamiast się wywracać.
+Po włączeniu: odkomentuj `r2_buckets` w [`server/wrangler.jsonc`](server/wrangler.jsonc)
+i wykonaj `wrangler deploy`.
+
+Rejestracja jest otwarta — każdy może założyć konto. To świadomy stan na czas
+testów; ograniczenie do zaproszeń jest odnotowane jako otwarta kwestia.
+
 ## Licencja
 
 - `core/`, `web/`, `android/` — Apache-2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))

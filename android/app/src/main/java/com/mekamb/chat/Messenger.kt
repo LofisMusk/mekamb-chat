@@ -57,7 +57,7 @@ class Messenger private constructor(
                 }
             }
 
-            // Klucz węzła iroh jest wyprowadzany z tego samego ziarna, ale
+            // Klucz transportowy jest wyprowadzany z tego samego ziarna, ale
             // rozłączną etykietą HKDF — patrz docs/PROTOCOL.md.
             // `start` jest w UniFFI konstruktorem drugorzędnym, więc trafia do
             // companion object — konstruktor klasy przyjmuje uchwyt natywny.
@@ -67,16 +67,17 @@ class Messenger private constructor(
         }
     }
 
-    /** Identyfikator węzła P2P — publikowany w katalogu. */
-    fun endpointId(): String = transport.endpointId()
+    /** Adresy, pod którymi urządzenie jest osiągalne. */
+    fun addresses(): List<String> = transport.addresses()
 
-    /** Zgłasza urządzenie do katalogu wraz z adresem P2P. */
+    /** Zgłasza urządzenie do katalogu wraz z adresami P2P. */
     suspend fun registerDevice() {
         api.registerDevice(
             token = token,
             deviceId = account.deviceId,
             mlsPublicKey = client.mlsPublicKey(),
-            irohEndpointId = transport.endpointId(),
+            transportKey = transport.publicKey(),
+            transportAddresses = transport.addresses(),
         )
     }
 
@@ -115,7 +116,7 @@ class Messenger private constructor(
         vault.saveState(client.exportState())
 
         oczekujacy.welcome?.let { welcome ->
-            wyslij(peerUsername, urzadzenie.irohNodeId, welcome)
+            wyslij(peerUsername, urzadzenie, welcome)
         }
 
         groupId
@@ -134,7 +135,7 @@ class Messenger private constructor(
         vault.saveState(client.exportState())
 
         val urzadzenie = api.lookupDevices(recipient).firstOrNull()
-        wyslij(recipient, urzadzenie?.irohNodeId, koperta)
+        wyslij(recipient, urzadzenie, koperta)
     }
 
     /**
@@ -144,10 +145,15 @@ class Messenger private constructor(
      */
     private suspend fun wyslij(
         recipient: String,
-        peerEndpointId: String?,
+        urzadzenie: Api.Device?,
         koperta: ByteArray,
     ): DeliveryMode {
-        val sposob = tryDirectDelivery(transport, peerEndpointId, koperta)
+        val sposob = tryDirectDelivery(
+            transport,
+            urzadzenie?.transportKey,
+            urzadzenie?.transportAddresses.orEmpty(),
+            koperta,
+        )
 
         if (sposob == DeliveryMode.MAILBOX) {
             api.deposit(recipient, koperta)

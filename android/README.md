@@ -54,44 +54,23 @@ Zapisane, bo każda kosztowała osobne podejście:
 - **Konstruktory drugorzędne trafiają do companion object.** `MekambTransport`
   tworzy się przez `MekambTransport.start(...)`, a nie przez konstruktor klasy.
 
-## BLOKER: transport iroh przerywa proces na Androidzie
+## Historia: dlaczego transport jest własny
 
-Logowanie działa — pełna ścieżka OPAQUE + TOTP przechodzi przeciwko prawdziwemu
-serwerowi. **Zaraz po nim proces ginie**, i to nie przez wyjątek Kotlina, tylko
-przez natywne `abort()`:
+Pierwsza wersja opierała się na iroh. Logowanie działało, ale proces ginął
+zaraz po nim przez natywne `abort()`:
 
 ```
 signal 6 (SIGABRT)
 Abort message: 'android context was not initialized'
 ```
 
-### Przyczyna
+`rustls-platform-verifier` — wciągany przez `reqwest`, którego iroh używa do
+relayów — wymaga na Androidzie inicjalizacji przez JNI i bez niej **przerywa
+proces**. Nie dało się tego wyłączyć flagą, bo zależność jest twarda.
 
-`rustls-platform-verifier` wymaga na Androidzie dostępu do JVM przez JNI i bez
-inicjalizacji **przerywa proces**. Nie da się tego złapać — `abort` nie jest
-wyjątkiem ani paniką Rusta.
-
-Do naszego drzewa trafia przez `reqwest`, którego iroh używa do relayów
-i odkrywania węzłów:
-
-```
-rustls-platform-verifier ← reqwest (feature "rustls-no-provider") ← iroh
-```
-
-**Nie da się tego wyłączyć flagą.** Feature `rustls-no-provider` ma
-`dep:rustls-platform-verifier` jako twardą zależność, a włączają go zarówno
-`tls-ring`, jak i `portmapper` w iroh.
-
-### Dwie drogi wyjścia
-
-1. **Zainicjalizować JNI.** Poprawne rozwiązanie, ale wymaga zvendorowania
-   komponentu Kotlina z repozytorium `rustls-platform-verifier` — nie ma go na
-   Mavenie — plus konfiguracji Gradle i funkcji JNI wołanej z `Application`.
-2. **Odciąć iroh na Androidzie** i korzystać wyłącznie ze skrzynki, tak jak
-   robi to przeglądarka. Aplikacja zacznie działać od razu, ale traci to,
-   co jest głównym powodem istnienia klienta natywnego — bezpośrednie P2P.
-
-Do rozstrzygnięcia przed dalszą pracą nad Androidem.
+Zamiast wchodzić w JNI i vendorowanie cudzego komponentu Kotlina spoza Mavena,
+transport został napisany od nowa: UDP, STUN i Noise. Ani `reqwest`, ani
+`rustls-platform-verifier` nie występują już w drzewie zależności.
 
 ## Czego jeszcze nie ma
 

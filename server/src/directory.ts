@@ -40,9 +40,10 @@ export interface DeviceRecord {
   deviceId: string;
   userId: string;
   mlsPublicKey: D1Blob;
-  /** `null` dla urządzeń osiągalnych wyłącznie przez skrzynkę. */
-  irohNodeId: string | null;
-  addrRecord: string | null;
+  /** Klucz publiczny transportu (base64). `null` = tylko skrzynka. */
+  transportKey: string | null;
+  /** Adresy rozdzielone przecinkami. `null` = tylko skrzynka. */
+  transportAddresses: string | null;
   addrSignature: D1Blob | null;
   lastSeenAt: number;
 }
@@ -53,8 +54,8 @@ export async function lookupDevices(env: Env, username: string): Promise<DeviceR
     `SELECT d.id            AS deviceId,
             d.user_id       AS userId,
             d.mls_public_key AS mlsPublicKey,
-            d.iroh_node_id  AS irohNodeId,
-            d.addr_record   AS addrRecord,
+            d.transport_key       AS transportKey,
+            d.transport_addresses AS transportAddresses,
             d.addr_signature AS addrSignature,
             d.last_seen_at  AS lastSeenAt
        FROM devices d
@@ -135,7 +136,7 @@ export async function publishKeyPackages(
 /**
  * Rejestruje urządzenie użytkownika albo odświeża jego wpis.
  *
- * `irohNodeId` i rekord adresowy są opcjonalne: przeglądarka nie ma własnego
+ * Klucz transportowy i adresy są opcjonalne: przeglądarka nie ma własnego
  * adresu, bo sandbox nie pozwala jej przyjmować połączeń. Takie urządzenie
  * odbiera wyłącznie przez skrzynkę i to jest poprawny, zamierzony stan — a nie
  * brak konfiguracji.
@@ -146,8 +147,8 @@ export async function registerDevice(
     deviceId: string;
     userId: string;
     mlsPublicKey: Uint8Array;
-    irohNodeId?: string | null;
-    addrRecord?: string | null;
+    transportKey?: string | null;
+    transportAddresses?: string | null;
     addrSignature?: Uint8Array | null;
     displayName?: string | null;
   },
@@ -156,13 +157,13 @@ export async function registerDevice(
 
   await env.DB.prepare(
     `INSERT INTO devices
-       (id, user_id, mls_public_key, iroh_node_id, addr_record, addr_signature,
+       (id, user_id, mls_public_key, transport_key, transport_addresses, addr_signature,
         display_name, created_at, last_seen_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       mls_public_key = excluded.mls_public_key,
-       iroh_node_id   = excluded.iroh_node_id,
-       addr_record    = excluded.addr_record,
+       mls_public_key       = excluded.mls_public_key,
+       transport_key        = excluded.transport_key,
+       transport_addresses  = excluded.transport_addresses,
        addr_signature = excluded.addr_signature,
        last_seen_at   = excluded.last_seen_at`,
   )
@@ -170,8 +171,8 @@ export async function registerDevice(
       device.deviceId,
       device.userId,
       device.mlsPublicKey,
-      device.irohNodeId ?? null,
-      device.addrRecord ?? null,
+      device.transportKey ?? null,
+      device.transportAddresses ?? null,
       device.addrSignature ?? null,
       device.displayName ?? null,
       now,

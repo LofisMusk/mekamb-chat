@@ -18,7 +18,7 @@ mekamb-core = { path = "../.." }
 mekamb-opaque = { path = "../../../opaque" }
 mekamb-transport = { path = "../../../transport" }
 uniffi = { version = "0.32.0", features = ["cli"] }
-iroh.workspace = true
+
 thiserror.workspace = true
 
 # Transport jest asynchroniczny, a API wystawiane do Kotlina jest blokujące —

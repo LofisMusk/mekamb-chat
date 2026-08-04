@@ -33,7 +33,7 @@ async function nowe_urzadzenie(): Promise<string> {
 
   await env.DB.prepare(
     `INSERT INTO devices
-       (id, user_id, mls_public_key, iroh_node_id, addr_record, addr_signature, created_at, last_seen_at)
+       (id, user_id, mls_public_key, transport_key, transport_addresses, addr_signature, created_at, last_seen_at)
      VALUES (?, ?, X'00', 'node', '{}', X'00', ?, ?)`,
   )
     .bind(deviceId, userId, now, now)

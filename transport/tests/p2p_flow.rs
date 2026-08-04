@@ -1,252 +1,243 @@
 //! Testy transportu: dwa węzły rozmawiają bezpośrednio, bez żadnego serwera.
 //!
-//! Wszystko działa na `RelayPolicy::LoopbackOnly`, więc testy nie wychodzą do sieci
-//! zewnętrznej i nie zależą od dostępności publicznych relayów n0.
+//! Wszystko dzieje się na pętli zwrotnej, więc testy nie wychodzą do sieci
+//! i nie zależą od dostępności czegokolwiek na zewnątrz.
 
+use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use mekamb_core::framing::ChatMessage;
-use mekamb_core::group::{Conversation, Incoming, Provider};
-use mekamb_core::identity::DeviceIdentity;
-use mekamb_transport::{Delivery, Envelope, EnvelopeKind, Mailbox, RelayPolicy, Transport};
+use mekamb_transport::{Delivery, Envelope, EnvelopeKind, Mailbox, PeerAddr, Result, Transport};
 
-/// Limit czasu operacji sieciowych w testach.
-///
-/// Bez niego nieudane połączenie wiesza test zamiast go oblać.
-const TIMEOUT: Duration = Duration::from_secs(20);
-
-/// Skrzynka zapisująca doręczenia w pamięci — udaje Durable Object `UserInbox`.
+/// Skrzynka na potrzeby testów — zapisuje, co do niej trafiło.
 #[derive(Default)]
 struct SkrzynkaTestowa {
-    zdeponowane: Mutex<Vec<(String, Vec<u8>)>>,
-}
-
-impl SkrzynkaTestowa {
-    fn liczba_depozytow(&self) -> usize {
-        self.zdeponowane.lock().unwrap().len()
-    }
+    zlozone: Mutex<Vec<String>>,
 }
 
 impl Mailbox for SkrzynkaTestowa {
-    async fn deposit(&self, recipient_user_id: &str, envelope: &[u8]) -> mekamb_core::Result<()> {
-        self.zdeponowane
-            .lock()
-            .unwrap()
-            .push((recipient_user_id.to_string(), envelope.to_vec()));
+    async fn deposit(&self, recipient: &str, _envelope: &Envelope) -> Result<()> {
+        self.zlozone.lock().unwrap().push(recipient.to_string());
         Ok(())
     }
 }
 
-/// Skrzynka, która zawsze zawodzi — do sprawdzenia, że błąd obu dróg propaguje.
-struct SkrzynkaNiedostepna;
-
-impl Mailbox for SkrzynkaNiedostepna {
-    async fn deposit(&self, _: &str, _: &[u8]) -> mekamb_core::Result<()> {
-        Err(mekamb_core::Error::Storage("skrzynka niedostępna".into()))
+impl SkrzynkaTestowa {
+    fn ile(&self) -> usize {
+        self.zlozone.lock().unwrap().len()
     }
 }
 
+fn koperta(tresc: &[u8]) -> Envelope {
+    Envelope::new(b"grupa-testowa".to_vec(), EnvelopeKind::Application, tresc.to_vec())
+}
+
+async fn wezel(seed: u8) -> Transport {
+    Transport::bind_local(&[seed; 32]).await.expect("węzeł powinien wstać")
+}
+
+fn adres(t: &Transport) -> SocketAddr {
+    t.addresses()[0]
+}
+
+fn peer(t: &Transport) -> PeerAddr {
+    PeerAddr { public_key: t.public_key().to_vec(), addresses: vec![adres(t)] }
+}
+
 #[tokio::test]
-async fn dwa_wezly_wymieniaja_koperte_bezposrednio() {
-    let nadawca = Transport::bind_with_secret([1u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let odbiorca = Transport::bind_with_secret([2u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
+async fn wiadomosc_dochodzi_bezposrednio() {
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+    let adres_boba = peer(&bob);
 
-    let adres_odbiorcy = odbiorca.addr();
+    let odbior = tokio::spawn(async move { bob.accept_next().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let odbior = tokio::spawn(async move {
-        let wynik = odbiorca.accept_next().await;
-        odbiorca.close().await;
-        wynik
+    alice
+        .send_direct(&adres_boba, &koperta(b"prosto do boba"))
+        .await
+        .expect("wysyłka bezpośrednia powinna się udać");
+
+    let odebrane = tokio::time::timeout(Duration::from_secs(10), odbior)
+        .await
+        .expect("odbiór nie powinien się zaciąć")
+        .expect("zadanie odbioru")
+        .expect("powinna przyjść koperta")
+        .expect("koperta powinna być poprawna");
+
+    assert_eq!(odebrane.envelope.payload, b"prosto do boba");
+    assert_eq!(odebrane.envelope.group_id, b"grupa-testowa");
+}
+
+/// Nadawcę potwierdza handshake, a nie deklaracja w pakiecie.
+#[tokio::test]
+async fn nadawca_jest_uwierzytelniony_kluczem() {
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+    let klucz_alicji = alice.public_key().to_vec();
+    let adres_boba = peer(&bob);
+
+    let odbior = tokio::spawn(async move { bob.accept_next().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    alice.send_direct(&adres_boba, &koperta(b"tresc")).await.unwrap();
+
+    let odebrane = tokio::time::timeout(Duration::from_secs(10), odbior)
+        .await
+        .unwrap().unwrap().unwrap().unwrap();
+
+    assert_eq!(odebrane.sender_key, klucz_alicji);
+}
+
+/// Sedno warstwy szyfrującej: identyfikator grupy nie może być czytelny
+/// w bajtach na drucie, bo odtworzyłby graf rozmów.
+#[tokio::test]
+async fn koperta_nie_jest_czytelna_w_sieci() {
+    use tokio::net::UdpSocket;
+
+    let alice = wezel(1).await;
+
+    let podsluch = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let adres_podsluchu = podsluch.local_addr().unwrap();
+
+    let cel = PeerAddr { public_key: vec![7u8; 32], addresses: vec![adres_podsluchu] };
+
+    tokio::spawn(async move {
+        let _ = alice.send_direct(&cel, &koperta(b"tresc")).await;
     });
 
-    let koperta = Envelope::new(
-        b"grupa-testowa".to_vec(),
-        EnvelopeKind::Application,
-        b"ladunek mls".to_vec(),
-    );
-
-    tokio::time::timeout(TIMEOUT, nadawca.send_direct(adres_odbiorcy, &koperta))
+    let mut bufor = vec![0u8; 65535];
+    let (ile, _) = tokio::time::timeout(Duration::from_secs(5), podsluch.recv_from(&mut bufor))
         .await
-        .expect("wysyłka przekroczyła limit czasu")
-        .expect("wysyłka bezpośrednia nieudana");
-
-    let odebrane = tokio::time::timeout(TIMEOUT, odbior)
-        .await
-        .expect("odbiór przekroczył limit czasu")
-        .unwrap()
-        .expect("transport zamknięty przed odebraniem")
-        .expect("nie udało się przetworzyć koperty");
-
-    assert_eq!(odebrane.envelope, koperta);
-    assert_eq!(odebrane.from, nadawca.endpoint_id());
-
-    nadawca.close().await;
-}
-
-/// Właściwy dowód fazy 2: pełny łańcuch MLS → iroh → MLS.
-///
-/// Alice szyfruje wiadomość przez MLS, wysyła ją bezpośrednio przez QUIC,
-/// a Bob odszyfrowuje i widzi uwierzytelnionego nadawcę.
-#[tokio::test]
-async fn wiadomosc_mls_przechodzi_przez_siec_p2p() {
-    let alice = DeviceIdentity::generate("alice", "telefon").unwrap();
-    let bob = DeviceIdentity::generate("bob", "laptop").unwrap();
-    let provider_alice = Provider::default();
-    let provider_boba = Provider::default();
-
-    // Ustalenie rozmowy — w produkcji ta część idzie przez GroupRelay.
-    let key_package = Conversation::create_key_package(&provider_boba, &bob).unwrap();
-    let mut rozmowa_alice = Conversation::create(&provider_alice, &alice).unwrap();
-    let oczekujacy = rozmowa_alice
-        .stage_add_member(&provider_alice, &alice, key_package.key_package())
+        .expect("pakiet powinien dotrzeć")
         .unwrap();
-    rozmowa_alice
-        .confirm_pending_commit(&provider_alice)
-        .unwrap();
-    let mut rozmowa_boba =
-        Conversation::join_from_welcome(&provider_boba, oczekujacy.welcome.as_ref().unwrap())
-            .unwrap();
-
-    // Od tego miejsca wszystko leci przez prawdziwą sieć.
-    let transport_alice = Transport::bind(&alice, RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let transport_boba = Transport::bind(&bob, RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let adres_boba = transport_boba.addr();
-
-    let odbior = tokio::spawn(async move {
-        let wynik = transport_boba.accept_next().await;
-        transport_boba.close().await;
-        wynik
-    });
-
-    let szyfrogram = rozmowa_alice
-        .send(
-            &provider_alice,
-            &alice,
-            &ChatMessage::text("wiadomość przez prawdziwy QUIC", 1_700_000_000_000),
-        )
-        .unwrap();
-
-    let koperta = Envelope::new(
-        rozmowa_alice.group_id().to_vec(),
-        EnvelopeKind::Application,
-        szyfrogram,
-    );
-
-    tokio::time::timeout(TIMEOUT, transport_alice.send_direct(adres_boba, &koperta))
-        .await
-        .expect("wysyłka przekroczyła limit czasu")
-        .expect("wysyłka bezpośrednia nieudana");
-
-    let odebrane = tokio::time::timeout(TIMEOUT, odbior)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .unwrap();
-
-    let Incoming::Message {
-        sender_user_id,
-        sender_device_id,
-        message,
-    } = rozmowa_boba
-        .receive(&provider_boba, &odebrane.envelope.payload)
-        .unwrap()
-    else {
-        panic!("oczekiwano wiadomości aplikacyjnej");
-    };
-
-    assert_eq!(sender_user_id, "alice");
-    assert_eq!(sender_device_id, "telefon");
-    assert_eq!(message.as_text(), Some("wiadomość przez prawdziwy QUIC"));
-
-    // Tożsamość transportowa musi być ROZŁĄCZNA z tożsamością podpisu MLS.
-    // Gdyby te klucze się pokrywały, byłaby to podatność opisana w PROTOCOL.md.
-    let klucz_mls = alice.signature_keypair().to_public_vec();
-    assert_ne!(
-        transport_alice.endpoint_id().as_bytes()[..],
-        klucz_mls[..],
-        "klucz węzła iroh pokrywa się z kluczem podpisu MLS"
-    );
-
-    transport_alice.close().await;
-}
-
-#[tokio::test]
-async fn nieosiagalny_odbiorca_trafia_do_skrzynki() {
-    let nadawca = Transport::bind_with_secret([3u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-
-    // Węzeł, który nigdy nie istniał: znany identyfikator, zero adresów,
-    // relaye wyłączone. Połączenie bezpośrednie nie ma jak się udać.
-    let widmo = mekamb_transport::Transport::bind_with_secret([9u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let adres_widma = iroh::EndpointAddr::new(widmo.endpoint_id());
-    widmo.close().await;
-
-    let skrzynka = SkrzynkaTestowa::default();
-    let koperta = Envelope::new(b"g".to_vec(), EnvelopeKind::Application, b"tresc".to_vec());
-
-    let sposob = tokio::time::timeout(
-        TIMEOUT,
-        nadawca.deliver("bob", Some(adres_widma), &koperta, &skrzynka),
-    )
-    .await
-    .expect("dostarczanie przekroczyło limit czasu")
-    .expect("dostarczanie zawiodło mimo działającej skrzynki");
-
-    assert_eq!(sposob, Delivery::Mailbox);
-    assert_eq!(skrzynka.liczba_depozytow(), 1);
-
-    nadawca.close().await;
-}
-
-#[tokio::test]
-async fn brak_znanego_adresu_omija_probe_bezposrednia() {
-    let nadawca = Transport::bind_with_secret([4u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let skrzynka = SkrzynkaTestowa::default();
-    let koperta = Envelope::new(b"g".to_vec(), EnvelopeKind::Application, b"x".to_vec());
-
-    // Katalog nie zna adresu odbiorcy — idziemy prosto do skrzynki, bez
-    // czekania na timeout połączenia.
-    let sposob = nadawca
-        .deliver("bob", None, &koperta, &skrzynka)
-        .await
-        .unwrap();
-
-    assert_eq!(sposob, Delivery::Mailbox);
-    assert_eq!(skrzynka.liczba_depozytow(), 1);
-
-    nadawca.close().await;
-}
-
-#[tokio::test]
-async fn awaria_obu_drog_jest_bledem() {
-    let nadawca = Transport::bind_with_secret([5u8; 32], RelayPolicy::LoopbackOnly)
-        .await
-        .unwrap();
-    let koperta = Envelope::new(b"g".to_vec(), EnvelopeKind::Application, b"x".to_vec());
-
-    let wynik = nadawca
-        .deliver("bob", None, &koperta, &SkrzynkaNiedostepna)
-        .await;
+    bufor.truncate(ile);
 
     assert!(
-        wynik.is_err(),
-        "gdy zawiodą obie drogi, wywołujący musi się o tym dowiedzieć"
+        !bufor.windows(13).any(|okno| okno == b"grupa-testowa"),
+        "identyfikator grupy widoczny w bajtach sieciowych"
+    );
+}
+
+/// Odbiorca nieosiągalny nie jest błędem — wiadomość ma trafić do skrzynki.
+#[tokio::test]
+async fn nieosiagalny_odbiorca_trafia_do_skrzynki() {
+    let alice = wezel(1).await;
+    let skrzynka = SkrzynkaTestowa::default();
+
+    let martwy = PeerAddr {
+        public_key: vec![9u8; 32],
+        addresses: vec!["127.0.0.1:1".parse().unwrap()],
+    };
+
+    let sposob = alice
+        .deliver(Some(&martwy), "bob", &koperta(b"tresc"), &skrzynka)
+        .await
+        .expect("dostarczenie przez skrzynkę powinno się udać");
+
+    assert_eq!(sposob, Delivery::Mailbox);
+    assert_eq!(skrzynka.ile(), 1);
+}
+
+#[tokio::test]
+async fn brak_adresu_prowadzi_do_skrzynki() {
+    let alice = wezel(1).await;
+    let skrzynka = SkrzynkaTestowa::default();
+
+    let sposob = alice.deliver(None, "bob", &koperta(b"tresc"), &skrzynka).await.unwrap();
+
+    assert_eq!(sposob, Delivery::Mailbox);
+    assert_eq!(skrzynka.ile(), 1);
+}
+
+/// Ochrona przed podstawieniem urządzenia przez katalog.
+#[tokio::test]
+async fn podstawiony_klucz_uniemozliwia_polaczenie() {
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+
+    let podszywacz = PeerAddr {
+        // Prawdziwy adres Boba, ale klucz kogoś innego — dokładnie to, co
+        // zrobiłby serwer wydając spreparowany wpis katalogowy.
+        public_key: vec![0xAA; 32],
+        addresses: vec![adres(&bob)],
+    };
+
+    tokio::spawn(async move { bob.accept_next().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert!(
+        alice.send_direct(&podszywacz, &koperta(b"tresc")).await.is_err(),
+        "połączenie z podstawionym kluczem nie powinno dojść do skutku"
+    );
+}
+
+#[tokio::test]
+async fn kolejne_wiadomosci_uzywaja_istniejacej_sesji() {
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+    let adres_boba = peer(&bob);
+
+    let odbior = tokio::spawn(async move {
+        let a = bob.accept_next().await;
+        let b = bob.accept_next().await;
+        (a, b)
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    alice.send_direct(&adres_boba, &koperta(b"pierwsza")).await.unwrap();
+    alice.send_direct(&adres_boba, &koperta(b"druga")).await.unwrap();
+
+    let (pierwsza, druga) = tokio::time::timeout(Duration::from_secs(10), odbior)
+        .await
+        .expect("odbiór nie powinien się zaciąć")
+        .unwrap();
+
+    assert_eq!(pierwsza.unwrap().unwrap().envelope.payload, b"pierwsza");
+    assert_eq!(druga.unwrap().unwrap().envelope.payload, b"druga");
+}
+
+/// Datagramy z sieci bywają spreparowane — pętla odbioru ma je pomijać,
+/// a nie kończyć pracę.
+#[tokio::test]
+async fn smieci_z_sieci_nie_zatrzymuja_odbioru() {
+    use tokio::net::UdpSocket;
+
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+    let adres_boba = adres(&bob);
+    let peer_boba = peer(&bob);
+
+    let odbior = tokio::spawn(async move { bob.accept_next().await });
+
+    let napastnik = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    for smiec in [vec![0u8; 1], vec![0xFFu8; 64], vec![0xABu8; 1200]] {
+        let _ = napastnik.send_to(&smiec, adres_boba).await;
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    alice.send_direct(&peer_boba, &koperta(b"prawdziwa")).await.unwrap();
+
+    let odebrane = tokio::time::timeout(Duration::from_secs(10), odbior)
+        .await
+        .expect("odbiór nie powinien się zaciąć")
+        .unwrap()
+        .expect("powinna przyjść koperta")
+        .expect("koperta powinna być poprawna");
+
+    assert_eq!(odebrane.envelope.payload, b"prawdziwa");
+}
+
+#[tokio::test]
+async fn za_duza_koperta_jest_odrzucana() {
+    let alice = wezel(1).await;
+    let bob = wezel(2).await;
+
+    let ogromna = Envelope::new(
+        b"grupa".to_vec(),
+        EnvelopeKind::Application,
+        vec![0u8; mekamb_transport::MAX_PAYLOAD + 1],
     );
 
-    nadawca.close().await;
+    assert!(alice.send_direct(&peer(&bob), &ogromna).await.is_err());
 }

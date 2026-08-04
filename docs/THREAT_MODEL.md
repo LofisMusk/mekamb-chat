@@ -56,9 +56,15 @@ i pozwalać wymusić relay.
 
 ### Relaye
 
-Relay iroh (publiczne n0 albo TURN Cloudflare) widzi IP i wzorce ruchu obu
-stron. Nie widzi treści — wiadomości są zaszyfrowane MLS **pod** szyfrowaniem
-QUIC/TLS.
+Nie mamy przekaźnika dla wiadomości: przy symetrycznym NAT ruch idzie przez
+skrzynkę na serwerze, a ta widzi wyłącznie szyfrogram.
+
+Serwery STUN widzą, że dany adres IP zapytał o swój adres publiczny — tyle
+samo, co każdy router po drodze. **Nie muszą być zaufane**: gdyby skłamały,
+połączenie bezpośrednie po prostu by się nie zestawiło.
+
+TURN Cloudflare, używany wyłącznie do rozmów audio/wideo, widzi IP i wolumen
+ruchu obu stron. Nie widzi mediów — te są zaszyfrowane DTLS-SRTP.
 
 ### Nietypowe warianty kontenerów
 

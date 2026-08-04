@@ -126,16 +126,18 @@ class Api(private val baseUrl: String) {
         token: String,
         deviceId: String,
         mlsPublicKey: ByteArray,
-        irohEndpointId: String?,
+        transportKey: ByteArray,
+        transportAddresses: List<String>,
     ) {
         postJson(
             "/devices",
             buildJsonObject {
                 put("deviceId", deviceId)
                 put("mlsPublicKey", base64(mlsPublicKey))
-                // Klient natywny MA adres — to główna różnica względem
+                // Klient natywny MA adresy — to główna różnica względem
                 // przeglądarki, której nie da się bezpośrednio osiągnąć.
-                irohEndpointId?.let { put("irohNodeId", it) }
+                put("transportKey", base64(transportKey))
+                put("transportAddresses", transportAddresses.joinToString(","))
                 put("displayName", "Android")
             },
             token,
@@ -153,13 +155,18 @@ class Api(private val baseUrl: String) {
         postJson("/key-packages/$deviceId", body, token)
     }
 
-    data class Device(val deviceId: String, val irohNodeId: String?)
+    data class Device(
+        val deviceId: String,
+        /** Klucz publiczny transportu. `null` = odbiorca tylko przez skrzynkę. */
+        val transportKey: ByteArray?,
+        val transportAddresses: List<String>,
+    )
 
     /**
      * Wyszukuje urządzenia użytkownika.
      *
-     * `irohNodeId` bywa `null` — tak wygląda klient webowy, do którego nie da
-     * się zadzwonić. Wywołujący musi wtedy pójść przez skrzynkę.
+     * Klucz transportowy bywa `null` — tak wygląda klient webowy, do którego
+     * nie da się zadzwonić. Wywołujący musi wtedy pójść przez skrzynkę.
      */
     suspend fun lookupDevices(username: String): List<Device> = withContext(Dispatchers.IO) {
         val odpowiedz = get("/directory/$username")
@@ -167,7 +174,12 @@ class Api(private val baseUrl: String) {
             val obiekt = wpis as JsonObject
             Device(
                 deviceId = obiekt["deviceId"]!!.jsonPrimitive.content,
-                irohNodeId = obiekt["irohNodeId"]?.jsonPrimitive?.contentOrNull(),
+                transportKey = obiekt["transportKey"]?.jsonPrimitive?.contentOrNull()?.fromBase64(),
+                transportAddresses = obiekt["transportAddresses"]
+                    ?.jsonPrimitive?.contentOrNull()
+                    ?.split(",")
+                    ?.filter { it.isNotBlank() }
+                    .orEmpty(),
             )
         }
     }

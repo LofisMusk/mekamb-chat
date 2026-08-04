@@ -26,6 +26,9 @@ rand = "0.10.2"
 # Ta sama wersja, ktora ciagnie juz stos kryptograficzny OpenMLS — dodanie
 # drugiej kopii powiekszyloby pakiet WASM bez zadnego zysku.
 aes-gcm = "0.10.3"
+# Noise Protocol — nie piszemy własnej kryptografii transportowej.
+snow = "0.10"
+x25519-dalek = "2"
 prost = "0.14.4"
 ed25519-dalek = "2.2"
 zeroize = { version = "1.8", features = ["zeroize_derive"] }

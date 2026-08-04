@@ -9,7 +9,7 @@ wyłącznie na jego podstawie.
 |---|---|
 | Kryptografia grup | MLS, RFC 9420 (OpenMLS) |
 | Ciphersuite | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001) |
-| Transport | iroh 1.0 — QUIC z przebijaniem NAT, relay jako fallback |
+| Transport | własny: UDP + STUN + Noise IK, skrzynka jako fallback |
 | Ładunek aplikacyjny | protobuf, [`proto/chat.proto`](../proto/chat.proto) |
 | Uwierzytelnienie do infrastruktury | OPAQUE (RFC 9807) + TOTP (RFC 6238) |
 
@@ -23,8 +23,12 @@ z niego przez HKDF-SHA256, bez soli, z rozłącznymi etykietami:
 
 ```
 klucz_podpisu_mls = HKDF-SHA256(ikm = ziarno, info = "mekamb-chat/v1/mls-signature", L = 32)
-klucz_wezla_iroh  = HKDF-SHA256(ikm = ziarno, info = "mekamb-chat/v1/iroh-node",     L = 32)
+klucz_transportu  = HKDF-SHA256(ikm = ziarno, info = "mekamb-chat/v1/iroh-node",     L = 32)
 ```
+
+> Etykieta transportu nosi historyczną nazwę `iroh-node`. **Nie wolno jej
+> zmienić**: wszystkim istniejącym urządzeniom zmieniłby się klucz pod ręką.
+> Etykiety są niezmienne z założenia — zmiana schematu wymaga nowej wersji.
 
 Oba są 32-bajtowymi ziarnami Ed25519; klucz publiczny wyprowadza się standardowo.
 
@@ -107,9 +111,9 @@ To jest sedno architektury.
 
 | Rodzaj | Kanał | Dlaczego |
 |---|---|---|
-| Wiadomości aplikacyjne | iroh P2P | Przemienne w obrębie epoki, nie wymagają porządku |
+| Wiadomości aplikacyjne | własny transport P2P | Przemienne w obrębie epoki, nie wymagają porządku |
 | Media rozmów | WebRTC P2P | Wolumen i opóźnienia |
-| Sygnalizacja rozmów | kanał MLS przez iroh | Musi być uwierzytelniona |
+| Sygnalizacja rozmów | kanał MLS | Musi być uwierzytelniona |
 | Commity MLS | `GroupRelay` (Durable Object) | Wymagają jednego autorytatywnego porządku |
 | Wiadomości do offline'owych | `UserInbox` (Durable Object) | Ktoś musi je przechować |
 
@@ -144,6 +148,27 @@ Rozstrzyga `GroupRelay`, bo Durable Object jest jednowątkowy.
 **Commit nie jest scalany przed potwierdzeniem.** Scalenie od razu przy
 odrzuceniu zostawiłoby klienta w epoce, której reszta grupy nie zna — czyli poza
 rozmową.
+
+### Transport P2P
+
+| Warstwa | Rozwiązanie |
+|---|---|
+| Gniazdo | UDP |
+| Poznanie własnego adresu | STUN (RFC 5389) |
+| Zestawienie połączenia | jednoczesne pakiety, przebijanie NAT |
+| Szyfrowanie i uwierzytelnienie | Noise IK (`Noise_IK_25519_ChaChaPoly_BLAKE2s`) |
+
+Wzorzec **IK** jest wybrany celowo: inicjator zna z góry statyczny klucz
+odpowiadającego — bierze go z katalogu. Jeśli katalog skłamał, **handshake nie
+przejdzie**, więc serwer nie podstawi się w środek połączenia.
+
+Druga warstwa szyfrowania nie dubluje MLS. MLS chroni treść; Noise chroni
+**kopertę**, która musi być czytelna dla odbiorcy przed odszyfrowaniem, a więc
+niesie `group_id` jawnie. Bez Noise obserwator sieci odtworzyłby graf rozmów.
+
+**Nie ma przekaźnika.** Przy symetrycznym NAT po obu stronach przebicie się nie
+uda i wchodzi skrzynka. Własny relay wymagałby serwera z UDP, a architektura
+stoi na Cloudflare Workers, które UDP nie obsługują.
 
 ## 5. Ładunek aplikacyjny
 

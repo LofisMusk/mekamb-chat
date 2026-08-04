@@ -132,13 +132,10 @@ val buildHostLib by tasks.registering(Exec::class) {
     workingDir = rustRoot
     commandLine("cargo", "build", "-p", "mekamb-ffi")
 
-    // Katalog z bindingami MUSI tu być. Bez niego zmiana w warstwie UniFFI
-    // nie unieważnia zadania, Gradle uznaje je za aktualne i kompiluje Kotlin
-    // przeciw nieaktualnym wiązaniom — błąd wygląda wtedy jak problem
-    // w kodzie Kotlina, choć jest w konfiguracji builda.
     inputs.dir(rustRoot.resolve("core"))
     inputs.dir(rustRoot.resolve("opaque"))
     inputs.dir(rustRoot.resolve("transport"))
+    outputs.file(rustRoot.resolve("target/debug/libmekamb_ffi.dylib"))
 }
 
 val generateUniffiBindings by tasks.registering(Exec::class) {
@@ -158,6 +155,14 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
         "--no-format",
     )
 
+    // Zadanie jest ZAWSZE uruchamiane ponownie. Śledzenie wejść okazało się
+    // zawodne: przy nieaktualnych wiązaniach Kotlin zgłasza niezgodność typów,
+    // co wygląda jak błąd w kodzie aplikacji, choć siedzi w konfiguracji
+    // builda. Dwukrotnie zmyliło to diagnozę i nie warto ryzykować trzeciego.
+    //
+    // Koszt jest znikomy: uniffi-bindgen czyta tylko metadane z gotowej
+    // biblioteki, a kompilację Rusta i tak buforuje cargo.
+    outputs.upToDateWhen { false }
     outputs.dir(generatedKotlin)
 }
 

@@ -1,284 +1,388 @@
-//! Transport P2P komunikatora **mekamb-chat**.
+//! Transport P2P komunikatora mekamb-chat.
 //!
-//! # Zasada: najpierw bezpośrednio, skrzynka dopiero gdy trzeba
+//! # Dlaczego własna implementacja
 //!
-//! Wiadomość idzie wprost między urządzeniami przez QUIC (iroh). Serwer wchodzi
-//! do gry tylko wtedy, gdy odbiorcy nie da się osiągnąć — wtedy szyfrogram
-//! trafia do jego skrzynki i czeka. Dzięki temu w typowym przypadku
-//! infrastruktura w ogóle nie widzi ruchu.
+//! Pierwotnie tę warstwę zapewniał iroh. Działał i jest otwartoźródłowy —
+//! problem leżał gdzie indziej: iroh ciągnie `reqwest`, ten
+//! `rustls-platform-verifier`, a ten **przerywa proces na Androidzie**, jeśli
+//! nie zainicjalizuje się go przez JNI. Nie dało się tego wyłączyć flagą,
+//! bo zależność jest twarda.
 //!
-//! Decyzja „bezpośrednio czy do skrzynki" jest podejmowana **tutaj**, a nie
-//! w kodzie klienta. Android i przeglądarka wołają [`Transport::deliver`]
-//! i nie muszą wiedzieć, którą drogą poszła wiadomość.
+//! Nasze potrzeby są przy tym wąskie: wysłać kopertę do urządzenia o znanym
+//! kluczu publicznym. Nie potrzebujemy strumieni, multipleksowania, relayów po
+//! HTTP, odkrywania przez DNS ani metryk.
+//!
+//! # Z czego się składa
+//!
+//! | Warstwa | Rozwiązanie |
+//! |---|---|
+//! | Gniazdo | zwykły UDP |
+//! | Poznanie własnego adresu | STUN (RFC 5389), własna implementacja żądania |
+//! | Zestawienie połączenia | jednoczesne pakiety, klasyczne przebijanie NAT |
+//! | Szyfrowanie i uwierzytelnienie | Noise IK przez `snow` |
+//! | Odbiorca nieosiągalny | skrzynka na serwerze |
+//!
+//! **Kryptografii nie piszemy.** Noise jest wyspecyfikowany i przeanalizowany
+//! formalnie, a `snow` jest jego niezależną implementacją w czystym Rust.
+//! Nasza rola sprowadza się do wyboru wzorca i podłączenia kluczy.
 //!
 //! # Tożsamość transportowa to nie tożsamość autora
 //!
-//! `EndpointId` w iroh jest wyprowadzany z osobnego klucza niż credential MLS
-//! (patrz `mekamb_core::identity`). Wiedza „ten pakiet przyszedł od węzła X"
-//! **nie** jest dowodem, kto napisał wiadomość — o autorstwie rozstrzyga
-//! wyłącznie zweryfikowany credential MLS po odszyfrowaniu.
+//! Klucz transportowy jest wyprowadzany z osobnej etykiety HKDF niż credential
+//! MLS. Wiedza „ten pakiet przyszedł od klucza X" **nie** jest dowodem, kto
+//! napisał wiadomość — o autorstwie rozstrzyga wyłącznie zweryfikowany
+//! credential MLS po odszyfrowaniu.
 //!
-//! # Przeglądarka
+//! # Czego ta warstwa NIE robi
 //!
-//! Ten sam kod działa w przeglądarce po kompilacji do WASM, ale wyłącznie
-//! w trybie relay: sandbox nie pozwala wysyłać pakietów UDP, więc przebijanie
-//! NAT jest niedostępne. Szyfrowanie pozostaje niezmienione.
+//! **Nie ma przekaźnika.** Przy symetrycznym NAT po obu stronach przebicie się
+//! nie uda i wtedy wchodzi skrzynka. To świadomy wybór: własny relay wymagałby
+//! serwera z UDP, a cała architektura stoi na Cloudflare Workers, które UDP
+//! nie obsługują. Skrzynka przenosi wyłącznie szyfrogram, więc bezpieczeństwo
+//! na tym nie traci — traci bezpośredniość.
+//!
+//! **Nie ukrywa adresu IP przed rozmówcą.** Połączenie bezpośrednie z definicji
+//! go ujawnia. Interfejs musi pokazywać, którą drogą idzie ruch.
 
-use iroh::{
-    Endpoint, EndpointAddr, EndpointId, RelayMode, SecretKey,
-    endpoint::{Connection, presets},
-};
-use mekamb_core::{Error, Result, identity::DeviceIdentity};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 
-// Koperta mieszka w rdzeniu, żeby bindingi WASM mogły jej użyć bez wciągania
-// całego stosu QUIC. Transport re-eksportuje ją dla wygody wywołujących.
-pub use mekamb_core::envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
+use mekamb_core::envelope::MAX_ENVELOPE_BYTES;
+use mekamb_core::identity::DeviceIdentity;
+use tokio::net::UdpSocket;
+use tokio::sync::Mutex;
 
-/// Identyfikator protokołu negocjowany w handshake QUIC.
+pub mod error;
+pub mod session;
+pub mod stun;
+
+pub use error::{Error, Result};
+pub use mekamb_core::envelope::{Envelope, EnvelopeKind};
+pub use session::{MAX_PAYLOAD, StaticKeypair};
+
+/// Domyślne serwery STUN.
 ///
-/// Wersjonowany: gdy format koperty przestanie być zgodny wstecz, zmiana ALPN
-/// sprawi, że stare i nowe klienty po prostu się nie połączą — zamiast połączyć
-/// się i nie zrozumieć.
-pub const ALPN: &[u8] = b"mekamb-chat/1";
+/// Dwa różne podmioty, żeby awaria jednego nie odcinała możliwości poznania
+/// własnego adresu. Serwer STUN **nie musi być zaufany**: gdyby skłamał
+/// o naszym adresie, połączenie bezpośrednie po prostu by się nie zestawiło
+/// i zadziałałby fallback na skrzynkę.
+pub const DEFAULT_STUN_SERVERS: [&str; 2] = ["stun.cloudflare.com:3478", "stun.l.google.com:19302"];
 
-/// Bajt potwierdzenia odbioru.
-///
-/// Bez potwierdzenia nadawca nie odróżniłby „dostarczono" od „strumień się
-/// urwał", a przy takiej wątpliwości musiałby dublować wiadomość do skrzynki.
-const ACK: u8 = 0x01;
+/// Jak długo próbujemy przebić NAT, zanim uznamy odbiorcę za nieosiągalnego.
+const PUNCH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Polityka sieciowa punktu końcowego.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RelayPolicy {
-    /// Publiczne relaye n0 plus wyszukiwanie adresów. Ustawienie produkcyjne.
-    Public,
-    /// Bez relayów i bez wyszukiwania — wyłącznie połączenia bezpośrednie
-    /// po adresach znanych z katalogu.
-    Disabled,
-    /// Bez relayów, gniazdo wyłącznie na pętli zwrotnej.
-    ///
-    /// Do testów i CI. Nie chodzi tylko o hermetyczność: nowsze wersje macOS
-    /// wymagają zgody „Local Network" na ruch do adresów LAN, której binarka
-    /// testowa nie dostaje. Bez wymuszenia loopbacku testy P2P wieszają się na
-    /// timeoucie na maszynie deweloperskiej, choć kod jest poprawny.
-    #[cfg(not(target_arch = "wasm32"))]
-    LoopbackOnly,
-}
+/// Odstęp między kolejnymi pakietami przebijającymi.
+const PUNCH_INTERVAL: Duration = Duration::from_millis(250);
 
-/// Jak faktycznie została dostarczona wiadomość.
-///
-/// Zwracane do warstwy wyżej, żeby interfejs mógł pokazać tryb połączenia —
-/// użytkownik ma prawo wiedzieć, czy ruch omija infrastrukturę.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Największy pakiet, jaki przyjmujemy z sieci.
+const MAX_DATAGRAM: usize = 65535;
+
+/// Jak dostarczono wiadomość.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
-    /// Prosto do urządzenia odbiorcy.
+    /// Prosto do urządzenia odbiorcy, z pominięciem infrastruktury.
     Direct,
     /// Odbiorca nieosiągalny — szyfrogram czeka w skrzynce.
     Mailbox,
 }
 
-/// Skrzynka serwerowa dla odbiorców offline.
+/// Adres urządzenia w sieci, publikowany w katalogu.
 ///
-/// Trait, a nie konkretna implementacja, bo rdzeń transportu nie wykonuje żądań
-/// HTTP — robi to warstwa platformowa (Android albo przeglądarka), która ma
-/// token dostępowy i zna adres Workera.
-pub trait Mailbox {
-    /// Zostawia szyfrogram dla odbiorcy.
-    fn deposit(&self, recipient_user_id: &str, envelope: &[u8])
-    -> impl Future<Output = Result<()>>;
+/// Serwer **nie jest** zaufanym źródłem tych danych: gdyby podał obcy klucz,
+/// handshake Noise by nie przeszedł.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerAddr {
+    /// Statyczny klucz publiczny urządzenia (X25519, 32 bajty).
+    pub public_key: Vec<u8>,
+    /// Adresy, pod którymi urządzenie może być osiągalne — lokalny i publiczny.
+    pub addresses: Vec<SocketAddr>,
 }
 
-/// Wiadomość odebrana z sieci wraz z węzłem, który ją przysłał.
-#[derive(Debug)]
+/// Odebrana koperta wraz z uwierzytelnionym kluczem nadawcy.
+#[derive(Debug, Clone)]
 pub struct Received {
-    /// Węzeł transportowy nadawcy. **Nie** jest dowodem autorstwa.
-    pub from: EndpointId,
     pub envelope: Envelope,
+    /// Klucz publiczny nadawcy, potwierdzony przez handshake Noise.
+    pub sender_key: Vec<u8>,
 }
 
-/// Punkt końcowy sieci P2P tego urządzenia.
+/// Skrzynka na wiadomości dla nieosiągalnych odbiorców.
+pub trait Mailbox {
+    fn deposit(
+        &self,
+        recipient: &str,
+        envelope: &Envelope,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
+}
+
+/// Węzeł P2P urządzenia.
 pub struct Transport {
-    endpoint: Endpoint,
+    socket: Arc<UdpSocket>,
+    keypair: Arc<StaticKeypair>,
+    /// Sesje po adresie rozmówcy — jeden adres to jedna sesja.
+    sessions: Arc<Mutex<HashMap<SocketAddr, session::Session>>>,
+    local_addrs: Vec<SocketAddr>,
 }
 
 impl Transport {
-    /// Uruchamia transport na kluczu wyprowadzonym z tożsamości urządzenia.
-    ///
-    /// Klucz węzła pochodzi z ziarna przez HKDF z etykietą `iroh-node` i jest
-    /// **rozłączny** z kluczem podpisu MLS.
-    pub async fn bind(identity: &DeviceIdentity, relay: RelayPolicy) -> Result<Self> {
-        Self::bind_with_secret(identity.seed().iroh_secret_bytes(), relay).await
+    /// Uruchamia węzeł na kluczu wyprowadzonym z tożsamości urządzenia.
+    pub async fn bind(identity: &DeviceIdentity) -> Result<Self> {
+        Self::bind_with_secret(identity.seed().iroh_secret_bytes()).await
     }
 
-    /// Wariant przyjmujący surowe bajty klucza — do testów i narzędzi.
-    pub async fn bind_with_secret(secret: [u8; 32], relay: RelayPolicy) -> Result<Self> {
-        let secret_key = SecretKey::from_bytes(&secret);
-
-        let builder = match relay {
-            RelayPolicy::Public => Endpoint::builder(presets::N0),
-            RelayPolicy::Disabled => {
-                Endpoint::builder(presets::Minimal).relay_mode(RelayMode::Disabled)
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            RelayPolicy::LoopbackOnly => Endpoint::builder(presets::Minimal)
-                .relay_mode(RelayMode::Disabled)
-                .bind_addr("127.0.0.1:0")
-                .map_err(|e| Error::Storage(format!("nieprawidłowy adres pętli zwrotnej: {e}")))?,
-        };
-
-        let endpoint = builder
-            .secret_key(secret_key)
-            .alpns(vec![ALPN.to_vec()])
-            .bind()
+    /// Uruchamia węzeł bez odpytywania STUN.
+    ///
+    /// Przydatne w testach i w sieci lokalnej: pomija ruch na zewnątrz, więc
+    /// nie zależy od dostępności czegokolwiek poza maszyną.
+    pub async fn bind_local(secret: &[u8; 32]) -> Result<Self> {
+        let socket = UdpSocket::bind("127.0.0.1:0")
             .await
-            .map_err(|e| Error::Storage(format!("nie udało się uruchomić transportu: {e}")))?;
+            .map_err(|e| Error::Transport(format!("nie udało się otworzyć gniazda: {e}")))?;
 
-        Ok(Self { endpoint })
+        let local_addrs = socket.local_addr().map(|a| vec![a]).unwrap_or_default();
+
+        Ok(Self {
+            socket: Arc::new(socket),
+            keypair: Arc::new(StaticKeypair::from_secret(secret)?),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            local_addrs,
+        })
     }
 
-    /// Identyfikator tego węzła.
-    pub fn endpoint_id(&self) -> EndpointId {
-        self.endpoint.id()
-    }
-
-    /// Adres, pod którym inni mogą się z nami połączyć.
+    /// Uruchamia węzeł na podanym sekrecie.
     ///
-    /// Publikowany w katalogu na serwerze, podpisany kluczem tożsamości, żeby
-    /// serwer nie mógł go niezauważenie podmienić.
-    pub fn addr(&self) -> EndpointAddr {
-        self.endpoint.addr()
+    /// Odpytuje serwery STUN, żeby poznać własny adres publiczny. Niepowodzenie
+    /// **nie jest błędem**: bez adresu publicznego działa jeszcze połączenie
+    /// w obrębie sieci lokalnej, a poza nią zadziała skrzynka.
+    pub async fn bind_with_secret(secret: [u8; 32]) -> Result<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| Error::Transport(format!("nie udało się otworzyć gniazda: {e}")))?;
+
+        let keypair = StaticKeypair::from_secret(&secret)?;
+
+        // Adres nasłuchu (0.0.0.0) NIE trafia do katalogu — dla rozmówcy jest
+        // bezużyteczny, a wpisany na listę kosztowałby próbę połączenia
+        // i kilka sekund oczekiwania, zanim przyszłaby kolej na adres, który
+        // faktycznie działa.
+        let mut local_addrs = Vec::new();
+        if let Ok(lokalny) = socket.local_addr() {
+            if !lokalny.ip().is_unspecified() {
+                local_addrs.push(lokalny);
+            }
+        }
+
+        for serwer in DEFAULT_STUN_SERVERS {
+            let Ok(adres_serwera) = stun::resolve(serwer).await else {
+                continue;
+            };
+
+            if let Ok(publiczny) = stun::discover_public_address(&socket, adres_serwera).await {
+                if !local_addrs.contains(&publiczny) {
+                    local_addrs.push(publiczny);
+                }
+                // Jeden działający serwer wystarcza.
+                break;
+            }
+        }
+
+        Ok(Self {
+            socket: Arc::new(socket),
+            keypair: Arc::new(keypair),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            local_addrs,
+        })
     }
 
-    /// Czeka, aż węzeł będzie osiągalny z zewnątrz.
-    pub async fn wait_online(&self) {
-        self.endpoint.online().await;
+    /// Klucz publiczny tego urządzenia — publikowany w katalogu.
+    pub fn public_key(&self) -> &[u8] {
+        self.keypair.public()
     }
 
-    /// Próbuje dostarczyć kopertę bezpośrednio do wskazanego adresu.
+    /// Adresy, pod którymi urządzenie jest osiągalne.
+    pub fn addresses(&self) -> &[SocketAddr] {
+        &self.local_addrs
+    }
+
+    /// Wysyła kopertę wprost do rozmówcy.
     ///
-    /// Zwraca `Ok` dopiero po potwierdzeniu odbioru przez drugą stronę.
-    pub async fn send_direct(&self, peer: EndpointAddr, envelope: &Envelope) -> Result<()> {
-        let bytes = envelope.encode_to_vec();
-        if bytes.len() > MAX_ENVELOPE_BYTES {
-            return Err(Error::Framing(format!(
-                "koperta ma {} bajtów, limit to {MAX_ENVELOPE_BYTES}",
-                bytes.len()
+    /// Próbuje kolejnych adresów, aż któryś odpowie. Błąd **nie jest awarią** —
+    /// to sygnał dla wywołującego, żeby skorzystał ze skrzynki.
+    pub async fn send_direct(&self, peer: &PeerAddr, envelope: &Envelope) -> Result<()> {
+        let bajty = envelope.encode_to_vec();
+
+        if bajty.len() > MAX_PAYLOAD {
+            return Err(Error::Transport(format!(
+                "koperta ma {} bajtów, limit to {MAX_PAYLOAD}",
+                bajty.len()
             )));
         }
 
-        let connection: Connection = self
-            .endpoint
-            .connect(peer, ALPN)
-            .await
-            .map_err(|e| Error::Storage(format!("nie udało się połączyć z peerem: {e}")))?;
-
-        let (mut send, mut recv) = connection
-            .open_bi()
-            .await
-            .map_err(|e| Error::Storage(format!("nie udało się otworzyć strumienia: {e}")))?;
-
-        send.write_all(&bytes)
-            .await
-            .map_err(|e| Error::Storage(format!("błąd wysyłki: {e}")))?;
-        send.finish()
-            .map_err(|e| Error::Storage(format!("błąd domknięcia strumienia: {e}")))?;
-
-        let ack = recv
-            .read_to_end(1)
-            .await
-            .map_err(|e| Error::Storage(format!("brak potwierdzenia odbioru: {e}")))?;
-
-        connection.close(0u32.into(), b"ok");
-
-        if ack.first() != Some(&ACK) {
-            return Err(Error::Storage(
-                "odbiorca nie potwierdził przyjęcia koperty".into(),
-            ));
+        for adres in &peer.addresses {
+            if self.wyslij_pod_adres(*adres, &peer.public_key, &bajty).await.is_ok() {
+                return Ok(());
+            }
         }
 
-        Ok(())
+        Err(Error::PeerUnreachable)
     }
 
     /// Dostarcza kopertę: najpierw bezpośrednio, w razie niepowodzenia do skrzynki.
     ///
-    /// `peer` może być `None`, gdy katalog nie zna aktualnego adresu odbiorcy —
-    /// wtedy od razu idziemy do skrzynki.
-    ///
-    /// Niepowodzenie połączenia bezpośredniego **nie jest błędem**: odbiorca ma
-    /// pełne prawo być offline. Błąd zwracamy dopiero, gdy zawiodą obie drogi.
+    /// Nieosiągalny odbiorca **nie jest błędem** — ma pełne prawo być offline.
     pub async fn deliver<M: Mailbox>(
         &self,
-        recipient_user_id: &str,
-        peer: Option<EndpointAddr>,
+        peer: Option<&PeerAddr>,
+        recipient: &str,
         envelope: &Envelope,
         mailbox: &M,
     ) -> Result<Delivery> {
         if let Some(peer) = peer {
-            match self.send_direct(peer, envelope).await {
-                Ok(()) => return Ok(Delivery::Direct),
-                Err(e) => {
-                    tracing::debug!(
-                        recipient = recipient_user_id,
-                        blad = %e,
-                        "dostarczenie bezpośrednie nieudane, przechodzę na skrzynkę"
-                    );
+            if self.send_direct(peer, envelope).await.is_ok() {
+                return Ok(Delivery::Direct);
+            }
+        }
+
+        mailbox.deposit(recipient, envelope).await?;
+        Ok(Delivery::Mailbox)
+    }
+
+    /// Zestawia sesję i wysyła ładunek pod konkretny adres.
+    async fn wyslij_pod_adres(
+        &self,
+        adres: SocketAddr,
+        klucz_rozmowcy: &[u8],
+        ladunek: &[u8],
+    ) -> Result<()> {
+        // Istniejąca sesja oszczędza handshake'u.
+        {
+            let mut sesje = self.sessions.lock().await;
+            if let Some(sesja) = sesje.get_mut(&adres) {
+                if sesja.is_ready() {
+                    let szyfrogram = sesja.seal(ladunek)?;
+                    self.wyslij_datagram(adres, &szyfrogram).await?;
+                    return Ok(());
                 }
             }
         }
 
-        mailbox
-            .deposit(recipient_user_id, &envelope.encode_to_vec())
-            .await?;
+        let (mut sesja, pierwsza) = session::Session::initiate(&self.keypair, klucz_rozmowcy)?;
 
-        Ok(Delivery::Mailbox)
+        // Przebijanie NAT: powtarzamy pierwszą wiadomość handshake'u, aż
+        // przyjdzie odpowiedź. Każdy wysłany pakiet otwiera w naszym NAT-cie
+        // przejście dla odpowiedzi z tego adresu — bez tego pakiety rozmówcy
+        // byłyby odrzucane, zanim do nas dotrą.
+        let odpowiedz = self.przebij(adres, &pierwsza).await?;
+
+        if sesja.read_handshake(&odpowiedz)?.is_some() {
+            return Err(Error::Transport("nieoczekiwany przebieg handshake'u".into()));
+        }
+
+        // Noise potwierdza, że rozmówca zna odpowiedni klucz prywatny — ale to
+        // my musimy sprawdzić, czy to TEN klucz, którego oczekiwaliśmy.
+        if sesja.peer_public().as_deref() != Some(klucz_rozmowcy) {
+            return Err(Error::Transport("rozmówca ma inny klucz niż w katalogu".into()));
+        }
+
+        let szyfrogram = sesja.seal(ladunek)?;
+        self.wyslij_datagram(adres, &szyfrogram).await?;
+
+        self.sessions.lock().await.insert(adres, sesja);
+        Ok(())
     }
 
-    /// Odbiera jedną kopertę z sieci.
+    /// Powtarza pakiet, aż przyjdzie odpowiedź albo skończy się czas.
+    async fn przebij(&self, adres: SocketAddr, pakiet: &[u8]) -> Result<Vec<u8>> {
+        let deadline = tokio::time::Instant::now() + PUNCH_TIMEOUT;
+
+        loop {
+            self.wyslij_datagram(adres, pakiet).await?;
+
+            let mut bufor = vec![0u8; MAX_DATAGRAM];
+
+            match tokio::time::timeout(PUNCH_INTERVAL, self.socket.recv_from(&mut bufor)).await {
+                Ok(Ok((ile, from))) if from == adres => {
+                    bufor.truncate(ile);
+                    return Ok(bufor);
+                }
+
+                // Pakiet od kogoś innego albo cisza — próbujemy dalej.
+                _ => {
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(Error::PeerUnreachable);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn wyslij_datagram(&self, adres: SocketAddr, dane: &[u8]) -> Result<()> {
+        self.socket
+            .send_to(dane, adres)
+            .await
+            .map(|_| ())
+            .map_err(|e| Error::Transport(format!("nie udało się wysłać datagramu: {e}")))
+    }
+
+    /// Odbiera jedną kopertę. Blokuje do nadejścia.
     ///
-    /// Zwraca `None`, gdy transport został zamknięty. Pętla odbioru należy do
-    /// wywołującego — biblioteka nie zakłada konkretnego środowiska
-    /// uruchomieniowego, bo musi działać i pod tokio, i w przeglądarce.
+    /// Pakiety, których nie da się przetworzyć, są **pomijane bez przerywania
+    /// pętli** — spreparowany datagram z sieci to sytuacja spodziewana, a nie
+    /// powód do zamykania transportu.
     pub async fn accept_next(&self) -> Option<Result<Received>> {
-        let incoming = self.endpoint.accept().await?;
-        Some(self.handle_incoming(incoming).await)
+        loop {
+            let mut bufor = vec![0u8; MAX_DATAGRAM];
+
+            let (ile, from) = match self.socket.recv_from(&mut bufor).await {
+                Ok(wynik) => wynik,
+                Err(_) => return None,
+            };
+            bufor.truncate(ile);
+
+            match self.przetworz(from, &bufor).await {
+                Ok(Some(odebrane)) => return Some(Ok(odebrane)),
+                // Handshake w toku albo pakiet do odrzucenia — czekamy dalej.
+                Ok(None) | Err(_) => continue,
+            }
+        }
     }
 
-    async fn handle_incoming(&self, incoming: iroh::endpoint::Incoming) -> Result<Received> {
-        let connection = incoming
-            .await
-            .map_err(|e| Error::Storage(format!("połączenie przychodzące nieudane: {e}")))?;
+    async fn przetworz(&self, from: SocketAddr, dane: &[u8]) -> Result<Option<Received>> {
+        let mut sesje = self.sessions.lock().await;
 
-        let from = connection.remote_id();
+        // Sesja gotowa — to powinna być zaszyfrowana koperta.
+        if let Some(sesja) = sesje.get_mut(&from) {
+            if sesja.is_ready() {
+                let jawne = sesja.open(dane)?;
+                let sender_key = sesja.peer_public().unwrap_or_default();
 
-        let (mut send, mut recv) = connection
-            .accept_bi()
-            .await
-            .map_err(|e| Error::Storage(format!("nie udało się przyjąć strumienia: {e}")))?;
+                if jawne.len() > MAX_ENVELOPE_BYTES {
+                    return Err(Error::Transport("koperta przekracza limit rozmiaru".into()));
+                }
 
-        // Limit obowiązuje przy czytaniu, a nie po nim: bez tego nadawca mógłby
-        // wyczerpać pamięć odbiorcy, zanim ktokolwiek sprawdzi rozmiar.
-        let bytes = recv
-            .read_to_end(MAX_ENVELOPE_BYTES)
-            .await
-            .map_err(|e| Error::Storage(format!("błąd odczytu koperty: {e}")))?;
+                return Ok(Some(Received {
+                    envelope: Envelope::decode(&jawne)?,
+                    sender_key,
+                }));
+            }
+        }
 
-        let envelope = Envelope::decode(&bytes)?;
+        // Nowy rozmówca albo handshake w toku.
+        let sesja = sesje
+            .entry(from)
+            .or_insert(session::Session::respond(&self.keypair)?);
 
-        // Potwierdzamy dopiero po udanym sparsowaniu — nadawca ma się dowiedzieć,
-        // że koperta została faktycznie przyjęta, a nie tylko odebrana.
-        send.write_all(&[ACK])
-            .await
-            .map_err(|e| Error::Storage(format!("nie udało się potwierdzić odbioru: {e}")))?;
-        send.finish()
-            .map_err(|e| Error::Storage(format!("błąd domknięcia potwierdzenia: {e}")))?;
+        if let Some(odpowiedz) = sesja.read_handshake(dane)? {
+            self.wyslij_datagram(from, &odpowiedz).await?;
+        }
 
-        connection.closed().await;
-
-        Ok(Received { from, envelope })
+        Ok(None)
     }
 
-    /// Domyka transport, czekając na wysłanie zaległych pakietów.
+    /// Zamyka węzeł.
     pub async fn close(&self) {
-        self.endpoint.close().await;
+        self.sessions.lock().await.clear();
     }
 }

@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use mekamb_core::framing::ChatMessage;
 use mekamb_core::group::{Conversation, Incoming, Provider};
 use mekamb_core::identity::{DeviceIdentity, DeviceSeed};
-use mekamb_transport::{Delivery, Envelope, EnvelopeKind, RelayPolicy, Transport};
+use mekamb_transport::{Delivery, Envelope, EnvelopeKind, PeerAddr, Transport};
 
 uniffi::setup_scaffolding!();
 
@@ -58,6 +58,17 @@ impl From<mekamb_core::Error> for MekambError {
             }
             E::Group(_) => Self::Crypto { powod: error.to_string() },
             E::Storage(_) => Self::Network { powod: error.to_string() },
+        }
+    }
+}
+
+impl From<mekamb_transport::Error> for MekambError {
+    fn from(error: mekamb_transport::Error) -> Self {
+        use mekamb_transport::Error as E;
+        match error {
+            // Nieosiągalny odbiorca nie jest awarią — ma prawo być offline.
+            E::PeerUnreachable | E::Transport(_) => Self::Network { powod: error.to_string() },
+            E::Core(inner) => inner.into(),
         }
     }
 }
@@ -339,6 +350,10 @@ fn pobierz<'a>(
 /// Na Androidzie transport działa w pełni: przebija NAT i łączy się wprost
 /// z drugim urządzeniem. To główna różnica względem klienta webowego, który
 /// zawsze musi iść przez pośrednika.
+///
+/// Implementacja jest własna — UDP, STUN i Noise. Poprzednia opierała się na
+/// iroh, który na Androidzie przerywał proces przez zależność wymagającą
+/// inicjalizacji JNI. Szczegóły w `transport/src/lib.rs`.
 #[derive(uniffi::Object)]
 pub struct MekambTransport {
     runtime: tokio::runtime::Runtime,
@@ -349,9 +364,9 @@ pub struct MekambTransport {
 impl MekambTransport {
     /// Uruchamia węzeł P2P na kluczu wyprowadzonym z ziarna urządzenia.
     #[uniffi::constructor]
-    pub fn start(iroh_secret: Vec<u8>) -> Result<Self, MekambError> {
+    pub fn start(transport_secret: Vec<u8>) -> Result<Self, MekambError> {
         let secret: [u8; 32] =
-            iroh_secret.try_into().map_err(|_| MekambError::InvalidInput {
+            transport_secret.try_into().map_err(|_| MekambError::InvalidInput {
                 powod: "klucz węzła musi mieć 32 bajty".into(),
             })?;
 
@@ -359,20 +374,22 @@ impl MekambTransport {
             powod: format!("nie udało się uruchomić runtime: {e}"),
         })?;
 
-        let transport = runtime
-            .block_on(Transport::bind_with_secret(secret, RelayPolicy::Public))?;
+        let transport = runtime.block_on(Transport::bind_with_secret(secret))?;
 
         Ok(Self { runtime, transport })
     }
 
-    /// Identyfikator węzła — publikowany w katalogu, żeby inni mogli zadzwonić.
-    pub fn endpoint_id(&self) -> String {
-        self.transport.endpoint_id().to_string()
+    /// Klucz publiczny węzła — publikowany w katalogu.
+    pub fn public_key(&self) -> Vec<u8> {
+        self.transport.public_key().to_vec()
     }
 
-    /// Czeka na gotowość węzła do przyjmowania połączeń.
-    pub fn wait_online(&self) {
-        self.runtime.block_on(self.transport.wait_online());
+    /// Adresy, pod którymi urządzenie jest osiągalne.
+    ///
+    /// Zwykle dwa: lokalny i publiczny poznany przez STUN. Pusta lista znaczy,
+    /// że nie udało się poznać żadnego — wtedy działa wyłącznie skrzynka.
+    pub fn addresses(&self) -> Vec<String> {
+        self.transport.addresses().iter().map(|a| a.to_string()).collect()
     }
 
     /// Odbiera jedną kopertę. Blokuje do nadejścia albo zamknięcia transportu.
@@ -406,36 +423,32 @@ impl MekambTransport {
 #[uniffi::export]
 pub fn try_direct_delivery(
     transport: &MekambTransport,
-    peer_endpoint_id: Option<String>,
+    peer_public_key: Option<Vec<u8>>,
+    peer_addresses: Vec<String>,
     envelope: Vec<u8>,
 ) -> DeliveryMode {
-    let Some(id) = peer_endpoint_id else {
+    let Some(public_key) = peer_public_key else {
         return DeliveryMode::Mailbox;
     };
 
-    let Ok(endpoint_id) = id.parse::<iroh_endpoint_id::EndpointId>() else {
+    let addresses: Vec<_> = peer_addresses.iter().filter_map(|a| a.parse().ok()).collect();
+    if addresses.is_empty() {
         return DeliveryMode::Mailbox;
-    };
+    }
 
     let Ok(koperta) = Envelope::decode(&envelope) else {
         return DeliveryMode::Mailbox;
     };
 
-    let wynik = transport.runtime.block_on(
-        transport
-            .transport
-            .send_direct(endpoint_id.into(), &koperta),
-    );
+    let peer = PeerAddr { public_key, addresses };
 
-    match wynik {
+    match transport
+        .runtime
+        .block_on(transport.transport.send_direct(&peer, &koperta))
+    {
         Ok(()) => DeliveryMode::Direct,
         Err(_) => DeliveryMode::Mailbox,
     }
-}
-
-/// Alias porządkujący nazwę typu z iroh.
-mod iroh_endpoint_id {
-    pub use iroh::EndpointId;
 }
 
 /// Zamiana [`Delivery`] z transportu na typ wystawiany do Kotlina.

@@ -1,33 +1,36 @@
 [package]
 name = "mekamb-transport"
-description = "Transport P2P komunikatora mekamb-chat (iroh QUIC)"
+description = "Transport P2P komunikatora mekamb-chat (UDP + Noise)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# Transport jest osobnym crate'em, a nie modułem w `core`, z dwóch powodów.
+# Transport jest osobnym crate'em, a nie modułem w `core`, bo kryptografia
+# i sieć to osobne odpowiedzialności. Kod, który potrzebuje wyłącznie MLS
+# (testy, narzędzia offline, klient webowy), nie powinien wciągać stosu
+# sieciowego.
 #
-# 1. `core` buduje się pod wasm32 bez żadnego toolchainu C. iroh ciągnie `ring`,
-#    który wymaga clanga potrafiącego celować w wasm32 — trzymanie tego poza
-#    rdzeniem sprawia, że warstwa kryptograficzna pozostaje trywialnie
-#    przenośna, a wymagania budowania rosną tylko tam, gdzie faktycznie trzeba.
-# 2. Kryptografia i sieć to osobne odpowiedzialności. Kod, który potrzebuje
-#    wyłącznie MLS (np. testy, narzędzia offline), nie powinien wciągać całego
-#    stosu QUIC.
+# Historia tego pliku jest pouczająca: pierwotnie transport opierał się na iroh.
+# Działał, ale ciągnął `reqwest`, a ten `rustls-platform-verifier`, który na
+# Androidzie PRZERYWA proces bez inicjalizacji JNI. Nie dało się tego wyłączyć
+# flagą. Własna implementacja jest mniejsza od samego drzewa zależności, które
+# zastąpiła.
 
 [dependencies]
 mekamb-core = { path = "../core" }
-iroh.workspace = true
+snow.workspace = true
+x25519-dalek.workspace = true
 prost.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Odwzorowanie portów (PCP/NAT-PMP/UPnP) zwiększa szansę na połączenie
-# bezpośrednie. W przeglądarce nie ma do tego dostępu, więc tylko natywnie.
-iroh = { workspace = true, features = ["portmapper"] }
+# Gniazdo UDP i pętla zdarzeń. W przeglądarce nie ma do nich dostępu — tam
+# klient korzysta wyłącznie ze skrzynki i ten crate w ogóle nie jest budowany.
+tokio = { workspace = true, features = ["net", "rt", "sync", "time", "macros"] }
+rand.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

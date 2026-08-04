@@ -72,8 +72,8 @@ app.get("/directory/:username", async (c) => {
   return c.json({
     devices: devices.map((device) => ({
       deviceId: device.deviceId,
-      irohNodeId: device.irohNodeId,
-      addrRecord: device.addrRecord,
+      transportKey: device.transportKey,
+      transportAddresses: device.transportAddresses,
       // `null` oznacza urządzenie bez własnego adresu — osiągalne tylko przez
       // skrzynkę. Klient musi to rozróżnić, żeby nie próbował się dodzwaniać.
       addrSignature: toBase64OrNull(toBytes(device.addrSignature)),
@@ -93,8 +93,8 @@ app.post("/devices", requireAuth, async (c) => {
   const body = await c.req.json<{
     deviceId: string;
     mlsPublicKey: string;
-    irohNodeId?: string;
-    addrRecord?: string;
+    transportKey?: string;
+    transportAddresses?: string;
     addrSignature?: string;
     displayName?: string;
   }>();
@@ -109,8 +109,8 @@ app.post("/devices", requireAuth, async (c) => {
     // przysłał klient, pozwoliłoby dopisać urządzenie do cudzego konta.
     userId: c.get("userId"),
     mlsPublicKey: new Uint8Array(fromBase64(body.mlsPublicKey)),
-    irohNodeId: body.irohNodeId ?? null,
-    addrRecord: body.addrRecord ?? null,
+    transportKey: body.transportKey ?? null,
+    transportAddresses: body.transportAddresses ?? null,
     addrSignature: body.addrSignature ? new Uint8Array(fromBase64(body.addrSignature)) : null,
     displayName: body.displayName ?? null,
   });

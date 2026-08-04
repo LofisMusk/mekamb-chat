@@ -107,8 +107,8 @@ CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p
 - [x] **Faza 6** — załączniki: zdjęcia i wideo szyfrowane end-to-end
 - [x] **Faza 7** — grupy wieloosobowe: dodawanie członków, rozsyłanie do grupy
 - [~] **Faza 8** — safety numbers (zostaje linkowanie urządzeń przez QR)
-- [~] **Faza 9** — rozmowy audio/wideo 1:1 (kod gotowy, niesprawdzone na żywo)
-- [ ] **Faza 10** — rozmowy grupowe mesh do 4 osób
+- [~] **Faza 9** — rozmowy 1:1: negocjacja i weryfikacja odcisku sprawdzone, przechwyt mediów nie
+- [~] **Faza 10** — rozmowy grupowe mesh do 4 osób (jak wyżej)
 - [ ] **Faza 11** — hardening: powtarzalne buildy, audyt, wdrożenie produkcyjne
 
 ## Licencja

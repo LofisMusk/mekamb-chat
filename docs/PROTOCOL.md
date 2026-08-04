@@ -304,6 +304,14 @@ porównać go ponownie.
 
 WebRTC, topologia mesh, maksymalnie 4 uczestników. Bez serwera mediów.
 
+Każda para uczestników zestawia **osobne** połączenie i ma **osobne zaufanie**:
+zerwanie jednego przez niezgodny odcisk certyfikatu nie kończy rozmowy
+z pozostałymi.
+
+Sygnalizacja niesie pole `target`. Wiadomości MLS trafiają do całej grupy, więc
+bez adresata trzecia osoba próbowałaby przetworzyć ofertę przeznaczoną dla kogoś
+innego. Puste `target` znaczy „dla wszystkich" i służy do zaproszenia.
+
 Sygnalizacja (`CallSignalBody`) idzie **kanałem MLS**. Dzięki temu odcisk DTLS
 jest uwierzytelniony kryptograficznie: podmiot kontrolujący warstwę transportową
 nie podstawi się w środek połączenia, bo nie sfałszuje wiadomości MLS.
@@ -345,6 +353,16 @@ w użyciu — milczenie sugerowałoby, że nie ujawnia się nic.
 
 Limit 4 osób wynika z pasma: przy 5 uczestnikach każdy wysyła 4 strumienie
 w górę, co przekracza możliwości typowego łącza domowego.
+
+### Adresy urządzenia
+
+Katalog przechowuje **dwa** adresy: w sieci lokalnej i publiczny z STUN.
+
+Sam adres publiczny nie wystarcza. Dwa urządzenia w tej samej sieci wifi
+musiałyby wtedy dojść do siebie przez router, zawracając pakiety na zewnątrz
+i z powrotem — czego wiele routerów nie robi. Adres lokalny ustalamy sztuczką
+z gniazdem UDP „połączonym" z adresem w internecie: żaden pakiet nie wychodzi,
+a system ujawnia interfejs, którym poszedłby ruch.
 
 ## 9. Uwierzytelnienie do infrastruktury
 

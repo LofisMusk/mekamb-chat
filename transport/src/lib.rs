@@ -163,15 +163,20 @@ impl Transport {
 
         let keypair = StaticKeypair::from_secret(&secret)?;
 
-        // Adres nasłuchu (0.0.0.0) NIE trafia do katalogu — dla rozmówcy jest
-        // bezużyteczny, a wpisany na listę kosztowałby próbę połączenia
-        // i kilka sekund oczekiwania, zanim przyszłaby kolej na adres, który
-        // faktycznie działa.
+        let port = socket
+            .local_addr()
+            .map(|a| a.port())
+            .map_err(|e| Error::Transport(format!("gniazdo bez adresu: {e}")))?;
+
         let mut local_addrs = Vec::new();
-        if let Ok(lokalny) = socket.local_addr() {
-            if !lokalny.ip().is_unspecified() {
-                local_addrs.push(lokalny);
-            }
+
+        // Adres w sieci lokalnej. Bez niego dwa urządzenia w tej samej sieci
+        // wifi nie miałyby jak się znaleźć: adres nasłuchu (0.0.0.0) jest dla
+        // rozmówcy bezużyteczny, a próba dojścia do siebie przez adres
+        // publiczny wymaga od routera zawracania pakietów, czego wiele
+        // routerów nie robi.
+        if let Some(lan) = adres_w_sieci_lokalnej() {
+            local_addrs.push(SocketAddr::new(lan, port));
         }
 
         for serwer in DEFAULT_STUN_SERVERS {
@@ -197,6 +202,7 @@ impl Transport {
     }
 
     /// Klucz publiczny tego urządzenia — publikowany w katalogu.
+    #[allow(clippy::missing_const_for_fn)]
     pub fn public_key(&self) -> &[u8] {
         self.keypair.public()
     }
@@ -385,4 +391,24 @@ impl Transport {
     pub async fn close(&self) {
         self.sessions.lock().await.clear();
     }
+}
+
+/// Ustala adres tego urządzenia w sieci lokalnej.
+///
+/// Sztuczka jest standardowa: „łączymy" gniazdo UDP z adresem w internecie
+/// i pytamy o jego adres lokalny. UDP jest bezpołączeniowe, więc **żaden pakiet
+/// nie zostaje wysłany** — system tylko wybiera interfejs, którym poszedłby
+/// ruch, i to ujawnia właściwy adres.
+///
+/// Alternatywą byłoby wyliczanie interfejsów, co wymaga wywołań systemowych
+/// innych na każdej platformie albo dodatkowej zależności.
+fn adres_w_sieci_lokalnej() -> Option<std::net::IpAddr> {
+    let sonda = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+
+    // Adres z zakresu dokumentacyjnego (RFC 5737) — nie istnieje, ale wystarcza
+    // do wskazania trasy wyjściowej.
+    sonda.connect("192.0.2.1:9").ok()?;
+
+    let adres = sonda.local_addr().ok()?.ip();
+    (!adres.is_unspecified() && !adres.is_loopback()).then_some(adres)
 }

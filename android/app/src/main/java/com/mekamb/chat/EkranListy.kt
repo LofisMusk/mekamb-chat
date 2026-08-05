@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -73,6 +77,7 @@ fun EkranListy(
                                 if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
                             } ?: "brak wiadomości",
                             czas = pozycja.ostatnia?.czas,
+                            nieprzeczytane = pozycja.nieprzeczytane,
                             tryb = stan.trybPolaczenia,
                             onClick = { onOtworzRozmowe(pozycja) },
                         )
@@ -108,7 +113,11 @@ fun EkranListy(
             PrzyciskGlowny("Nowa rozmowa · New chat", onClick = onNowaRozmowa)
         }
 
-        DolnaNawigacja(biezaca = Galaz.ROZMOWY, onGalaz = onGalaz)
+        DolnaNawigacja(
+            biezaca = Galaz.ROZMOWY,
+            onGalaz = onGalaz,
+            nieprzeczytane = stan.rozmowy.sumOf { it.nieprzeczytane },
+        )
     }
 }
 
@@ -124,6 +133,7 @@ private fun WierszRozmowy(
     nazwa: String,
     ostatnia: String,
     czas: Long?,
+    nieprzeczytane: Int,
     tryb: DeliveryMode?,
     onClick: () -> Unit,
 ) {
@@ -169,14 +179,36 @@ private fun WierszRozmowy(
             )
         }
 
-        czas?.let {
-            Text(
-                GODZINA_LISTY.format(java.util.Date(it)),
-                style = MaterialTheme.typography.labelSmall,
-                color = Neutral600,
-            )
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            czas?.let {
+                Text(
+                    GODZINA_LISTY.format(java.util.Date(it)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Neutral600,
+                )
+            }
+            if (nieprzeczytane > 0) Znacznik(nieprzeczytane)
         }
     }
+}
+
+/**
+ * Znacznik nieprzeczytanych.
+ *
+ * Obrys akcentu, nie wypełnione kółko: w tym systemie akcent jest linią.
+ * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
+ * zaglądać teraz.
+ */
+@Composable
+private fun Znacznik(ile: Int) {
+    Text(
+        ile.toString(),
+        style = MaterialTheme.typography.labelSmall,
+        color = Accent300,
+        modifier = Modifier
+            .border(1.dp, Akcent, RoundedCornerShape(4.dp))
+            .padding(horizontal = Odstep.s, vertical = 1.dp),
+    )
 }
 
 /** Godzina ostatniej wiadomości na liście. */
@@ -185,12 +217,23 @@ private val GODZINA_LISTY =
 
 /** Dolny pasek: Rozmowy · Kontakty · Konto. */
 @Composable
-fun DolnaNawigacja(biezaca: Galaz, onGalaz: (Galaz) -> Unit, modifier: Modifier = Modifier) {
+fun DolnaNawigacja(
+    biezaca: Galaz,
+    onGalaz: (Galaz) -> Unit,
+    modifier: Modifier = Modifier,
+    nieprzeczytane: Int = 0,
+) {
     Column(modifier) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Linia))
 
         Row(Modifier.fillMaxWidth().background(Tlo)) {
-            Zakladka("Rozmowy", Ikony.Rozmowy, biezaca == Galaz.ROZMOWY, Modifier.weight(1f)) {
+            Zakladka(
+                "Rozmowy",
+                Ikony.Rozmowy,
+                biezaca == Galaz.ROZMOWY,
+                Modifier.weight(1f),
+                nieprzeczytane = nieprzeczytane,
+            ) {
                 onGalaz(Galaz.ROZMOWY)
             }
             Zakladka("Kontakty", Ikony.Kontakty, biezaca == Galaz.KONTAKTY, Modifier.weight(1f)) {
@@ -209,6 +252,7 @@ private fun Zakladka(
     ikona: ImageVector,
     aktywna: Boolean,
     modifier: Modifier = Modifier,
+    nieprzeczytane: Int = 0,
     onClick: () -> Unit,
 ) {
     Column(
@@ -219,12 +263,22 @@ private fun Zakladka(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Icon(
-            ikona,
-            contentDescription = etykieta,
-            tint = if (aktywna) Akcent else Neutral600,
-            modifier = Modifier.size(22.dp),
-        )
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(
+                ikona,
+                contentDescription = etykieta,
+                tint = if (aktywna) Akcent else Neutral600,
+                modifier = Modifier.size(22.dp),
+            )
+            if (nieprzeczytane > 0) {
+                Box(
+                    Modifier
+                        .offset(x = 6.dp, y = (-3).dp)
+                        .size(7.dp)
+                        .background(Akcent, CircleShape),
+                )
+            }
+        }
         Text(
             etykieta,
             style = MaterialTheme.typography.labelSmall,

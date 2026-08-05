@@ -181,6 +181,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Oznacza bieżącą rozmowę jako przeczytaną.
+     *
+     * Wołane, gdy rozmowa jest OTWARTA na ekranie, nie gdy wiadomość dociera:
+     * licznik ma mówić „nie widziałeś tego", a nie „nie dostałeś tego".
+     */
+    fun oznaczPrzeczytane() {
+        val groupId = stan.groupId ?: return
+        val najnowsza = stan.wiadomosci.maxOfOrNull { it.czas } ?: return
+
+        runCatching {
+            historia.oznaczPrzeczytane(groupId, najnowsza)
+            stan = stan.copy(rozmowy = historia.lista())
+        }
+    }
+
     fun wyczyscBlad() {
         stan = stan.copy(blad = null)
     }

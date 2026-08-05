@@ -544,3 +544,23 @@ button:disabled:hover { background: transparent; }
   .ekran, .watek { padding-bottom: 4.5rem; }
   .uklad { grid-template-columns: 1fr; }
 }
+
+/*
+ * Znacznik nieprzeczytanych.
+ *
+ * Obrys akcentu, nie wypełnione kółko: w tym systemie akcent jest linią.
+ * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
+ * zaglądać teraz.
+ */
+.znacznik {
+  flex: none;
+  min-width: 1.4rem;
+  padding: 0 .35rem;
+  border: 1px solid var(--akcent);
+  border-radius: var(--promien-s);
+  color: var(--akcent-300);
+  font-size: .75rem;
+  line-height: 1.3rem;
+  text-align: center;
+}
+.galaz .znacznik { margin-left: auto; }

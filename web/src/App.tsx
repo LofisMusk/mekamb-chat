@@ -9,6 +9,7 @@ import {
   type Wiadomosc,
   kluczRozmowy,
   listaRozmow,
+  oznaczPrzeczytane,
   wczytajRozmowe,
   zapiszRozmowe,
 } from "./lib/historia";
@@ -401,6 +402,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
   const [galaz, setGalaz] = useState<"rozmowy" | "kontakty" | "konto">("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
+  const nieprzeczytane = rozmowy.reduce((suma, p) => suma + p.nieprzeczytane, 0);
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
    *
@@ -488,6 +490,26 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
     return () => polaczenie.zamknij();
   }, [messenger, obsluzKoperte]);
 
+  /*
+   * Oznaczanie przeczytanego.
+   *
+   * Warunkiem jest OTWARTA rozmowa, nie samo dotarcie wiadomości: licznik ma
+   * mówić „nie widziałeś tego", a nie „nie dostałeś tego". Wiadomość, która
+   * przyszła do rozmowy oglądanej w innej gałęzi, zostaje nieprzeczytana.
+   */
+  useEffect(() => {
+    if (!groupId || galaz !== "rozmowy" || wiadomosci.length === 0) return;
+
+    const najnowsza = Math.max(...wiadomosci.map((w) => w.czas));
+    void oznaczPrzeczytane(groupId, najnowsza)
+      .then(() => listaRozmow())
+      .then(setRozmowy)
+      .catch(() => {
+        // Nieudany zapis znacznika nie może wywrócić rozmowy — najwyżej
+        // licznik pokaże za dużo, co jest mniejszą szkodą niż pusty ekran.
+      });
+  }, [groupId, galaz, wiadomosci]);
+
   // Rozmowy z poprzednich uruchomień — bez tego lista byłaby pusta mimo
   // zapisanej historii.
   useEffect(() => {
@@ -545,6 +567,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           onClick={() => setGalaz("rozmowy")}
         >
           Rozmowy
+          {nieprzeczytane > 0 && <span className="znacznik">{nieprzeczytane}</span>}
         </button>
         <button
           className={galaz === "kontakty" ? "galaz aktywna" : "galaz"}
@@ -600,6 +623,9 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
                             : "brak wiadomości"}
                         </span>
                       </span>
+                      {pozycja.nieprzeczytane > 0 && (
+                        <span className="znacznik">{pozycja.nieprzeczytane}</span>
+                      )}
                     </button>
                   </li>
                 ))}

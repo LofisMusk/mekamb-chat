@@ -33,11 +33,12 @@ private const val LIMIT_WIADOMOSCI = 500
 /**
  * Wersja formatu.
  *
- * 2 odpowiada układowi z nazwą rozmówcy. Numer był przez chwilę taki sam jak
- * w kliencie webowym mimo niezgodnego kształtu — przeniesienie konta między
- * klientami dałoby wtedy historię nie do odczytania.
+ * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania. Numer był przy wersji 2
+ * przez chwilę taki sam jak w kliencie webowym mimo niezgodnego kształtu —
+ * przeniesienie konta między klientami dałoby wtedy historię nie do odczytania.
+ * Każda zmiana układu idzie teraz po obu stronach naraz.
  */
-private const val WERSJA = 2
+private const val WERSJA = 3
 
 @Serializable
 private data class ZapisanaWiadomosc(
@@ -58,6 +59,14 @@ private data class ZapisanaWiadomosc(
 private data class ZapisanaRozmowa(
     val rozmowca: String,
     val wiadomosci: List<ZapisanaWiadomosc> = emptyList(),
+    /**
+     * Czas ostatniej wiadomości, którą użytkownik widział.
+     *
+     * Znacznik czasu, a nie identyfikator ostatniej wiadomości: identyfikator
+     * przestaje cokolwiek znaczyć, gdy ta wiadomość wypadnie poza limit
+     * historii, a czas zostaje porównywalny zawsze.
+     */
+    val przeczytaneDo: Long? = null,
 )
 
 @Serializable
@@ -72,6 +81,8 @@ data class PozycjaListy(
     val groupId: ByteArray,
     val rozmowca: String,
     val ostatnia: Wiadomosc?,
+    /** Ile wiadomości przyszło od ostatniego zajrzenia. Własne się nie liczą. */
+    val nieprzeczytane: Int = 0,
 ) {
     // ByteArray porównuje się przez referencję, więc data class wymaga tu
     // ręcznej roboty. Bez tego dwie takie same pozycje byłyby różne.
@@ -118,8 +129,37 @@ class Historia(private val vault: Vault) {
         val przyciete = wiadomosci.takeLast(LIMIT_WIADOMOSCI)
             .map { ZapisanaWiadomosc(it.autor, it.tresc, it.wlasna, it.czas) }
 
+        val klucz = klucz(groupId)
         val nowe = zapis.copy(
-            rozmowy = zapis.rozmowy + (klucz(groupId) to ZapisanaRozmowa(rozmowca, przyciete)),
+            rozmowy = zapis.rozmowy + (
+                klucz to ZapisanaRozmowa(
+                    rozmowca,
+                    przyciete,
+                    // Zapis nie jest przeczytaniem — znacznik zostaje taki, jaki był.
+                    zapis.rozmowy[klucz]?.przeczytaneDo,
+                )
+                ),
+        )
+        vault.saveHistory(json.encodeToString(nowe).toByteArray())
+    }
+
+    /**
+     * Oznacza rozmowę jako przeczytaną do podanej chwili.
+     *
+     * Wołane, gdy rozmowa jest otwarta na ekranie — czyli wtedy, gdy użytkownik
+     * naprawdę na nią patrzy, a nie gdy wiadomość tylko dotarła.
+     */
+    fun oznaczPrzeczytane(groupId: ByteArray, doChwili: Long) {
+        val zapis = wczytajWszystko()
+        val klucz = klucz(groupId)
+        val rozmowa = zapis.rozmowy[klucz] ?: return
+
+        // Znacznik nie może się cofać: starsza chwila po nowszej znaczyłaby,
+        // że przeczytane wiadomości wracają jako nieprzeczytane.
+        if ((rozmowa.przeczytaneDo ?: 0L) >= doChwili) return
+
+        val nowe = zapis.copy(
+            rozmowy = zapis.rozmowy + (klucz to rozmowa.copy(przeczytaneDo = doChwili)),
         )
         vault.saveHistory(json.encodeToString(nowe).toByteArray())
     }
@@ -133,11 +173,16 @@ class Historia(private val vault: Vault) {
     fun lista(): List<PozycjaListy> =
         wczytajWszystko().rozmowy
             .map { (hex, rozmowa) ->
+                val doChwili = rozmowa.przeczytaneDo ?: 0L
+
                 PozycjaListy(
                     groupId = zHex(hex),
                     rozmowca = rozmowa.rozmowca,
                     ostatnia = rozmowa.wiadomosci.lastOrNull()
                         ?.let { Wiadomosc(it.autor, it.tresc, it.wlasna, it.czas) },
+                    // Własne wiadomości się nie liczą — nikt nie ma
+                    // nieprzeczytanych wiadomości od samego siebie.
+                    nieprzeczytane = rozmowa.wiadomosci.count { !it.wlasna && it.czas > doChwili },
                 )
             }
             .sortedByDescending { it.ostatnia?.czas ?: 0L }

@@ -106,6 +106,12 @@ private fun Zawartosc(
     var wUczestnikach by remember { mutableStateOf(false) }
     var wUstawieniach by remember { mutableStateOf(false) }
 
+    // Otwarta rozmowa jest przeczytana. Warunkiem jest widok na ekranie,
+    // nie samo dotarcie wiadomości.
+    LaunchedEffect(stan.groupId, wRozmowie, stan.wiadomosci.size) {
+        if (wRozmowie && stan.groupId != null) model.oznaczPrzeczytane()
+    }
+
     // Nowa rozmowa — własna albo przychodząca — otwiera się od razu.
     LaunchedEffect(stan.groupId) {
         if (stan.groupId != null) {

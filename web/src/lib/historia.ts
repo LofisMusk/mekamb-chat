@@ -41,13 +41,13 @@ const LIMIT_WIADOMOSCI = 500;
 /**
  * Wersja formatu.
  *
- * 2 dołożyła nazwę rozmówcy obok wiadomości. Podniesiona po obu stronach
- * naraz: klient Androida dostał to pole wcześniej, ale ZOSTAWIŁ wersję 1 —
- * przez chwilę oba klienty deklarowały ten sam numer przy niezgodnych
- * kształtach, więc przeniesienie konta między nimi dałoby historię nie do
- * odczytania. Numer wersji ma odróżniać układy, nie tylko datę zmiany.
+ * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania. Każda podnoszona po obu
+ * stronach naraz: przy wersji 2 klient Androida dostał nowe pole, ale
+ * ZOSTAWIŁ numer 1 — przez chwilę oba klienty deklarowały ten sam numer przy
+ * niezgodnych kształtach, więc przeniesienie konta między nimi dałoby historię
+ * nie do odczytania. Numer wersji ma odróżniać układy, nie datę zmiany.
  */
-const WERSJA = 2;
+const WERSJA = 3;
 
 /**
  * Zapisana rozmowa.
@@ -59,6 +59,14 @@ const WERSJA = 2;
 interface ZapisanaRozmowa {
   rozmowca: string;
   wiadomosci: Wiadomosc[];
+  /**
+   * Czas ostatniej wiadomości, którą użytkownik widział.
+   *
+   * Znacznik czasu, a nie identyfikator ostatniej wiadomości: identyfikator
+   * przestaje cokolwiek znaczyć, gdy ta wiadomość wypadnie poza limit historii,
+   * a czas zostaje porównywalny zawsze.
+   */
+  przeczytaneDo?: number;
 }
 
 interface ZapisanaHistoria {
@@ -71,6 +79,8 @@ export interface PozycjaListy {
   groupId: Uint8Array;
   rozmowca: string;
   ostatnia?: Wiadomosc;
+  /** Ile wiadomości przyszło od ostatniego zajrzenia. Własne się nie liczą. */
+  nieprzeczytane: number;
 }
 
 /** Identyfikator rozmowy jako tekst — `Uint8Array` nie nadaje się na klucz. */
@@ -154,15 +164,38 @@ export async function zapiszRozmowe(
   wiadomosci: Wiadomosc[],
 ): Promise<void> {
   const zapis = await wczytajWszystko();
+  const klucz = kluczRozmowy(groupId);
 
   // Obcinamy od początku — najstarsze idą pierwsze.
   const przyciete = wiadomosci.slice(-LIMIT_WIADOMOSCI);
-  zapis.rozmowy[kluczRozmowy(groupId)] = {
+  zapis.rozmowy[klucz] = {
     rozmowca,
     wiadomosci: przyciete.map(doZapisu) as Wiadomosc[],
+    // Zapis nie jest przeczytaniem — znacznik zostaje taki, jaki był.
+    przeczytaneDo: zapis.rozmowy[klucz]?.przeczytaneDo,
   };
 
   await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+}
+
+/**
+ * Oznacza rozmowę jako przeczytaną do podanej chwili.
+ *
+ * Wołane, gdy rozmowa jest otwarta na ekranie — czyli wtedy, gdy użytkownik
+ * naprawdę na nią patrzy, a nie gdy wiadomość tylko dotarła.
+ */
+export async function oznaczPrzeczytane(groupId: Uint8Array, doChwili: number): Promise<void> {
+  const zapis = await wczytajWszystko();
+  const rozmowa = zapis.rozmowy[kluczRozmowy(groupId)];
+  if (!rozmowa || (rozmowa.przeczytaneDo ?? 0) >= doChwili) return;
+
+  rozmowa.przeczytaneDo = doChwili;
+  await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+}
+
+/** Ile wiadomości czeka nieprzeczytanych we wszystkich rozmowach. */
+export async function ileNieprzeczytanych(): Promise<number> {
+  return (await listaRozmow()).reduce((suma, p) => suma + p.nieprzeczytane, 0);
 }
 
 /**
@@ -175,13 +208,20 @@ export async function listaRozmow(): Promise<PozycjaListy[]> {
   const zapis = await wczytajWszystko();
 
   return Object.entries(zapis.rozmowy)
-    .map(([hex, rozmowa]) => ({
-      groupId: zHex(hex),
-      rozmowca: rozmowa.rozmowca,
-      ostatnia: rozmowa.wiadomosci.length
-        ? zZapisu(rozmowa.wiadomosci[rozmowa.wiadomosci.length - 1])
-        : undefined,
-    }))
+    .map(([hex, rozmowa]) => {
+      const doChwili = rozmowa.przeczytaneDo ?? 0;
+
+      return {
+        groupId: zHex(hex),
+        rozmowca: rozmowa.rozmowca,
+        ostatnia: rozmowa.wiadomosci.length
+          ? zZapisu(rozmowa.wiadomosci[rozmowa.wiadomosci.length - 1])
+          : undefined,
+        // Własne wiadomości się nie liczą — nikt nie ma nieprzeczytanych
+        // wiadomości od samego siebie.
+        nieprzeczytane: rozmowa.wiadomosci.filter((w) => !w.wlasna && w.czas > doChwili).length,
+      };
+    })
     .sort((a, b) => (b.ostatnia?.czas ?? 0) - (a.ostatnia?.czas ?? 0));
 }
 

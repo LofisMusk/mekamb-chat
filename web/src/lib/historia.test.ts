@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type Wiadomosc, kluczRozmowy, listaRozmow, wczytajRozmowe, zapiszRozmowe } from "./historia";
+import {
+  type Wiadomosc,
+  kluczRozmowy,
+  listaRozmow,
+  oznaczPrzeczytane,
+  wczytajRozmowe,
+  zapiszRozmowe,
+} from "./historia";
 
 /** Skarbiec w pamięci — IndexedDB w testach nie ma. */
 let dysk: Uint8Array | null = null;
@@ -110,6 +117,47 @@ describe("historia rozmów", () => {
 
     const lista = await listaRozmow();
     expect(lista.map((p) => p.rozmowca)).toEqual(["swieza", "stara"]);
+  });
+
+  /// Sedno licznika: „nie widziałeś tego", a nie „nie dostałeś tego".
+  it("nowe wiadomości liczą się jako nieprzeczytane", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100), wiadomosc("b", 200)]);
+
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(2);
+
+    await oznaczPrzeczytane(GRUPA_A, 200);
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(0);
+  });
+
+  /// Nikt nie ma nieprzeczytanych wiadomości od samego siebie.
+  it("własne wiadomości się nie liczą", async () => {
+    const wlasna = { ...wiadomosc("x", 300), wlasna: true };
+    await zapiszRozmowe(GRUPA_A, "ala", [wlasna]);
+
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(0);
+  });
+
+  /// Zapis wiadomości nie jest przeczytaniem — inaczej licznik nigdy by nie
+  /// wzrósł, bo każda przychodząca wiadomość kasowałaby własny ślad.
+  it("zapis rozmowy nie kasuje znacznika przeczytania", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100)]);
+    await oznaczPrzeczytane(GRUPA_A, 100);
+
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100), wiadomosc("b", 500)]);
+
+    // Doszła jedna nowa, stara zostaje przeczytana.
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(1);
+  });
+
+  /// Znacznik nie może się cofać: starsza chwila po nowszej znaczyłaby, że
+  /// przeczytane wiadomości wracają jako nieprzeczytane.
+  it("znacznik przeczytania nie cofa się", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100), wiadomosc("b", 200)]);
+
+    await oznaczPrzeczytane(GRUPA_A, 200);
+    await oznaczPrzeczytane(GRUPA_A, 100);
+
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(0);
   });
 
   it("różne rozmowy mają różne klucze", () => {

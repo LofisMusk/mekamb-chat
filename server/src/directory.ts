@@ -48,7 +48,23 @@ export interface DeviceRecord {
   lastSeenAt: number;
 }
 
-/** Zwraca wszystkie urządzenia użytkownika wraz z podpisanymi adresami. */
+/**
+ * Zwraca urządzenia użytkownika wraz z podpisanymi adresami, **od ostatnio
+ * używanego**.
+ *
+ * # Dlaczego kolejność jest tu istotna, a nie kosmetyczna
+ *
+ * Wywołujący (`addMember` w obu klientach) bierze z tej listy PIERWSZY wpis
+ * i pod niego pobiera key package. Bez `ORDER BY` SQLite zwraca wiersze
+ * w kolejności wstawiania, czyli **najstarsze urządzenie pierwsze** — a stare
+ * wpisy nigdy nie znikają: nowa przeglądarka, wyczyszczone dane witryny czy
+ * tryb prywatny to za każdym razem nowe `device_id`.
+ *
+ * Skutek był taki, że zaproszenie trafiało do dawno martwego urządzenia:
+ * welcome szedł do key package, którego odbiorca już nie ma, więc nie dołączał
+ * do grupy i nie odszyfrowywał ani wiadomości, ani sygnalizacji rozmów.
+ * Nadawca nie widział przy tym żadnego błędu — po prostu „nic nie dochodzi".
+ */
 export async function lookupDevices(env: Env, username: string): Promise<DeviceRecord[]> {
   const { results } = await env.DB.prepare(
     `SELECT d.id            AS deviceId,
@@ -60,7 +76,8 @@ export async function lookupDevices(env: Env, username: string): Promise<DeviceR
             d.last_seen_at  AS lastSeenAt
        FROM devices d
        JOIN users u ON u.id = d.user_id
-      WHERE u.username = ?`,
+      WHERE u.username = ?
+      ORDER BY d.last_seen_at DESC`,
   )
     .bind(username)
     .all<DeviceRecord>();

@@ -568,15 +568,14 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
         </span>
       </nav>
 
-      <section className="ekran">
-        {galaz === "rozmowy" && !groupId && (
-          <>
-            <h2>Rozmowy</h2>
-            {rozmowy.length === 0 ? (
-              <div className="karta">
-                <p>Nie masz jeszcze żadnej rozmowy.</p>
-                <p className="wskazowka">
-                  Zacznij od kontaktu — wystarczy nazwa użytkownika.
+      {galaz === "rozmowy" && (
+        <aside className="panel-listy" aria-label="Lista rozmów">
+          <h2>Rozmowy</h2>
+          {rozmowy.length === 0 ? (
+            <div className="karta">
+              <p>Nie masz jeszcze żadnej rozmowy.</p>
+              <p className="wskazowka">
+                Zacznij od kontaktu — wystarczy nazwa użytkownika.
                 </p>
               </div>
             ) : (
@@ -606,18 +605,25 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
                 ))}
               </ul>
             )}
-            <p className="wskazowka">Historia jest tylko na tym urządzeniu — serwer jej nie ma.</p>
-          </>
+          <p className="wskazowka">Historia jest tylko na tym urządzeniu — serwer jej nie ma.</p>
+        </aside>
+      )}
+
+      <section className="ekran">
+        {galaz === "rozmowy" && !groupId && (
+          <p className="pusty-watek">Wybierz rozmowę albo zacznij nową w Kontaktach.</p>
         )}
 
         {galaz === "rozmowy" && groupId && (
-          <>
-            <div className="pasek">
-              <button className="wroc" onClick={() => setGroupId(null)}>
-                ← Rozmowy
-              </button>
-              <strong>{rozmowca || "rozmowa"}</strong>
-            </div>
+          <div className="watek">
+            {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
+                najważniejszą rzeczą na ekranie. */}
+            <Rozmowa
+              messenger={messenger}
+              groupId={groupId}
+              sygnal={sygnalRozmowy}
+              onBlad={onBlad}
+            />
 
       <ol className="wiadomosci">
         {wiadomosci.map((w) => (
@@ -631,17 +637,6 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           </li>
         ))}
       </ol>
-
-      {groupId && <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />}
-
-      {groupId && (
-        <Rozmowa
-          messenger={messenger}
-          groupId={groupId}
-          sygnal={sygnalRozmowy}
-          onBlad={onBlad}
-        />
-      )}
 
       {groupId && (
         <label className="dolacz-plik">
@@ -718,7 +713,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           <button className="glowny">Wyślij</button>
         </form>
       )}
-          </>
+          </div>
         )}
 
         {galaz === "kontakty" && (
@@ -786,6 +781,12 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           </>
         )}
       </section>
+
+      {galaz === "rozmowy" && groupId && (
+        <aside className="inspektor" aria-label="Uczestnicy i kod bezpieczeństwa">
+          <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
+        </aside>
+      )}
     </div>
   );
 }

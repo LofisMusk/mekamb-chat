@@ -360,13 +360,28 @@ button:disabled:hover { background: transparent; }
  * rozciągnięty. Po zalogowaniu wchodzi panel i lista, więc te same 34rem
  * zostawiłyby treści połowę szerokości.
  */
-.aplikacja:has(.uklad) { max-width: 64rem; }
+/*
+ * Widok zalogowany bierze całą szerokość okna.
+ *
+ * Wspólny kontener ma 34rem, bo formularz logowania czyta się źle rozciągnięty.
+ * Po zalogowaniu są trzy panele, więc ograniczanie ich do 34rem albo nawet
+ * 64rem marnowałoby dokładnie tę szerokość, dla której ten układ powstał.
+ */
+.aplikacja:has(.uklad) { max-width: none; padding-inline: var(--odstep-6); }
 
+/*
+ * Trzy panele: nawigacja, lista rozmów, wątek.
+ *
+ * Poprzedni układ chował listę w momencie otwarcia rozmowy — wracało się do
+ * niej przyciskiem, mimo że na ekranie było miejsce na oba. Teraz lista i wątek
+ * stoją obok siebie.
+ */
 .uklad {
   display: grid;
-  grid-template-columns: 13rem 1fr;
-  gap: var(--odstep-8);
+  grid-template-columns: 14rem 20.75rem 1fr;
+  gap: var(--odstep-6);
   align-items: start;
+  height: calc(100dvh - 3rem);
 }
 
 .sidebar {
@@ -404,7 +419,61 @@ button:disabled:hover { background: transparent; }
 
 .sidebar .tryb { margin-top: var(--odstep-4); text-align: center; }
 
-.ekran { display: flex; flex-direction: column; gap: var(--odstep-4); min-width: 0; }
+.ekran {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* Panel listy — własna kolumna, własne przewijanie. */
+.panel-listy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  min-width: 0;
+  overflow-y: auto;
+  height: 100%;
+  border-right: 1px solid var(--linia);
+  padding-right: var(--odstep-6);
+}
+
+/*
+ * Inspektor: uczestnicy i kod bezpieczeństwa.
+ *
+ * Po prawej, a nie pod wątkiem. Kod bezpieczeństwa porównuje się patrząc
+ * jednocześnie na rozmowę — schowany pod wiadomościami wymagał przewinięcia
+ * na sam dół, czyli odejścia od tego, co się właśnie sprawdza.
+ */
+.inspektor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  overflow-y: auto;
+  height: 100%;
+  border-left: 1px solid var(--linia);
+  padding-left: var(--odstep-6);
+}
+
+/* Wątek: wiadomości rosną, pole pisania zostaje na dole. */
+.watek {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+.watek .wiadomosci { flex: 1; overflow-y: auto; margin-bottom: var(--odstep-4); }
+
+.pusty-watek {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--neutral-600);
+  font-size: .9rem;
+}
 
 .lista-rozmow { list-style: none; margin: 0; padding: 0; }
 
@@ -444,6 +513,17 @@ button:disabled:hover { background: transparent; }
 
 .wroc { background: none; border: none; min-height: 0; color: var(--neutral-500); padding: 0; }
 
+/*
+ * Poniżej 64rem inspektor nie ma gdzie stanąć — schodzi pod wątek. Ściskanie
+ * trzech kolumn na wąskim ekranie daje trzy nieczytelne paski.
+ */
+@media (max-width: 64rem) {
+  .uklad { grid-template-columns: 14rem 1fr; height: auto; }
+  .panel-listy, .ekran, .inspektor, .watek { height: auto; overflow: visible; }
+  .inspektor { border-left: none; padding-left: 0; border-top: 1px solid var(--linia); padding-top: var(--odstep-6); }
+  .panel-listy { border-right: none; padding-right: 0; }
+}
+
 @media (max-width: 46rem) {
   .uklad { grid-template-columns: 1fr; }
 
@@ -461,5 +541,6 @@ button:disabled:hover { background: transparent; }
   .galaz { justify-content: center; text-align: center; }
 
   /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości. */
-  .ekran { padding-bottom: 4.5rem; }
+  .ekran, .watek { padding-bottom: 4.5rem; }
+  .uklad { grid-template-columns: 1fr; }
 }

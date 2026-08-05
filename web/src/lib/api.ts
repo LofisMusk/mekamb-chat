@@ -46,11 +46,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  post: <T>(path: string, body: unknown, token?: string) =>
+  post: <T>(
+    path: string,
+    body: unknown,
+    token?: string,
+    opts?: { credentials?: RequestCredentials },
+  ) =>
     request<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: opts?.credentials,
     }),
 
   get: <T>(path: string) => request<T>(path),

@@ -53,6 +53,17 @@ export async function decryptSecret(key: string, packed: string): Promise<string
   return new TextDecoder().decode(plaintext);
 }
 
+/**
+ * Haszuje token odświeżający do postaci przechowywanej w bazie.
+ *
+ * Tak jak przy sekretach TOTP: przechowujemy hash, nie sam token, więc wyciek
+ * bazy nie daje od razu gotowej, ważnej sesji.
+ */
+export async function hashRefreshToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return bytesToBase64(new Uint8Array(digest));
+}
+
 /** Ładunek tokenu dostępowego. */
 export interface TokenPayload {
   userId: string;
@@ -149,7 +160,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function base64UrlToBytes(value: string): Uint8Array {
+export function base64UrlToBytes(value: string): Uint8Array {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
   return base64ToBytes(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
 }

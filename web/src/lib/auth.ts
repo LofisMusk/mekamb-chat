@@ -4,7 +4,13 @@ import init, {
   opaqueRegisterFinish,
   opaqueRegisterStart,
 } from "../wasm/mekamb_wasm";
-import { api, base64ToBytes, bytesToBase64 } from "./api";
+import { api, ApiError, base64ToBytes, bytesToBase64 } from "./api";
+import type {
+  PasskeyAuthenticationOptions,
+  PasskeyAuthenticationResponse,
+  PasskeyRegistrationOptions,
+  PasskeyRegistrationResponse,
+} from "./passkey";
 
 /**
  * Rejestracja i logowanie po stronie przeglądarki.
@@ -117,15 +123,97 @@ export interface AccessToken {
   expiresAt: number;
 }
 
-/** Kończy logowanie kodem TOTP i odbiera token dostępowy. */
+/**
+ * Kończy logowanie kodem TOTP i odbiera token dostępowy.
+ *
+ * `credentials: "include"` jest tu konieczne — inaczej przeglądarka po cichu
+ * odrzuca `Set-Cookie` z odpowiedzi, bo API stoi pod innym originem niż
+ * aplikacja. Bez tego trwała sesja (patrz [`refreshSession`]) nigdy by się
+ * nie włączyła.
+ */
 export async function loginWithTotp(
   session: LoginSession,
   code: string,
   deviceId: string,
 ): Promise<AccessToken> {
-  return api.post<AccessToken>("/auth/login/totp", {
-    loginId: session.loginId,
-    code,
-    deviceId,
-  });
+  return api.post<AccessToken>(
+    "/auth/login/totp",
+    { loginId: session.loginId, code, deviceId },
+    undefined,
+    { credentials: "include" },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Trwała sesja
+// ---------------------------------------------------------------------------
+
+/**
+ * Wymienia trwałą sesję (httpOnly cookie) na nowy token dostępowy.
+ *
+ * Wywoływane przy starcie aplikacji zamiast wymuszać ekran logowania —
+ * patrz `App.tsx`. Zwraca `null` zamiast rzucać, gdy sesji nie ma albo
+ * wygasła: to jest oczekiwany, częsty przypadek (pierwsze uruchomienie, długa
+ * nieobecność), nie błąd do zgłoszenia użytkownikowi.
+ */
+export async function refreshSession(deviceId: string): Promise<AccessToken | null> {
+  try {
+    return await api.post<AccessToken>("/auth/refresh", { deviceId }, undefined, {
+      credentials: "include",
+    });
+  } catch (err) {
+    if (err instanceof ApiError) return null;
+    throw err;
+  }
+}
+
+/** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */
+export async function logout(deviceId: string): Promise<void> {
+  await api.post("/auth/logout", { deviceId }, undefined, { credentials: "include" });
+}
+
+// ---------------------------------------------------------------------------
+// Logowanie passkeyem
+// ---------------------------------------------------------------------------
+
+/** Opcje rejestracji passkeya. Wymaga istniejącej sesji (`requireAuth` po stronie serwera). */
+export async function webauthnRegisterOptions(
+  token: string,
+): Promise<PasskeyRegistrationOptions> {
+  return api.post<PasskeyRegistrationOptions>("/auth/webauthn/register/options", {}, token);
+}
+
+/** Zapisuje nowo utworzony passkey na koncie. */
+export async function webauthnRegisterVerify(
+  token: string,
+  response: PasskeyRegistrationResponse,
+  nazwa?: string,
+): Promise<void> {
+  await api.post("/auth/webauthn/register/verify", { response, nazwa }, token);
+}
+
+/** Opcje logowania passkeyem — bez podawania nazwy użytkownika. */
+export async function webauthnLoginOptions(): Promise<PasskeyAuthenticationOptions> {
+  return api.post<PasskeyAuthenticationOptions>("/auth/webauthn/login/options", {});
+}
+
+export interface PasskeyLoginResult extends AccessToken {
+  userId: string;
+  username: string;
+}
+
+/**
+ * Kończy logowanie passkeyem. Tak jak [`loginWithTotp`], wymaga
+ * `credentials: "include"`, żeby serwer mógł ustawić trwałą sesję.
+ */
+export async function webauthnLoginVerify(
+  response: PasskeyAuthenticationResponse,
+  deviceId: string,
+): Promise<PasskeyLoginResult> {
+  return api.post<PasskeyLoginResult>(
+    "/auth/webauthn/login/verify",
+    { response, deviceId },
+    undefined,
+    { credentials: "include" },
+  );
 }

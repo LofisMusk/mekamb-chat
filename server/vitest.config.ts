@@ -30,6 +30,12 @@ export default defineConfig({
           // zakładane w testach dawały się w nich zalogować.
           OPAQUE_SERVER_KEY:
             "SjEx2h2qb2r14pDqmG/ljG4FzQBMAuZ7sMGibfK2KjI8LBEx+SinI/dekSRoxIiwNaVnbXREud1Rk86b5jeO+4pCXg4nBhD8zdjjEGp42tt3gHC9Q1vaNcxE5OMVIWUJdinK/KSSqBEo3zGbHJmZWbYzMAP0p18FGieTJuB/RXk=",
+
+          // WebAuthn potrzebuje `origin`/`rpID` przy weryfikacji ceremonii —
+          // testy podpisują odpowiedzi authenticatora pod ten sam origin.
+          ALLOWED_ORIGINS: "https://mekamb.test",
+          WEBAUTHN_RP_ID: "mekamb.test",
+          WEBAUTHN_RP_NAME: "mekamb-chat (testy)",
         },
       },
     }),

@@ -108,8 +108,8 @@ class Api(private val baseUrl: String) {
     }
 
     /** Runda 3: drugi składnik. Dopiero tutaj powstaje token dostępowy. */
-    suspend fun loginTotp(loginId: String, code: String, deviceId: String): String {
-        val odpowiedz = postJson(
+    suspend fun loginTotp(loginId: String, code: String, deviceId: String): LoginResult {
+        val (odpowiedz, cookies) = postJsonRaw(
             "/auth/login/totp",
             buildJsonObject {
                 put("loginId", loginId)
@@ -118,7 +118,49 @@ class Api(private val baseUrl: String) {
             },
             null,
         )
-        return odpowiedz["token"]!!.jsonPrimitive.content
+        return LoginResult(
+            token = odpowiedz["token"]!!.jsonPrimitive.content,
+            refreshToken = refreshTokenZNaglowkow(cookies),
+        )
+    }
+
+    data class LoginResult(val token: String, val refreshToken: String?)
+
+    /**
+     * Wymienia trwałą sesję na nowy token dostępowy.
+     *
+     * Wołane przy starcie aplikacji zamiast wymuszać ekran logowania —
+     * patrz `ChatViewModel`. Zwraca `null` zamiast rzucać, gdy trwałej sesji
+     * nie ma albo wygasła: to oczekiwany, częsty przypadek, nie błąd.
+     */
+    suspend fun refreshSession(deviceId: String, refreshToken: String): LoginResult? {
+        return try {
+            val (odpowiedz, cookies) = postJsonRaw(
+                "/auth/refresh",
+                buildJsonObject { put("deviceId", deviceId) },
+                null,
+                refreshToken = refreshToken,
+            )
+            LoginResult(
+                token = odpowiedz["token"]!!.jsonPrimitive.content,
+                // Token jest ROTOWANY przy każdym użyciu — serwer zawsze
+                // odpowiada nowym, ale gdyby kiedyś tego nie zrobił, zostajemy
+                // przy starym zamiast go gubić.
+                refreshToken = refreshTokenZNaglowkow(cookies) ?: refreshToken,
+            )
+        } catch (e: ApiException) {
+            if (e.status == 401) null else throw e
+        }
+    }
+
+    /** Kasuje trwałą sesję po stronie serwera — wołane przy jawnym wylogowaniu. */
+    suspend fun logout(deviceId: String, refreshToken: String?) {
+        postJsonRaw(
+            "/auth/logout",
+            buildJsonObject { put("deviceId", deviceId) },
+            null,
+            refreshToken = refreshToken,
+        )
     }
 
     // --- katalog i skrzynka ---
@@ -243,22 +285,44 @@ class Api(private val baseUrl: String) {
         sciezka: String,
         body: JsonObject,
         token: String?,
-    ): JsonObject = withContext(Dispatchers.IO) {
+    ): JsonObject = postJsonRaw(sciezka, body, token).first
+
+    /**
+     * Jak [postJson], ale zwraca też nagłówki `Set-Cookie` odpowiedzi.
+     *
+     * Potrzebne wyłącznie przy trwałej sesji: serwer wysyła token odświeżający
+     * jako httpOnly cookie (patrz `server/src/session.ts`), a zwykły `postJson`
+     * odrzuca nagłówki razem z resztą odpowiedzi.
+     */
+    private suspend fun postJsonRaw(
+        sciezka: String,
+        body: JsonObject,
+        token: String?,
+        refreshToken: String? = null,
+    ): Pair<JsonObject, List<String>> = withContext(Dispatchers.IO) {
         val budowniczy = Request.Builder()
             .url("$baseUrl$sciezka")
             .post(body.toString().toRequestBody(JSON_MEDIA))
 
         token?.let { budowniczy.header("Authorization", "Bearer $it") }
+        refreshToken?.let { budowniczy.header("Cookie", "refresh=$it") }
 
         http.newCall(budowniczy.build()).execute().use { odpowiedz ->
             val tresc = odpowiedz.body?.string().orEmpty()
             if (!odpowiedz.isSuccessful) {
                 throw ApiException(odpowiedz.code, bladZOdpowiedzi(tresc, odpowiedz.code))
             }
-            if (tresc.isBlank()) JsonObject(emptyMap())
+            val cialo = if (tresc.isBlank()) JsonObject(emptyMap())
             else json.parseToJsonElement(tresc) as JsonObject
+            cialo to odpowiedz.headers("Set-Cookie")
         }
     }
+
+    /** Wyciąga wartość cookie `refresh` z nagłówków `Set-Cookie`, pomijając jego atrybuty. */
+    private fun refreshTokenZNaglowkow(cookies: List<String>): String? =
+        cookies.firstOrNull { it.startsWith("refresh=") }
+            ?.substringAfter("refresh=")
+            ?.substringBefore(";")
 
     private fun get(sciezka: String): JsonObject {
         val zadanie = Request.Builder().url("$baseUrl$sciezka").build()

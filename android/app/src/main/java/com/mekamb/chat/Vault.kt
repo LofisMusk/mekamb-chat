@@ -50,6 +50,21 @@ class Vault(context: Context) {
 
     fun loadHistory(): ByteArray? = odczytaj(KLUCZ_HISTORIA)
 
+    /**
+     * Token trwałej sesji — wymieniany na `/auth/refresh` na nowy token
+     * dostępowy, żeby nie trzeba było przechodzić hasła i TOTP przy każdym
+     * uruchomieniu aplikacji.
+     *
+     * Serwer wysyła go jako httpOnly cookie, bo tak broni się przed XSS
+     * w przeglądarce — na Androidzie nie ma przeglądarki ani XSS, więc po
+     * prostu wyciągamy wartość z nagłówka `Set-Cookie` (patrz `Api.kt`)
+     * i trzymamy ją tak samo jak ziarno czy stan MLS: zaszyfrowaną kluczem
+     * z Keystore.
+     */
+    fun saveRefreshToken(token: String) = zapisz(KLUCZ_REFRESH, token.toByteArray())
+
+    fun loadRefreshToken(): String? = odczytaj(KLUCZ_REFRESH)?.let { String(it) }
+
     fun saveAccount(account: Account) {
         prefs.edit()
             .putString(KLUCZ_UZYTKOWNIK, account.username)
@@ -147,6 +162,7 @@ class Vault(context: Context) {
         const val KLUCZ_STAN = "stan-mls"
         const val KLUCZ_UZYTKOWNIK = "uzytkownik"
         const val KLUCZ_URZADZENIE = "urzadzenie"
+        const val KLUCZ_REFRESH = "token-odswiezajacy"
     }
 }
 

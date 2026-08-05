@@ -41,6 +41,10 @@ data class StanCzatu(
     val rozmowy: List<PozycjaListy> = emptyList(),
     /** Kod przeniesienia, gdy ekran przenoszenia jest otwarty. */
     val kodPrzeniesienia: Przeniesienie.Kod? = null,
+    /** Skład rozmowy z drzewa MLS — nie własna lista w interfejsie. */
+    val uczestnicy: List<String> = emptyList(),
+    /** Kod bezpieczeństwa bieżącej rozmowy. */
+    val kodBezpieczenstwa: String? = null,
     /** Jak poszła ostatnia wysyłka — pokazywane użytkownikowi. */
     val trybPolaczenia: DeliveryMode? = null,
     /** Sekret TOTP do wpisania w authenticatorze. Tylko przy rejestracji. */
@@ -132,6 +136,49 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         sesjaLogowania = null
         vault.wipe()
         stan = StanCzatu()
+    }
+
+    /**
+     * Odświeża skład i kod bezpieczeństwa z drzewa MLS.
+     *
+     * Czytane na żądanie, a nie trzymane na bieżąco: skład zmienia się rzadko,
+     * a odczyt wymaga wejścia w stan MLS pod blokadą.
+     */
+    fun odswiezUczestnikow() {
+        val klient = messenger ?: return
+        val groupId = stan.groupId ?: return
+
+        stan = stan.copy(
+            uczestnicy = klient.uczestnicy(groupId),
+            kodBezpieczenstwa = klient.kodBezpieczenstwa(groupId),
+        )
+    }
+
+    /** Dodaje osobę do bieżącej rozmowy. */
+    fun dodajCzlonka(nazwa: String) {
+        val klient = messenger ?: return
+        val groupId = stan.groupId ?: return
+
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            runCatching { klient.dodajCzlonka(groupId, nazwa) }
+                .onSuccess {
+                    stan = stan.copy(
+                        pracuje = false,
+                        uczestnicy = klient.uczestnicy(groupId),
+                        // Skład się zmienił, więc kod bezpieczeństwa też —
+                        // trzeba go porównać na nowo.
+                        kodBezpieczenstwa = klient.kodBezpieczenstwa(groupId),
+                    )
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się dodać osoby",
+                    )
+                }
+        }
     }
 
     fun wyczyscBlad() {

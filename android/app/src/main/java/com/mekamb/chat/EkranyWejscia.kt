@@ -17,6 +17,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -72,6 +75,121 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.size(Odstep.xl))
         Wskazowka("Klucze zostają na tym urządzeniu · Keys never leave this device", Ikony.Klucz)
+    }
+}
+
+/**
+ * Nowe konto.
+ *
+ * Ograniczenia są w treści etykiet, a nie ukryte do momentu odrzucenia:
+ * użytkownik ma wiedzieć, ile znaków musi mieć hasło, zanim je wymyśli.
+ */
+@Composable
+fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
+    var username by remember { mutableStateOf("") }
+    var haslo by remember { mutableStateOf("") }
+    val stan = model.stan
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(horizontal = Odstep.xl),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        OdznakaMarki()
+        Spacer(Modifier.size(Odstep.m))
+        NaglowekEkranu("Nowe konto", "Create account")
+
+        Spacer(Modifier.size(Odstep.xl))
+        Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+            Pole("Nazwa użytkownika · Username", username, { username = it })
+            Pole("Hasło — min. 12 znaków · Password", haslo, { haslo = it }, haslo = true)
+        }
+
+        Spacer(Modifier.size(Odstep.l))
+        Wskazowka(
+            "Hasło nie opuszcza tego urządzenia. Serwer nigdy go nie zobaczy — " +
+                "ale też nie pomoże Ci go odzyskać.",
+            Ikony.Klucz,
+        )
+
+        Spacer(Modifier.size(Odstep.l))
+        PrzyciskGlowny(
+            if (stan.pracuje) "Zakładam…" else "Załóż konto · Create account",
+            wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= 12,
+        ) {
+            model.zarejestruj(username.trim(), haslo)
+        }
+
+        Spacer(Modifier.size(Odstep.s))
+        PrzyciskCichy("Mam już konto") { model.pokaz(Ekran.LOGOWANIE) }
+    }
+}
+
+/**
+ * Odbiór konta z innego urządzenia.
+ *
+ * # Czego tu nie ma
+ *
+ * Skanowania aparatem. Projekt je przewiduje, ale wymaga CameraX i uprawnienia
+ * do aparatu — dojdzie osobno. Do tego czasu kod przepisuje się z ekranu, co
+ * działa zawsze i nie wymaga niczego dokładać.
+ *
+ * Kod zeskanowany aparatem systemowym trafia tu przez intencję `mekamb://`
+ * i wypełnia pole sam.
+ */
+@Composable
+fun EkranOdbioru(
+    model: ChatViewModel,
+    kodZIntencji: String?,
+    onKodZuzyty: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var kod by remember(kodZIntencji) { mutableStateOf(kodZIntencji.orEmpty()) }
+    val stan = model.stan
+
+    Column(modifier = modifier.fillMaxSize()) {
+        PasekZPowrotem("Odbierz konto", "Receive account") {
+            model.pokaz(Ekran.POWITANIE)
+        }
+
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = Odstep.xl),
+            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+        ) {
+            Text(
+                "Na starym urządzeniu wybierz \u201ePrzenieś na inne urządzenie\u201d.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TekstPrzygaszony,
+            )
+
+            Pole(
+                "Kod przeniesienia · Transfer code",
+                kod,
+                { kod = it },
+                podpowiedz = "mekamb://transfer?…",
+            )
+
+            PrzyciskGlowny(
+                if (stan.pracuje) "Odbieram…" else "Odbierz konto · Receive",
+                wlaczony = !stan.pracuje && kod.isNotBlank(),
+            ) {
+                model.odbierzKonto(kod)
+                onKodZuzyty()
+            }
+
+            Ostrzezenie(
+                "Odebranie zastąpi konto na tym urządzeniu. Po odebraniu przestań używać " +
+                    "starego — dwa urządzenia z tym samym kontem rozsypią szyfrowanie rozmowy.",
+            )
+
+            Wskazowka("Kod działa raz i wygasa po kwadransie.", Ikony.KodQr)
+        }
     }
 }
 

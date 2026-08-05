@@ -103,12 +103,17 @@ private fun Zawartosc(
     // niego nie da się do rozmowy wrócić.
     var wRozmowie by remember { mutableStateOf(false) }
     var wPrzeniesieniu by remember { mutableStateOf(false) }
+    var wUczestnikach by remember { mutableStateOf(false) }
+    var wUstawieniach by remember { mutableStateOf(false) }
 
     // Nowa rozmowa — własna albo przychodząca — otwiera się od razu.
     LaunchedEffect(stan.groupId) {
         if (stan.groupId != null) {
             nowaRozmowa = false
             wRozmowie = true
+            // Rozmowa zaczęta z Kontaktów ma otworzyć rozmowę, a nie zostawić
+            // użytkownika w gałęzi, z której wyszedł.
+            galaz = Galaz.ROZMOWY
         }
     }
 
@@ -167,13 +172,24 @@ private fun Zawartosc(
             stan.zalogowany && wPrzeniesieniu ->
                 EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
 
+            stan.zalogowany && wUstawieniach ->
+                EkranUstawien(model, onWstecz = { wUstawieniach = false })
+
+            stan.zalogowany && wUczestnikach ->
+                EkranUczestnikow(model, onWstecz = { wUczestnikach = false })
+
+            stan.zalogowany && galaz == Galaz.KONTAKTY ->
+                EkranKontaktow(model, onGalaz = { galaz = it })
+
             stan.zalogowany && galaz == Galaz.KONTO ->
                 EkranKonta(
                     model = model,
                     onPrzeniesienie = { wPrzeniesieniu = true },
-                    // Kody bezpieczeństwa nie mają jeszcze własnego ekranu;
-                    // pusta akcja jest uczciwsza niż przejście donikąd.
-                    onUczestnicy = {},
+                    onUczestnicy = {
+                        model.odswiezUczestnikow()
+                        wUczestnikach = true
+                    },
+                    onUstawienia = { wUstawieniach = true },
                     onGalaz = { galaz = it },
                 )
 
@@ -181,11 +197,14 @@ private fun Zawartosc(
                 EkranRozmowy(
                     model = model,
                     onWstecz = { wRozmowie = false },
-                    onUczestnicy = {},
+                    onUczestnicy = {
+                        model.odswiezUczestnikow()
+                        wUczestnikach = true
+                    },
                     onRozmowa = {},
                 )
 
-            stan.zalogowany && nowaRozmowa -> FormularzRozmowy(model)
+            stan.zalogowany && nowaRozmowa -> EkranKontaktow(model, onGalaz = { galaz = it })
 
             stan.zalogowany ->
                 EkranListy(
@@ -197,9 +216,9 @@ private fun Zawartosc(
                     onNowaRozmowa = { nowaRozmowa = true },
                     onGalaz = { galaz = it },
                 )
-            stan.ekran == Ekran.REJESTRACJA -> FormularzRejestracji(model)
+            stan.ekran == Ekran.REJESTRACJA -> EkranRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)
-            stan.ekran == Ekran.ODBIOR -> OdbiorKonta(model, kodZIntencji, onKodZuzyty)
+            stan.ekran == Ekran.ODBIOR -> EkranOdbioru(model, kodZIntencji, onKodZuzyty)
             stan.ekran == Ekran.LOGOWANIE -> EkranLogowania(model)
             stan.ekran == Ekran.KOD_LOGOWANIA -> EkranKoduLogowania(model)
             else -> EkranPowitania(model)
@@ -207,58 +226,6 @@ private fun Zawartosc(
     }
 }
 
-@Composable
-private fun FormularzRejestracji(model: ChatViewModel) {
-    var username by remember { mutableStateOf("") }
-    var haslo by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Nowe konto", style = MaterialTheme.typography.titleMedium)
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Nazwa użytkownika") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = haslo,
-            onValueChange = { haslo = it },
-            label = { Text("Hasło (min. 12 znaków)") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Text(
-            "Hasło nie opuszcza tego urządzenia. Serwer nigdy go nie zobaczy — " +
-                "ale też nie pomoże Ci go odzyskać.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        Button(
-            onClick = { model.zarejestruj(username, haslo) },
-            enabled = !stanZajety(model) && username.length >= 3 && haslo.length >= 12,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (stanZajety(model)) "Zakładam…" else "Załóż konto")
-        }
-        TextButton(
-            onClick = { model.pokaz(Ekran.LOGOWANIE) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Mam już konto")
-        }
-    }
-}
-
-/**
- * Drugi składnik przy zakładaniu konta.
- *
- * Na telefonie nie ma po co pokazywać kodu QR: authenticator jest na tym samym
- * urządzeniu, więc odnośnik `otpauth://` wpisuje wszystko sam. Sekret do
- * przepisania zostaje jako droga awaryjna — dla tych, którzy trzymają
- * authenticator gdzie indziej.
- */
 @Composable
 private fun PotwierdzenieTotp(model: ChatViewModel) {
     val kontekst = LocalContext.current
@@ -327,108 +294,4 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
  * aplikację odnośnikiem `mekamb://transfer`. Pole tekstowe zostaje dla tych,
  * którzy wolą przepisać, i na wypadek gdyby aparat nie rozpoznał kodu.
  */
-@Composable
-private fun OdbiorKonta(model: ChatViewModel, kodZIntencji: String?, onKodZuzyty: () -> Unit) {
-    var kod by remember(kodZIntencji) { mutableStateOf(kodZIntencji.orEmpty()) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Odbierz konto", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Na starym urządzeniu wybierz „Przenieś na inne urządzenie" +
-                "\u201d i zeskanuj kod aparatem albo przepisz go poniżej.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        OutlinedTextField(
-            value = kod,
-            onValueChange = { kod = it },
-            label = { Text("Kod przeniesienia") },
-            placeholder = { Text("mekamb://transfer?…") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Button(
-            onClick = {
-                model.odbierzKonto(kod)
-                onKodZuzyty()
-            },
-            enabled = !stanZajety(model) && kod.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (stanZajety(model)) "Odbieram…" else "Odbierz konto")
-        }
-
-        Text(
-            "Kod działa raz i wygasa po kwadransie. Po odebraniu przestań " +
-                "używać starego urządzenia — dwa urządzenia z tym samym kontem " +
-                "rozsypią szyfrowanie rozmowy.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        TextButton(
-            onClick = { model.pokaz(Ekran.LOGOWANIE) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Wróć")
-        }
-    }
-}
-
-@Composable
-private fun FormularzRozmowy(model: ChatViewModel) {
-    var rozmowca by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = rozmowca,
-            onValueChange = { rozmowca = it },
-            label = { Text("Z kim rozmawiasz") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = { model.rozpocznijRozmowe(rozmowca) },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Rozpocznij rozmowę")
-        }
-    }
-}
-
-@Composable
-private fun Rozmowa(model: ChatViewModel) {
-    var tresc by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            items(model.stan.wiadomosci) { wiadomosc ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(10.dp)) {
-                        Text(wiadomosc.autor, style = MaterialTheme.typography.labelSmall)
-                        Text(wiadomosc.tresc)
-                    }
-                }
-            }
-        }
-
-        OutlinedTextField(
-            value = tresc,
-            onValueChange = { tresc = it },
-            label = { Text("Napisz wiadomość") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = {
-                model.wyslij(tresc)
-                tresc = ""
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Wyślij")
-        }
-    }
-}
-
 private fun stanZajety(model: ChatViewModel) = model.stan.pracuje

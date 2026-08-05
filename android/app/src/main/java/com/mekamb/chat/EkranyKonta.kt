@@ -49,6 +49,7 @@ fun EkranKonta(
     modifier: Modifier = Modifier,
     onPrzeniesienie: () -> Unit,
     onUczestnicy: () -> Unit,
+    onUstawienia: () -> Unit,
     onGalaz: (Galaz) -> Unit,
 ) {
     val konto = model.konto
@@ -105,6 +106,13 @@ fun EkranKonta(
                     tytul = "Kody bezpieczeństwa",
                     opis = "Safety numbers — do porównania poza aplikacją",
                     onClick = onUczestnicy,
+                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Linia))
+                WierszMenu(
+                    ikona = Ikony.Dzwonek,
+                    tytul = "Powiadomienia i połączenie",
+                    opis = "Notifications & transport",
+                    onClick = onUstawienia,
                 )
             }
 

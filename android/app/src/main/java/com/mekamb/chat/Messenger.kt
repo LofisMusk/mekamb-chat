@@ -136,6 +136,49 @@ class Messenger private constructor(
         groupId
     }
 
+    /**
+     * Skład rozmowy — nazwy użytkowników z drzewa MLS.
+     *
+     * `members()` zwraca `user_id:device_id`; jedna osoba może mieć kilka
+     * urządzeń, więc powtórzenia odsiewamy.
+     */
+    fun uczestnicy(groupId: ByteArray): List<String> =
+        client.members(groupId).map { it.substringBefore(':') }.distinct()
+
+    /** Kod bezpieczeństwa rozmowy — do porównania poza aplikacją. */
+    fun kodBezpieczenstwa(groupId: ByteArray): String? =
+        runCatching { client.safetyNumber(groupId) }.getOrNull()
+
+    /**
+     * Dodaje osobę do rozmowy.
+     *
+     * Ta sama droga co przy zakładaniu rozmowy: key package z katalogu, commit
+     * do relaya, welcome do nowej osoby.
+     */
+    suspend fun dodajCzlonka(groupId: ByteArray, peerUsername: String): Unit =
+        withContext(Dispatchers.IO) {
+            val urzadzenie = api.lookupDevices(peerUsername).firstOrNull()
+                ?: error("użytkownik $peerUsername nie ma zarejestrowanych urządzeń")
+
+            val keyPackage = api.claimKeyPackage(urzadzenie.deviceId)
+            val oczekujacy = client.addMember(groupId, keyPackage)
+
+            val czlonkowie = (uczestnicy(groupId) + peerUsername).distinct()
+            val przyjety =
+                api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit, czlonkowie)
+
+            if (!przyjety) {
+                client.discardCommit(groupId)
+                vault.saveState(client.exportState())
+                error("ktoś zmienił grupę w międzyczasie — spróbuj ponownie")
+            }
+
+            client.confirmCommit(groupId)
+            vault.saveState(client.exportState())
+
+            oczekujacy.welcome?.let { wyslij(peerUsername, urzadzenie, it) }
+        }
+
     /** Szyfruje i wysyła wiadomość tekstową. */
     suspend fun sendText(
         groupId: ByteArray,

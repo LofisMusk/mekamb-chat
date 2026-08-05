@@ -1,12 +1,58 @@
+/*
+ * System wizualny Nocturne.
+ *
+ * Wartości pochodzą z tokenów projektu „Mekamb Android UI Design", tych samych,
+ * które ma klient Androida (`android/.../Nocturne.kt`). Zmiana projektu ma być
+ * przepisaniem tokenów po obu stronach, a nie dobieraniem odcieni od nowa.
+ *
+ * Charakter: ciemne, prawie neutralne tło i JEDEN akcent używany jako linia,
+ * nie jako wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia.
+ * Akcja główna jest obrysowana — plama akcentu łamie podstawową zasadę systemu.
+ */
 :root {
   color-scheme: dark;
-  --tlo: #101014;
-  --karta: #1a1a22;
-  --tekst: #e8e8ef;
-  --przygaszony: #9a9aa8;
-  --akcent: #6c8cff;
-  --alarm: #ff6b6b;
-  --ostrzezenie: #ffb84d;
+
+  /* Role */
+  --tlo: #161826;
+  --karta: #232532;
+  --tekst: #e9e9ed;
+  --akcent: #9184d9;
+  --przygaszony: #9397ab;
+  --linia: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* Rampa neutralna */
+  --neutral-100: #f3f5fe;
+  --neutral-400: #b2b6ca;
+  --neutral-500: #9397ab;
+  --neutral-600: #75798c;
+  --neutral-700: #595d6c;
+  --neutral-800: #3f424d;
+  --neutral-900: #292b31;
+
+  /* Rampa akcentu */
+  --akcent-100: #f5f4ff;
+  --akcent-200: #e7e5fe;
+  --akcent-300: #d2cefd;
+  --akcent-400: #b5abfc;
+  --akcent-700: #5d5294;
+  --akcent-800: #423a6a;
+  --akcent-900: #2b2741;
+
+  --alarm: #f2b8b5;
+  --ostrzezenie: var(--akcent);
+
+  /* Skala odstępów, gęstość 0,70× — ten system jest ciasny celowo. */
+  --odstep-1: .175rem;
+  --odstep-2: .35rem;
+  --odstep-3: .525rem;
+  --odstep-4: .7rem;
+  --odstep-6: 1.05rem;
+  --odstep-8: 1.4rem;
+
+  /* Promienie */
+  --promien-s: 4px;
+  --promien-m: 8px;
+  --promien-l: 14px;
 }
 
 * { box-sizing: border-box; }
@@ -15,7 +61,9 @@ body {
   margin: 0;
   background: var(--tlo);
   color: var(--tekst);
-  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Inter, jeśli system go ma — projekt go zakłada, ale pliku z krojem nie
+     dokładamy: kilkaset kilobajtów na wagę wizualnej różnicy bliskiej zeru. */
+  font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   /* Wcięcia bezpieczne dla iPhone'ów z wcięciem w ekranie. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
@@ -28,8 +76,9 @@ h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
 
 .karta {
   background: var(--karta);
-  border-radius: .75rem;
-  padding: 1.25rem;
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-6);
   display: flex;
   flex-direction: column;
   gap: .75rem;
@@ -39,46 +88,67 @@ h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
 label { display: flex; flex-direction: column; gap: .3rem; font-size: .875rem; color: var(--przygaszony); }
 
 input {
-  background: #24242e;
-  border: 1px solid #33333f;
-  border-radius: .5rem;
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
   color: var(--tekst);
-  padding: .6rem .75rem;
+  padding: .7rem .8rem;
   font-size: 1rem;
+  /* 48 px z projektu — powyżej minimum dotykowego. */
+  min-height: 3rem;
 }
-input:focus { outline: 2px solid var(--akcent); outline-offset: 1px; }
+input:focus-visible { outline: 2px solid var(--akcent); outline-offset: 2px; }
+input::placeholder { color: var(--neutral-600); }
 
+/*
+ * Przyciski są OBRYSOWANE, nie zalane kolorem.
+ *
+ * To najbardziej widoczna zasada tego systemu: akcent jest linią i poświatą,
+ * nigdy plamą. Wypełniony przycisk od razu zdradza, że ekran jest z innej bajki.
+ */
 button {
-  background: #2a2a36;
-  border: none;
-  border-radius: .5rem;
+  background: transparent;
+  border: 1px solid var(--neutral-700);
+  border-radius: var(--promien-m);
   color: var(--tekst);
-  padding: .65rem 1rem;
+  padding: .7rem 1rem;
   font-size: .95rem;
+  font-family: inherit;
+  font-weight: 500;
+  min-height: 3rem;
   cursor: pointer;
+  transition: background-color .12s, border-color .12s;
 }
-button.glowny { background: var(--akcent); color: #0b0b10; font-weight: 600; }
-button:disabled { opacity: .5; cursor: default; }
+button:hover { background: color-mix(in srgb, var(--tekst) 5%, transparent); }
+button:active { background: color-mix(in srgb, var(--akcent) 12%, transparent); }
+button:focus-visible { outline: 2px solid var(--akcent); outline-offset: 2px; }
+
+button.glowny { border-color: var(--akcent); color: var(--akcent-300); }
+button.glowny:hover { background: color-mix(in srgb, var(--akcent) 10%, transparent); }
+
+button:disabled { opacity: .45; cursor: default; border-color: var(--neutral-800); }
+button:disabled:hover { background: transparent; }
 
 .wskazowka { color: var(--przygaszony); font-size: .8rem; margin: 0; }
 .wskazowka a { color: var(--akcent); }
 
 .blad {
-  background: rgba(255, 107, 107, .12);
+  background: color-mix(in srgb, var(--alarm) 12%, transparent);
   border-left: 3px solid var(--alarm);
-  padding: .75rem 1rem;
-  border-radius: .4rem;
+  padding: var(--odstep-4) var(--odstep-6);
+  border-radius: var(--promien-m);
   display: flex;
   justify-content: space-between;
   gap: 1rem;
 }
-.blad button { background: none; padding: 0 .3rem; }
+.blad button { background: none; border: none; min-height: 0; padding: 0 .3rem; }
 
 .ostrzezenie {
-  background: rgba(255, 184, 77, .1);
-  border-left: 3px solid var(--ostrzezenie);
-  padding: .9rem 1rem;
-  border-radius: .4rem;
+  background: var(--akcent-900);
+  border-left: 3px solid var(--akcent);
+  padding: var(--odstep-6);
+  border-radius: var(--promien-m);
+  color: var(--akcent-200);
   margin-bottom: 1rem;
   font-size: .875rem;
 }
@@ -86,9 +156,9 @@ button:disabled { opacity: .5; cursor: default; }
 
 .sekret {
   display: block;
-  background: #24242e;
-  padding: .75rem;
-  border-radius: .5rem;
+  background: var(--neutral-900);
+  padding: var(--odstep-4);
+  border-radius: var(--promien-s);
   word-break: break-all;
   font-family: ui-monospace, monospace;
   letter-spacing: .05em;
@@ -97,16 +167,29 @@ button:disabled { opacity: .5; cursor: default; }
 .pasek { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .tryb {
   font-size: .75rem;
-  color: var(--przygaszony);
-  border: 1px solid #33333f;
-  border-radius: 1rem;
+  color: var(--neutral-500);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-s);
   padding: .15rem .6rem;
 }
-.wyloguj { font-size: .8rem; background: none; color: var(--przygaszony); }
+.wyloguj { font-size: .8rem; background: none; border: none; min-height: 0; color: var(--neutral-500); }
 
 .wiadomosci { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
-.wiadomosci li { background: var(--karta); border-radius: .6rem; padding: .6rem .8rem; }
-.wiadomosci li.wlasna { background: #23304f; align-self: flex-end; }
+/* Własne po prawej, cudze po lewej, róg przy własnej stronie ścięty — układ,
+   który czyta się bez etykiet. */
+.wiadomosci li {
+  background: var(--karta);
+  border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
+  padding: var(--odstep-3) var(--odstep-4);
+  max-width: 78%;
+  align-self: flex-start;
+}
+.wiadomosci li.wlasna {
+  background: var(--akcent-800);
+  color: var(--akcent-100);
+  border-radius: var(--promien-l) var(--promien-l) var(--promien-s) var(--promien-l);
+  align-self: flex-end;
+}
 .autor { display: block; font-size: .7rem; color: var(--przygaszony); }
 
 .pisanie { display: flex; gap: .5rem; }
@@ -114,9 +197,9 @@ button:disabled { opacity: .5; cursor: default; }
 
 .dolacz-plik {
   display: block;
-  background: #2a2a36;
-  border-radius: .5rem;
-  padding: .65rem 1rem;
+  border: 1px solid var(--neutral-700);
+  border-radius: var(--promien-m);
+  padding: .7rem 1rem;
   text-align: center;
   cursor: pointer;
   font-size: .9rem;
@@ -124,16 +207,22 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .dolacz-plik input { display: none; }
 
-.zalacznik { max-width: 100%; border-radius: .4rem; display: block; margin-top: .3rem; }
+.zalacznik {
+  max-width: 100%;
+  border-radius: var(--promien-m);
+  display: block;
+  margin-top: var(--odstep-2);
+}
 .zalacznik-pobierz {
   display: inline-block;
-  margin-top: .3rem;
+  margin-top: var(--odstep-2);
   font-size: .85rem;
-  background: #33333f;
+  border: 1px solid var(--linia);
   color: var(--tekst);
   text-decoration: none;
   padding: .4rem .7rem;
-  border-radius: .4rem;
+  border-radius: var(--promien-s);
+  min-height: 0;
 }
 
 .wskazowka-plik {
@@ -146,6 +235,8 @@ button:disabled { opacity: .5; cursor: default; }
 .uczestnicy { margin-bottom: .75rem; }
 .uczestnicy-naglowek {
   background: none;
+  border: none;
+  min-height: 0;
   padding: .3rem 0;
   font-size: .85rem;
   color: var(--przygaszony);
@@ -159,10 +250,11 @@ button:disabled { opacity: .5; cursor: default; }
   gap: .35rem;
 }
 .lista-osob li {
-  background: var(--karta);
-  border-radius: 1rem;
+  background: var(--neutral-900);
+  border-radius: var(--promien-s);
   padding: .2rem .7rem;
   font-size: .8rem;
+  color: var(--neutral-400);
 }
 .dodaj-osobe { display: flex; gap: .4rem; margin: .5rem 0; }
 .dodaj-osobe input { flex: 1; font-size: .9rem; padding: .45rem .6rem; }
@@ -170,15 +262,18 @@ button:disabled { opacity: .5; cursor: default; }
 .safety { margin-top: .6rem; }
 .safety-przelacz {
   background: none;
+  border: none;
+  min-height: 0;
   padding: .3rem 0;
   font-size: .8rem;
   color: var(--akcent);
 }
 .safety-kod {
   display: block;
-  background: #24242e;
+  background: var(--neutral-900);
+  color: var(--akcent-200);
   padding: .7rem;
-  border-radius: .5rem;
+  border-radius: var(--promien-s);
   margin: .4rem 0;
   font-family: ui-monospace, monospace;
   font-size: .95rem;

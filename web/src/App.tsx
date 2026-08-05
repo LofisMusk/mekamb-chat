@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "./lib/api";
-import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
+import {
+  confirmRegistration,
+  loginStart,
+  loginWithTotp,
+  logout,
+  refreshSession,
+  register,
+  webauthnLoginOptions,
+  webauthnLoginVerify,
+  webauthnRegisterOptions,
+  webauthnRegisterVerify,
+} from "./lib/auth";
 import { KodQr } from "./KodQr";
+import { createPasskey, getPasskey, isPasskeySupported } from "./lib/passkey";
 import { OdbierzTutaj, PrzeniesStad } from "./Przeniesienie";
 import {
   type PozycjaListy,
@@ -21,6 +33,7 @@ import type { CallState } from "./lib/calls";
 import { Messenger } from "./lib/messenger";
 import type { ReceivedAttachment, ReceivedMessage } from "./lib/messenger";
 import {
+  type Account,
   isInstalled,
   isPersistent,
   loadAccount,
@@ -28,6 +41,24 @@ import {
   saveAccount,
   wipe,
 } from "./lib/vault";
+
+/** Odtwarza albo zakłada `Messenger` po udanym uwierzytelnieniu i zgłasza urządzenie do katalogu. */
+async function zakonczLogowanie(konto: Account, token: string): Promise<Messenger> {
+  // Trwały magazyn zapewniamy PRZED wygenerowaniem kluczy. Odwrotna kolejność
+  // grozi cichą utratą konta na iOS.
+  await requestPersistence();
+  await saveAccount(konto);
+
+  const messenger =
+    (await Messenger.restore(konto, token)) ?? (await Messenger.create(konto, token));
+
+  // Kolejność jest istotna: key packages mają klucz obcy do urządzenia,
+  // więc katalog musi je poznać najpierw.
+  await messenger.registerDevice();
+  await messenger.publishKeyPackages();
+
+  return messenger;
+}
 
 /**
  * Interfejs klienta webowego.
@@ -60,9 +91,33 @@ export function App() {
       setTrwaly(await isPersistent());
 
       const konto = await loadAccount();
-      // Token żyje krócej niż tożsamość urządzenia, więc po jego wygaśnięciu
-      // trzeba przejść logowanie od nowa — klucze i historia zostają na miejscu.
-      setEkran(konto ? { nazwa: "logowanie" } : { nazwa: "powitanie" });
+      if (!konto) {
+        setEkran({ nazwa: "powitanie" });
+        return;
+      }
+
+      // Próba cichej trwałej sesji PRZED pokazaniem ekranu logowania: token
+      // dostępowy żyje krócej niż tożsamość urządzenia, ale cookie z tokenem
+      // odświeżającym (`/auth/refresh`) przeżywa odświeżenie strony. Dopiero
+      // gdy go nie ma albo wygasł, wracamy do pełnego logowania hasłem+TOTP.
+      const odswiezony = await refreshSession(konto.deviceId);
+      if (!odswiezony) {
+        setEkran({ nazwa: "logowanie" });
+        return;
+      }
+
+      // Ta ścieżka ZASTĘPUJE logowanie, więc musi zrobić dokładnie to samo co
+      // ono — łącznie z publikacją key packages. Są JEDNORAZOWE: pominięcie
+      // tego kroku sprawia, że zapas wyczerpuje się po kilku rozmowach i nikt
+      // nie może już nas dodać do grupy („brak dostępnych key packages").
+      // Wcześniej ratowało nas to, że każde uruchomienie wymuszało logowanie.
+      try {
+        setEkran({ nazwa: "czat", messenger: await zakonczLogowanie(konto, odswiezony.token) });
+      } catch {
+        // Sieć mogła paść między odświeżeniem a rejestracją urządzenia.
+        // Ekran logowania jest tu bezpiecznym miejscem powrotu.
+        setEkran({ nazwa: "logowanie" });
+      }
     })();
   }, []);
 
@@ -91,6 +146,10 @@ export function App() {
             Załóż konto
           </button>
           <button onClick={() => setEkran({ nazwa: "logowanie" })}>Mam już konto</button>
+          <PrzyciskPasskey
+            onBlad={zglosBlad}
+            onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
+          />
           <button onClick={() => setEkran({ nazwa: "odbior-przeniesienia" })}>
             Przenoszę konto z innego urządzenia
           </button>
@@ -358,26 +417,13 @@ function DrugiSkladnik({
           const deviceId = `web-${crypto.randomUUID().slice(0, 8)}`;
           const { token } = await loginWithTotp(sesja, kod, deviceId);
 
-          // Trwały magazyn zapewniamy PRZED wygenerowaniem kluczy. Odwrotna
-          // kolejność grozi cichą utratą konta na iOS.
-          await requestPersistence();
-
           // Konto istniejące odtwarzamy razem z jego wcześniejszym deviceId —
           // nowy identyfikator przy każdym logowaniu zostawiałby w katalogu
           // stos martwych urządzeń, do których nikt się nie dodzwoni.
           const zapisane = await loadAccount();
           const konto = zapisane ?? { userId: username, username, deviceId };
-          await saveAccount(konto);
 
-          const messenger =
-            (await Messenger.restore(konto, token)) ?? (await Messenger.create(konto, token));
-
-          // Kolejność jest istotna: key packages mają klucz obcy do urządzenia,
-          // więc katalog musi je poznać najpierw.
-          await messenger.registerDevice();
-          await messenger.publishKeyPackages();
-
-          onGotowe(messenger);
+          onGotowe(await zakonczLogowanie(konto, token));
         } catch (err) {
           onBlad(err);
         }
@@ -390,6 +436,61 @@ function DrugiSkladnik({
       </label>
       <button className="glowny">Zaloguj</button>
     </form>
+  );
+}
+
+/**
+ * Logowanie passkeyem — jednym kliknięciem, bez wpisywania nazwy użytkownika,
+ * hasła ani kodu TOTP.
+ *
+ * # Discoverable, więc bez pola na nazwę użytkownika
+ *
+ * Passkeye rejestrowane są jako resident credentials (patrz
+ * `webauthnRegisterOptions` po stronie serwera) — authenticator sam wie, kim
+ * jest właściciel, więc przeglądarka pyta o to użytkownika swoim natywnym UI.
+ *
+ * Znika, gdy przeglądarka nie wspiera WebAuthn — nie ma sensu pokazywać
+ * przycisku, który i tak zawsze zawiedzie.
+ */
+function PrzyciskPasskey({
+  onGotowe,
+  onBlad,
+}: {
+  onGotowe: (m: Messenger) => void;
+  onBlad: (e: unknown) => void;
+}) {
+  const [pracuje, setPracuje] = useState(false);
+
+  if (!isPasskeySupported()) return null;
+
+  return (
+    <button
+      disabled={pracuje}
+      onClick={async () => {
+        setPracuje(true);
+        try {
+          const opcje = await webauthnLoginOptions();
+          const odpowiedz = await getPasskey(opcje);
+
+          // Zapisane lokalnie urządzenie ma pierwszeństwo — passkey nie daje
+          // dostępu do skarbca innej przeglądarki, więc logowanie na obcym
+          // profilu i tak nie odtworzy tu historii ani kluczy.
+          const zapisane = await loadAccount();
+          const deviceId = zapisane?.deviceId ?? `web-${crypto.randomUUID().slice(0, 8)}`;
+
+          const wynik = await webauthnLoginVerify(odpowiedz, deviceId);
+          const konto = zapisane ?? { userId: wynik.userId, username: wynik.username, deviceId };
+
+          onGotowe(await zakonczLogowanie(konto, wynik.token));
+        } catch (err) {
+          onBlad(err);
+        } finally {
+          setPracuje(false);
+        }
+      }}
+    >
+      {pracuje ? "Loguję…" : "Zaloguj passkeyem"}
+    </button>
   );
 }
 
@@ -812,6 +913,8 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
 
             <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
 
+            <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
+
             <div className="karta">
               <strong>Klucze na tym urządzeniu</strong>
               <p className="wskazowka">
@@ -824,6 +927,10 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               className="rozlacz"
               onClick={async () => {
                 if (confirm("Usunąć konto z tego urządzenia? Historii nie da się odzyskać.")) {
+                  // Najlepszy wysiłek: nawet gdy się nie powiedzie (offline),
+                  // lokalne skasowanie musi zajść — użytkownik prosił o nie
+                  // dane na TYM urządzeniu, niezależnie od stanu sieci.
+                  await logout(messenger.account.deviceId).catch(() => {});
                   await wipe();
                   location.reload();
                 }
@@ -840,6 +947,48 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
         </aside>
       )}
+    </div>
+  );
+}
+
+/** Dodawanie passkeya do konta — punkt wejścia do rejestracji, nie logowania. */
+function PasskeyZarzadzanie({
+  messenger,
+  onBlad,
+}: {
+  messenger: Messenger;
+  onBlad: (e: unknown) => void;
+}) {
+  const [pracuje, setPracuje] = useState(false);
+  const [zarejestrowano, setZarejestrowano] = useState(false);
+
+  if (!isPasskeySupported()) return null;
+
+  return (
+    <div className="karta">
+      <strong>Passkey</strong>
+      <p className="wskazowka">
+        Zaloguj się odciskiem palca, PIN-em albo kluczem sprzętowym — zamiast wpisywać hasło
+        i kod za każdym razem.
+      </p>
+      <button
+        disabled={pracuje || zarejestrowano}
+        onClick={async () => {
+          setPracuje(true);
+          try {
+            const opcje = await webauthnRegisterOptions(messenger.accessToken);
+            const odpowiedz = await createPasskey(opcje);
+            await webauthnRegisterVerify(messenger.accessToken, odpowiedz);
+            setZarejestrowano(true);
+          } catch (err) {
+            onBlad(err);
+          } finally {
+            setPracuje(false);
+          }
+        }}
+      >
+        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey"}
+      </button>
     </div>
   );
 }

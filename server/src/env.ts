@@ -53,6 +53,17 @@ export interface Env {
    * wołaniem tego API z dowolnej cudzej strony.
    */
   ALLOWED_ORIGINS: string;
+
+  /**
+   * Domena (Relying Party ID) dla logowania passkeyem, np. `mekamb.example.org`.
+   *
+   * Bez schematu i portu — przeglądarka wiąże z tym credentiale i odrzuca
+   * ceremonie z domeny, która nie pasuje. W developmencie to zwykle `localhost`.
+   */
+  WEBAUTHN_RP_ID: string;
+
+  /** Nazwa wyświetlana użytkownikowi przy tworzeniu passkeya. */
+  WEBAUTHN_RP_NAME: string;
 }
 
 /** Ile dni koperta czeka w skrzynce, zanim zostanie usunięta. */

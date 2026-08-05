@@ -1,10 +1,13 @@
 import { Hono } from "hono";
+import { getCookie } from "hono/cookie";
 
 import * as opaque from "./opaque-wasm/index.js";
 
-import { base64ToBytes, bytesToBase64, decryptSecret, encryptSecret, issueToken } from "./crypto";
+import { base64ToBytes, bytesToBase64, decryptSecret, encryptSecret, hashRefreshToken, issueToken } from "./crypto";
 import type { Env } from "./env";
+import { clearRefreshCookie, issueRefreshToken, REFRESH_COOKIE_NAME } from "./session";
 import { generateSecret, isReplay, provisioningUri, verifyCode } from "./totp";
+import webauthn from "./webauthn";
 
 /**
  * Rejestracja i logowanie.
@@ -49,6 +52,8 @@ const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const LOGIN_BUCKET = { capacity: 5, refillPerSecond: 1 / 30 };
 
 const auth = new Hono<{ Bindings: Env }>();
+
+auth.route("/webauthn", webauthn);
 
 /**
  * Sekret serwera OPAQUE z Workers Secrets.
@@ -355,7 +360,80 @@ auth.post("/login/totp", async (c) => {
     expiresAt,
   });
 
+  // Bez `deviceId` nie ma czego użyć jako klucza rotacji — trwała sesja po
+  // prostu nie włącza się dla tego logowania, reszta ścieżki działa jak dziś.
+  if (body.deviceId) {
+    await issueRefreshToken(c, session.user_id, body.deviceId);
+  }
+
   return c.json({ token, expiresAt });
+});
+
+// ---------------------------------------------------------------------------
+// Trwała sesja
+// ---------------------------------------------------------------------------
+
+/**
+ * Wymienia token odświeżający z cookie na nowy token dostępowy.
+ *
+ * Klient wywołuje to przy starcie aplikacji zamiast wymuszać OPAQUE+TOTP —
+ * patrz `App.tsx`, gdzie zastępuje to dotychczasowe „zawsze pokaż ekran
+ * logowania po odświeżeniu strony".
+ *
+ * Token w cookie jest ROTOWANY: nowy nadpisuje stary wiersz w bazie, więc
+ * powtórne przedstawienie starego (np. skradzionego przed rotacją) tokenu
+ * już nie znajduje dopasowania i kończy się 401 — to jedyna potrzebna ochrona
+ * przed powtórzeniem, bez osobnego mechanizmu detekcji.
+ */
+auth.post("/refresh", async (c) => {
+  const body = await c.req.json<{ deviceId?: string }>().catch(() => ({ deviceId: undefined }));
+  const raw = getCookie(c, REFRESH_COOKIE_NAME);
+
+  if (!raw || !body.deviceId) {
+    return c.json({ error: "brak trwałej sesji" }, 401);
+  }
+
+  if (!(await withinRateLimit(c.env, `refresh:${body.deviceId}`))) {
+    return c.json({ error: "zbyt wiele prób" }, 429);
+  }
+
+  const hash = await hashRefreshToken(raw);
+  const row = await c.env.DB.prepare(
+    `SELECT user_id FROM refresh_tokens
+      WHERE device_id = ? AND token_hash = ? AND expires_at > ?`,
+  )
+    .bind(body.deviceId, hash, Date.now())
+    .first<{ user_id: string }>();
+
+  if (row === null) {
+    clearRefreshCookie(c);
+    return c.json({ error: "trwała sesja wygasła" }, 401);
+  }
+
+  await issueRefreshToken(c, row.user_id, body.deviceId);
+
+  const expiresAt = Date.now() + TOKEN_TTL_MS;
+  const token = await issueToken(c.env.TOKEN_SIGNING_KEY, {
+    userId: row.user_id,
+    deviceId: body.deviceId,
+    expiresAt,
+  });
+
+  return c.json({ token, expiresAt });
+});
+
+/** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */
+auth.post("/logout", async (c) => {
+  const body = await c.req.json<{ deviceId?: string }>().catch(() => ({ deviceId: undefined }));
+
+  if (body.deviceId) {
+    await c.env.DB.prepare("DELETE FROM refresh_tokens WHERE device_id = ?")
+      .bind(body.deviceId)
+      .run();
+  }
+
+  clearRefreshCookie(c);
+  return c.json({ ok: true });
 });
 
 /**

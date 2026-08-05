@@ -39,6 +39,10 @@ app.use("*", async (c, next) =>
     // ginie na preflighcie i nigdy nie dociera do kodu.
     allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
+    // Wymagane, żeby przeglądarka wysyłała i przyjmowała httpOnly cookie
+    // tokenu odświeżającego (`/auth/refresh`). Bez tego `Set-Cookie` z
+    // odpowiedzi jest po cichu ignorowany przy żądaniach cross-origin.
+    credentials: true,
     maxAge: 86_400,
   })(c, next),
 );

@@ -8,7 +8,12 @@
   "vars": {
     // Adresy klienta webowego: produkcyjny (GitHub Pages) i lokalne do pracy.
     // Lista, nie gwiazdka — patrz komentarz przy ALLOWED_ORIGINS w src/env.ts.
-    "ALLOWED_ORIGINS": "https://lofismusk.github.io,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175"
+    "ALLOWED_ORIGINS": "https://lofismusk.github.io,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175",
+
+    // `github.io` jest na publicznej liście sufiksów (PSL), więc RP ID musi
+    // być pełną nazwą hosta — samego `github.io` przeglądarka by odrzuciła.
+    "WEBAUTHN_RP_ID": "lofismusk.github.io",
+    "WEBAUTHN_RP_NAME": "mekamb-chat"
   },
 
   "observability": {

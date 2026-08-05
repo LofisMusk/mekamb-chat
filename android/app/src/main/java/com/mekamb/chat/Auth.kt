@@ -89,13 +89,13 @@ object Auth {
         SesjaLogowania(loginId, username)
     }
 
-    /** Drugi krok: kod z authenticatora. Zwraca token dostępowy. */
+    /** Drugi krok: kod z authenticatora. Zwraca token dostępowy i token trwałej sesji. */
     suspend fun loginCode(
         api: Api,
         sesja: SesjaLogowania,
         code: String,
         deviceId: String,
-    ): String = withContext(Dispatchers.Default) {
+    ): Api.LoginResult = withContext(Dispatchers.Default) {
         api.loginTotp(sesja.loginId, code, deviceId)
     }
 }

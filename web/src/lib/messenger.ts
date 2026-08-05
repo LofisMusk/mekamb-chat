@@ -68,12 +68,23 @@ export class Messenger {
   private constructor(
     private readonly client: MekambClient,
     readonly account: Account,
-    private readonly token: string,
+    private token: string,
   ) {}
 
   /** Token dostępowy — potrzebny warstwie rozmów do pobrania adresów TURN. */
   get accessToken(): string {
     return this.token;
+  }
+
+  /**
+   * Podmienia token po cichym odświeżeniu sesji (`refreshSession`).
+   *
+   * Nie trzeba przy tym przebudowywać `MekambClient` — ziarno i stan MLS
+   * się nie zmieniają, zmienia się tylko to, czym uwierzytelniamy żądania
+   * do sieci.
+   */
+  setAccessToken(token: string): void {
+    this.token = token;
   }
 
   /** Tworzy nową tożsamość urządzenia i zapisuje ją w magazynie. */

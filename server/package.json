@@ -16,11 +16,13 @@
   },
   "dependencies": {
     "@cloudflare/opaque-ts": "^0.7.5",
+    "@simplewebauthn/server": "^13.3.2",
     "hono": "^4.12.34",
     "otpauth": "^9.5.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.1",
+    "@levischuck/tiny-cbor": "^0.2.11",
     "@cloudflare/workers-types": "^5.20260801.1",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0",

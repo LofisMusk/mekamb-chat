@@ -38,12 +38,39 @@ export interface Wiadomosc {
  */
 const LIMIT_WIADOMOSCI = 500;
 
-/** Wersja formatu. Zmiana układu pól wymaga podniesienia. */
-const WERSJA = 1;
+/**
+ * Wersja formatu.
+ *
+ * 2 dołożyła nazwę rozmówcy obok wiadomości. Podniesiona po obu stronach
+ * naraz: klient Androida dostał to pole wcześniej, ale ZOSTAWIŁ wersję 1 —
+ * przez chwilę oba klienty deklarowały ten sam numer przy niezgodnych
+ * kształtach, więc przeniesienie konta między nimi dałoby historię nie do
+ * odczytania. Numer wersji ma odróżniać układy, nie tylko datę zmiany.
+ */
+const WERSJA = 2;
+
+/**
+ * Zapisana rozmowa.
+ *
+ * Nazwa rozmówcy leży obok wiadomości, bo z samego identyfikatora grupy nie da
+ * się jej odtworzyć — a lista rozmów musi wiedzieć, kogo pokazać, zanim
+ * cokolwiek odszyfruje.
+ */
+interface ZapisanaRozmowa {
+  rozmowca: string;
+  wiadomosci: Wiadomosc[];
+}
 
 interface ZapisanaHistoria {
   wersja: number;
-  rozmowy: Record<string, Wiadomosc[]>;
+  rozmowy: Record<string, ZapisanaRozmowa>;
+}
+
+/** Rozmowa w postaci potrzebnej liście. */
+export interface PozycjaListy {
+  groupId: Uint8Array;
+  rozmowca: string;
+  ostatnia?: Wiadomosc;
 }
 
 /** Identyfikator rozmowy jako tekst — `Uint8Array` nie nadaje się na klucz. */
@@ -106,7 +133,13 @@ async function wczytajWszystko(): Promise<ZapisanaHistoria> {
 export async function wczytajRozmowe(groupId: Uint8Array): Promise<Wiadomosc[]> {
   const zapis = await wczytajWszystko();
   const rozmowa = zapis.rozmowy[kluczRozmowy(groupId)];
-  return rozmowa ? rozmowa.map(zZapisu) : [];
+  return rozmowa ? rozmowa.wiadomosci.map(zZapisu) : [];
+}
+
+/** Z kim była ta rozmowa. */
+export async function rozmowcaRozmowy(groupId: Uint8Array): Promise<string | null> {
+  const zapis = await wczytajWszystko();
+  return zapis.rozmowy[kluczRozmowy(groupId)]?.rozmowca ?? null;
 }
 
 /**
@@ -115,17 +148,47 @@ export async function wczytajRozmowe(groupId: Uint8Array): Promise<Wiadomosc[]> 
  * Odczyt przed zapisem jest konieczny: dwie rozmowy leżą w jednym rekordzie,
  * więc zapis samej bieżącej skasowałby resztę.
  */
-export async function zapiszRozmowe(groupId: Uint8Array, wiadomosci: Wiadomosc[]): Promise<void> {
+export async function zapiszRozmowe(
+  groupId: Uint8Array,
+  rozmowca: string,
+  wiadomosci: Wiadomosc[],
+): Promise<void> {
   const zapis = await wczytajWszystko();
 
   // Obcinamy od początku — najstarsze idą pierwsze.
   const przyciete = wiadomosci.slice(-LIMIT_WIADOMOSCI);
-  zapis.rozmowy[kluczRozmowy(groupId)] = przyciete.map(doZapisu) as Wiadomosc[];
+  zapis.rozmowy[kluczRozmowy(groupId)] = {
+    rozmowca,
+    wiadomosci: przyciete.map(doZapisu) as Wiadomosc[],
+  };
 
   await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
 }
 
-/** Lista rozmów, o których cokolwiek wiemy. */
-export async function listaRozmow(): Promise<string[]> {
-  return Object.keys((await wczytajWszystko()).rozmowy);
+/**
+ * Wszystkie rozmowy, od najświeższej.
+ *
+ * Kolejność po czasie ostatniej wiadomości, a nie po nazwie: lista ma pokazywać
+ * to, do czego wraca się najczęściej.
+ */
+export async function listaRozmow(): Promise<PozycjaListy[]> {
+  const zapis = await wczytajWszystko();
+
+  return Object.entries(zapis.rozmowy)
+    .map(([hex, rozmowa]) => ({
+      groupId: zHex(hex),
+      rozmowca: rozmowa.rozmowca,
+      ostatnia: rozmowa.wiadomosci.length
+        ? zZapisu(rozmowa.wiadomosci[rozmowa.wiadomosci.length - 1])
+        : undefined,
+    }))
+    .sort((a, b) => (b.ostatnia?.czas ?? 0) - (a.ostatnia?.czas ?? 0));
+}
+
+function zHex(hex: string): Uint8Array {
+  const bajty = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bajty.length; i++) {
+    bajty[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bajty;
 }

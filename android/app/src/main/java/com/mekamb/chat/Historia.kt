@@ -30,8 +30,14 @@ import kotlinx.serialization.json.Json
  */
 private const val LIMIT_WIADOMOSCI = 500
 
-/** Wersja formatu. Zmiana układu pól wymaga podniesienia. */
-private const val WERSJA = 1
+/**
+ * Wersja formatu.
+ *
+ * 2 odpowiada układowi z nazwą rozmówcy. Numer był przez chwilę taki sam jak
+ * w kliencie webowym mimo niezgodnego kształtu — przeniesienie konta między
+ * klientami dałoby wtedy historię nie do odczytania.
+ */
+private const val WERSJA = 2
 
 @Serializable
 private data class ZapisanaWiadomosc(

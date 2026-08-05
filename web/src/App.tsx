@@ -4,7 +4,14 @@ import { api } from "./lib/api";
 import { confirmRegistration, loginStart, loginWithTotp, register } from "./lib/auth";
 import { KodQr } from "./KodQr";
 import { OdbierzTutaj, PrzeniesStad } from "./Przeniesienie";
-import { type Wiadomosc, wczytajRozmowe, zapiszRozmowe } from "./lib/historia";
+import {
+  type PozycjaListy,
+  type Wiadomosc,
+  kluczRozmowy,
+  listaRozmow,
+  wczytajRozmowe,
+  zapiszRozmowe,
+} from "./lib/historia";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import type { LoginSession } from "./lib/auth";
@@ -392,6 +399,8 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
   const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
   const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
+  const [galaz, setGalaz] = useState<"rozmowy" | "kontakty" | "konto">("rozmowy");
+  const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
    *
@@ -479,6 +488,12 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
     return () => polaczenie.zamknij();
   }, [messenger, obsluzKoperte]);
 
+  // Rozmowy z poprzednich uruchomień — bez tego lista byłaby pusta mimo
+  // zapisanej historii.
+  useEffect(() => {
+    void listaRozmow().then(setRozmowy);
+  }, []);
+
   // Historia rozmowy z dysku. Bez tego odświeżenie strony kasowało rozmowę,
   // a odświeżenie było jedynym ratunkiem na zerwane połączenie.
   useEffect(() => {
@@ -508,14 +523,42 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   // wymagałoby odczytania oraz przepisania całości.
   useEffect(() => {
     if (!groupId || wiadomosci.length === 0) return;
-    void zapiszRozmowe(groupId, wiadomosci).catch((err) => {
-      console.warn("nie udało się zapisać historii", err);
-    });
-  }, [groupId, wiadomosci]);
+    void zapiszRozmowe(groupId, rozmowca, wiadomosci)
+      // Lista czyta z dysku, więc odświeżamy ją po zapisie, a nie przed.
+      .then(() => listaRozmow())
+      .then(setRozmowy)
+      .catch((err) => {
+        console.warn("nie udało się zapisać historii", err);
+      });
+  }, [groupId, rozmowca, wiadomosci]);
 
   return (
-    <section className="czat">
-      <div className="pasek">
+    <div className="uklad">
+      <nav className="sidebar" aria-label="Nawigacja">
+        <div className="marka">
+          <span className="marka-znak" aria-hidden="true" />
+          <span>mekamb</span>
+        </div>
+
+        <button
+          className={galaz === "rozmowy" ? "galaz aktywna" : "galaz"}
+          onClick={() => setGalaz("rozmowy")}
+        >
+          Rozmowy
+        </button>
+        <button
+          className={galaz === "kontakty" ? "galaz aktywna" : "galaz"}
+          onClick={() => setGalaz("kontakty")}
+        >
+          Kontakty
+        </button>
+        <button
+          className={galaz === "konto" ? "galaz aktywna" : "galaz"}
+          onClick={() => setGalaz("konto")}
+        >
+          Konto
+        </button>
+
         {/* Stan połączenia jest tu istotny, nie ozdobny: przy zerwanej sieci
             wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
         <span className="tryb" title="Przeglądarka nie potrafi łączyć się bezpośrednio">
@@ -523,39 +566,58 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           {stanSieci === "laczenie" && "łączę…"}
           {stanSieci === "rozlaczone" && "brak połączenia — ponawiam"}
         </span>
-        <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
-        <button
-          className="wyloguj"
-          onClick={async () => {
-            if (confirm("Usunąć konto z tego urządzenia? Historii nie da się odzyskać.")) {
-              await wipe();
-              location.reload();
-            }
-          }}
-        >
-          Usuń z urządzenia
-        </button>
-      </div>
+      </nav>
 
-      {!groupId && (
-        <form
-          className="karta"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            try {
-              setGroupId(await messenger.startConversation(rozmowca));
-            } catch (err) {
-              onBlad(err);
-            }
-          }}
-        >
-          <label>
-            Z kim rozmawiasz
-            <input value={rozmowca} onChange={(e) => setRozmowca(e.target.value)} required />
-          </label>
-          <button className="glowny">Rozpocznij rozmowę</button>
-        </form>
-      )}
+      <section className="ekran">
+        {galaz === "rozmowy" && !groupId && (
+          <>
+            <h2>Rozmowy</h2>
+            {rozmowy.length === 0 ? (
+              <div className="karta">
+                <p>Nie masz jeszcze żadnej rozmowy.</p>
+                <p className="wskazowka">
+                  Zacznij od kontaktu — wystarczy nazwa użytkownika.
+                </p>
+              </div>
+            ) : (
+              <ul className="lista-rozmow">
+                {rozmowy.map((pozycja) => (
+                  <li key={kluczRozmowy(pozycja.groupId)}>
+                    <button
+                      className="wiersz-rozmowy"
+                      onClick={() => {
+                        setGroupId(pozycja.groupId);
+                        setRozmowca(pozycja.rozmowca);
+                      }}
+                    >
+                      <span className="awatar" aria-hidden="true">
+                        {pozycja.rozmowca.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="wiersz-tresc">
+                        <span className="wiersz-nazwa">{pozycja.rozmowca}</span>
+                        <span className="wiersz-ostatnia">
+                          {pozycja.ostatnia
+                            ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + pozycja.ostatnia.tresc
+                            : "brak wiadomości"}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="wskazowka">Historia jest tylko na tym urządzeniu — serwer jej nie ma.</p>
+          </>
+        )}
+
+        {galaz === "rozmowy" && groupId && (
+          <>
+            <div className="pasek">
+              <button className="wroc" onClick={() => setGroupId(null)}>
+                ← Rozmowy
+              </button>
+              <strong>{rozmowca || "rozmowa"}</strong>
+            </div>
 
       <ol className="wiadomosci">
         {wiadomosci.map((w) => (
@@ -656,16 +718,78 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           <button className="glowny">Wyślij</button>
         </form>
       )}
-    </section>
+          </>
+        )}
+
+        {galaz === "kontakty" && (
+          <>
+            <h2>Kontakty</h2>
+            {true && (
+        <form
+          className="karta"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              setGroupId(await messenger.startConversation(rozmowca));
+            } catch (err) {
+              onBlad(err);
+            }
+          }}
+        >
+          <label>
+            Z kim rozmawiasz
+            <input value={rozmowca} onChange={(e) => setRozmowca(e.target.value)} required />
+          </label>
+          <button className="glowny">Rozpocznij rozmowę</button>
+        </form>
+      )}
+
+            {/* Katalog nie ma listy do przeglądania i to jest decyzja, nie brak:
+                lista wszystkich użytkowników mówiłaby każdemu, kto jest
+                w systemie. Rozmowę zaczyna się od nazwy, którą już się zna. */}
+            <p className="wskazowka">
+              Katalog przechowuje tylko nazwy, urządzenia i key packages.
+              Kto z kim rozmawia — nie.
+            </p>
+          </>
+        )}
+
+        {galaz === "konto" && (
+          <>
+            <h2>Konto</h2>
+            <div className="karta">
+              <strong>{messenger.account.username}</strong>
+              <span className="wskazowka">{messenger.account.deviceId}</span>
+            </div>
+
+            <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
+
+            <div className="karta">
+              <strong>Klucze na tym urządzeniu</strong>
+              <p className="wskazowka">
+                Serwer nie ma czego wydać ani zgubić — ale też nie odtworzy niczego,
+                gdy stracisz wszystkie urządzenia.
+              </p>
+            </div>
+
+            <button
+              className="rozlacz"
+              onClick={async () => {
+                if (confirm("Usunąć konto z tego urządzenia? Historii nie da się odzyskać.")) {
+                  await wipe();
+                  location.reload();
+                }
+              }}
+            >
+              Usuń konto z tego urządzenia
+            </button>
+          </>
+        )}
+      </section>
+    </div>
   );
 }
 
-/**
- * Odszyfrowany załącznik.
- *
- * Deszyfrowanie odkładamy do momentu wyświetlenia: przy wielu plikach w oknie
- * jednoczesne trzymanie wszystkich w pamięci szybko wyczerpałoby ją na telefonie.
- */
 function Zalacznik({
   messenger,
   zalacznik,

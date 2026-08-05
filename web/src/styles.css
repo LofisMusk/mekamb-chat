@@ -341,3 +341,125 @@ button:disabled:hover { background: transparent; }
   border-radius: 4px;
   background: #000;
 }
+
+/* --- Układ z panelem bocznym ---------------------------------------------- */
+
+/*
+ * Panel boczny zamiast dolnego paska.
+ *
+ * Pasek na dole to wzorzec telefonowy — na szerokim ekranie zostawia pustą
+ * połowę i każe wodzić wzrokiem od góry do dołu. Panel z boku wykorzystuje
+ * szerokość, którą przeglądarka i tak ma.
+ *
+ * Poniżej 46rem wraca na dół, bo tam palec sięga kciukiem, nie okiem.
+ */
+/*
+ * Widok z panelem musi być szerszy niż ekrany wejścia.
+ *
+ * Wspólny kontener ma 34rem, bo formularz logowania czyta się źle, gdy jest
+ * rozciągnięty. Po zalogowaniu wchodzi panel i lista, więc te same 34rem
+ * zostawiłyby treści połowę szerokości.
+ */
+.aplikacja:has(.uklad) { max-width: 64rem; }
+
+.uklad {
+  display: grid;
+  grid-template-columns: 13rem 1fr;
+  gap: var(--odstep-8);
+  align-items: start;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-2);
+  position: sticky;
+  top: var(--odstep-6);
+}
+
+.marka {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  font-weight: 500;
+  margin-bottom: var(--odstep-4);
+}
+.marka-znak {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--akcent);
+  border-radius: var(--promien-m);
+}
+
+.galaz {
+  justify-content: flex-start;
+  text-align: left;
+  border-color: transparent;
+  color: var(--neutral-500);
+}
+.galaz.aktywna {
+  border-color: var(--akcent);
+  color: var(--akcent-300);
+}
+
+.sidebar .tryb { margin-top: var(--odstep-4); text-align: center; }
+
+.ekran { display: flex; flex-direction: column; gap: var(--odstep-4); min-width: 0; }
+
+.lista-rozmow { list-style: none; margin: 0; padding: 0; }
+
+.wiersz-rozmowy {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-4);
+  /* 64 px z projektu — powyżej minimum dotykowego. */
+  min-height: 4rem;
+  border-color: transparent;
+  text-align: left;
+}
+.wiersz-rozmowy:hover { border-color: var(--linia); }
+
+.awatar {
+  flex: none;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--akcent-800);
+  color: var(--akcent-100);
+  display: grid;
+  place-items: center;
+  font-size: .9rem;
+}
+
+.wiersz-tresc { display: flex; flex-direction: column; min-width: 0; gap: .1rem; }
+.wiersz-nazwa { font-weight: 500; }
+.wiersz-ostatnia {
+  font-size: .8rem;
+  color: var(--neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wroc { background: none; border: none; min-height: 0; color: var(--neutral-500); padding: 0; }
+
+@media (max-width: 46rem) {
+  .uklad { grid-template-columns: 1fr; }
+
+  .sidebar {
+    position: fixed;
+    inset: auto 0 0 0;
+    flex-direction: row;
+    justify-content: space-around;
+    background: var(--tlo);
+    border-top: 1px solid var(--linia);
+    padding: var(--odstep-2);
+    gap: 0;
+  }
+  .sidebar .marka, .sidebar .tryb { display: none; }
+  .galaz { justify-content: center; text-align: center; }
+
+  /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości. */
+  .ekran { padding-bottom: 4.5rem; }
+}

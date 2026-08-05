@@ -28,7 +28,7 @@ describe("historia rozmów", () => {
 
   it("zapisana rozmowa wraca w całości", async () => {
     const wiadomosci = [wiadomosc("a", 1), wiadomosc("b", 2)];
-    await zapiszRozmowe(GRUPA_A, wiadomosci);
+    await zapiszRozmowe(GRUPA_A, "ala", wiadomosci);
 
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toEqual(wiadomosci);
   });
@@ -36,8 +36,8 @@ describe("historia rozmów", () => {
   /// Sedno: dwie rozmowy leżą w jednym rekordzie, więc zapis jednej nie może
   /// skasować drugiej.
   it("zapis jednej rozmowy nie rusza pozostałych", async () => {
-    await zapiszRozmowe(GRUPA_A, [wiadomosc("a")]);
-    await zapiszRozmowe(GRUPA_B, [wiadomosc("b")]);
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a")]);
+    await zapiszRozmowe(GRUPA_B, "ala", [wiadomosc("b")]);
 
     expect(await wczytajRozmowe(GRUPA_A)).toHaveLength(1);
     expect(await wczytajRozmowe(GRUPA_B)).toHaveLength(1);
@@ -61,7 +61,7 @@ describe("historia rozmów", () => {
       },
     };
 
-    await zapiszRozmowe(GRUPA_A, [zZalacznikiem]);
+    await zapiszRozmowe(GRUPA_A, "ala", [zZalacznikiem]);
     const odczytana = (await wczytajRozmowe(GRUPA_A))[0]!;
 
     expect(odczytana.zalacznik?.key).toBeInstanceOf(Uint8Array);
@@ -74,7 +74,7 @@ describe("historia rozmów", () => {
   /// zapisie i jedzie w zrzucie przeniesienia.
   it("najstarsze wiadomości są obcinane", async () => {
     const duzo = Array.from({ length: 900 }, (_, i) => wiadomosc(String(i), i));
-    await zapiszRozmowe(GRUPA_A, duzo);
+    await zapiszRozmowe(GRUPA_A, "ala", duzo);
 
     const odczytane = await wczytajRozmowe(GRUPA_A);
     expect(odczytane.length).toBeLessThanOrEqual(500);
@@ -89,6 +89,27 @@ describe("historia rozmów", () => {
 
     dysk = new TextEncoder().encode(JSON.stringify({ wersja: 99, rozmowy: { x: [] } }));
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toEqual([]);
+  });
+
+  /// Numer wersji ma odróżniać UKŁADY, nie tylko datę zmiany. Przez chwilę
+  /// oba klienty deklarowały wersję 1 przy niezgodnych kształtach, więc
+  /// przeniesienie konta między nimi dawało historię nie do odczytania.
+  it("nazwa rozmówcy wraca razem z rozmową", async () => {
+    await zapiszRozmowe(GRUPA_A, "bartek", [wiadomosc("a")]);
+
+    const lista = await listaRozmow();
+    expect(lista).toHaveLength(1);
+    expect(lista[0]!.rozmowca).toBe("bartek");
+    expect(lista[0]!.groupId).toEqual(GRUPA_A);
+  });
+
+  /// Lista ma pokazywać to, do czego wraca się najczęściej.
+  it("rozmowy idą od najświeższej", async () => {
+    await zapiszRozmowe(GRUPA_A, "stara", [wiadomosc("a", 100)]);
+    await zapiszRozmowe(GRUPA_B, "swieza", [wiadomosc("b", 900)]);
+
+    const lista = await listaRozmow();
+    expect(lista.map((p) => p.rozmowca)).toEqual(["swieza", "stara"]);
   });
 
   it("różne rozmowy mają różne klucze", () => {

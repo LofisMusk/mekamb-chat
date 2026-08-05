@@ -402,6 +402,14 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
   const [galaz, setGalaz] = useState<"rozmowy" | "kontakty" | "konto">("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
+  /**
+   * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
+   *
+   * Osobno od historii, a nie z polem stanu w niej: wiadomość, której wysyłka
+   * nie dobiegła końca przed zamknięciem karty, ma nieznany los. Zapisana
+   * wyglądałaby na wysłaną, a nie wiemy tego — więc nie zapisujemy jej wcale.
+   */
+  const [wLocie, setWLocie] = useState<{ id: string; tresc: string; blad: boolean }[]>([]);
   const nieprzeczytane = rozmowy.reduce((suma, p) => suma + p.nieprzeczytane, 0);
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
@@ -662,6 +670,13 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
             )}
           </li>
         ))}
+
+        {wLocie.map((w) => (
+          <li key={w.id} className={w.blad ? "wlasna nieudana" : "wlasna w-locie"}>
+            <span className="tresc">{w.tresc}</span>
+            <span className="stan-wysylki">{w.blad ? "nie wysłano" : "wysyłam…"}</span>
+          </li>
+        ))}
       </ol>
 
       {groupId && (
@@ -675,6 +690,12 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               e.target.value = "";
               if (!plik) return;
 
+              // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie
+              // metadanych, szyfrowanie i wysyłka. Bez znacznika wygląda to
+              // jak zawieszenie.
+              const id = crypto.randomUUID();
+              setWLocie((p) => [...p, { id, tresc: `wysyłam: ${plik.name}`, blad: false }]);
+
               try {
                 const { stripped } = await messenger.sendFile(groupId, plik);
 
@@ -687,15 +708,13 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
 
                 setWiadomosci((p) => [
                   ...p,
-                  {
-                    id: crypto.randomUUID(),
-                    autor: "Ty",
-                    tresc: opis,
-                    czas: Date.now(),
-                    wlasna: true,
-                  },
+                  { id, autor: "Ty", tresc: opis, czas: Date.now(), wlasna: true },
                 ]);
+                setWLocie((p) => p.filter((w) => w.id !== id));
               } catch (err) {
+                setWLocie((p) =>
+                  p.map((w) => (w.id === id ? { ...w, tresc: plik.name, blad: true } : w)),
+                );
                 onBlad(err);
               }
             }}
@@ -713,20 +732,28 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           onSubmit={async (e) => {
             e.preventDefault();
             if (!tresc.trim()) return;
+
+            // Wiadomość pojawia się natychmiast ze znacznikiem „wysyłam".
+            // Wcześniej przez cały czas wysyłki — a przy nieudanej próbie
+            // bezpośredniej to kilka sekund — nie działo się nic i nie było
+            // wiadomo, czy cokolwiek poszło.
+            const id = crypto.randomUUID();
+            const wyslana = tresc;
+            setWLocie((p) => [...p, { id, tresc: wyslana, blad: false }]);
+            setTresc("");
+
             try {
-              await messenger.sendText(groupId, tresc);
+              await messenger.sendText(groupId, wyslana);
+
               setWiadomosci((p) => [
                 ...p,
-                {
-                  id: crypto.randomUUID(),
-                  autor: "Ty",
-                  tresc,
-                  czas: Date.now(),
-                  wlasna: true,
-                },
+                { id, autor: "Ty", tresc: wyslana, czas: Date.now(), wlasna: true },
               ]);
-              setTresc("");
+              setWLocie((p) => p.filter((w) => w.id !== id));
             } catch (err) {
+              // Zostaje w locie, oznaczona jako nieudana. Treść nie przepada:
+              // zawiodła sieć, nie użytkownik.
+              setWLocie((p) => p.map((w) => (w.id === id ? { ...w, blad: true } : w)));
               onBlad(err);
             }
           }}
@@ -829,6 +856,44 @@ function Zalacznik({
   const [url, setUrl] = useState<string | null>(null);
   const [pobiera, setPobiera] = useState(false);
 
+  const obraz = zalacznik.mimeType.startsWith("image/");
+  const wideo = zalacznik.mimeType.startsWith("video/");
+  const media = obraz || wideo;
+
+  /*
+   * Zdjęcia i nagrania odszyfrowują się same.
+   *
+   * Wcześniej każde wymagało kliknięcia i wyglądało jak odnośnik do pliku —
+   * a zdjęcie w rozmowie ma być zdjęciem, nie zadaniem do wykonania.
+   * Deszyfrowanie dzieje się lokalnie, więc jedynym kosztem jest pobranie
+   * szyfrogramu, które i tak nastąpiłoby po kliknięciu.
+   *
+   * Pozostałe pliki zostają za przyciskiem: dokumentu i tak nie ma jak pokazać
+   * w wątku, a pobieranie ich w tle byłoby ruchem, o który nikt nie prosił.
+   */
+  useEffect(() => {
+    if (!media) return;
+    let aktualne = true;
+
+    setPobiera(true);
+    messenger
+      .openAttachmentUrl(zalacznik)
+      .then((adres) => {
+        if (aktualne) setUrl(adres);
+        // Karta mogła zniknąć w trakcie — wtedy zwalniamy od razu, bo
+        // sprzątanie po odmontowanym komponencie już nie nastąpi.
+        else URL.revokeObjectURL(adres);
+      })
+      .catch(onBlad)
+      .finally(() => {
+        if (aktualne) setPobiera(false);
+      });
+
+    return () => {
+      aktualne = false;
+    };
+  }, [messenger, zalacznik, media, onBlad]);
+
   useEffect(() => {
     // Adres `blob:` wskazuje na odszyfrowane dane w pamięci karty. Bez
     // zwolnienia zostaje tam do jej zamknięcia.
@@ -838,10 +903,16 @@ function Zalacznik({
   }, [url]);
 
   const rozmiarMb = (zalacznik.sizeBytes / 1024 / 1024).toFixed(1);
-  const obraz = zalacznik.mimeType.startsWith("image/");
-  const wideo = zalacznik.mimeType.startsWith("video/");
 
   if (!url) {
+    if (media) {
+      return (
+        <span className="zalacznik-czeka">
+          {pobiera ? "Odszyfrowuję…" : "nie udało się odszyfrować"}
+        </span>
+      );
+    }
+
     return (
       <button
         className="zalacznik-pobierz"
@@ -863,7 +934,7 @@ function Zalacznik({
   }
 
   if (obraz) return <img className="zalacznik" src={url} alt={zalacznik.fileName ?? "załącznik"} />;
-  if (wideo) return <video className="zalacznik" src={url} controls />;
+  if (wideo) return <video className="zalacznik" src={url} controls playsInline />;
 
   return (
     <a className="zalacznik-pobierz" href={url} download={zalacznik.fileName ?? "zalacznik"}>

@@ -564,3 +564,29 @@ button:disabled:hover { background: transparent; }
   text-align: center;
 }
 .galaz .znacznik { margin-left: auto; }
+
+/*
+ * Wiadomość w locie.
+ *
+ * Przygaszona, dopóki nie ma potwierdzenia — widać, że jest, i widać, że
+ * jeszcze nie doszła. Nieudana dostaje obrys w kolorze błędu, bo to stan,
+ * z którym trzeba coś zrobić, a nie chwilowy.
+ */
+.wiadomosci li.w-locie { opacity: .6; }
+.wiadomosci li.nieudana { border: 1px solid var(--alarm); }
+
+.stan-wysylki {
+  display: block;
+  font-size: .7rem;
+  margin-top: .2rem;
+  color: var(--akcent-300);
+}
+.nieudana .stan-wysylki { color: var(--alarm); }
+
+/* Placeholder na czas odszyfrowywania zdjęcia albo nagrania. */
+.zalacznik-czeka {
+  display: block;
+  padding: var(--odstep-4);
+  font-size: .8rem;
+  color: var(--neutral-600);
+}

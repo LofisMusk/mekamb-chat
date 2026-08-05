@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.alpha
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,8 +79,9 @@ fun EkranRozmowy(
 
     // Nowa wiadomość ma być widoczna bez przewijania. Bez tego rozmowa
     // „stoi" na starej treści i wygląda, jakby nic nie przyszło.
-    LaunchedEffect(stan.wiadomosci.size) {
-        if (stan.wiadomosci.isNotEmpty()) lista.animateScrollToItem(stan.wiadomosci.lastIndex)
+    LaunchedEffect(stan.wiadomosci.size, stan.wLocie.size) {
+        val ile = stan.wiadomosci.size + stan.wLocie.size
+        if (ile > 0) lista.animateScrollToItem(ile - 1)
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -97,6 +100,9 @@ fun EkranRozmowy(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Odstep.l),
         ) {
             items(stan.wiadomosci) { wiadomosc -> Babel(wiadomosc) }
+
+            // Wiadomości w locie zawsze na końcu — są najświeższe z definicji.
+            items(stan.wLocie) { w -> BabelWLocie(w) }
         }
 
         PoleWysylki(
@@ -223,6 +229,46 @@ private fun Babel(wiadomosc: Wiadomosc) {
                 GODZINA.format(Date(wiadomosc.czas)),
                 style = MaterialTheme.typography.labelSmall,
                 color = if (wlasna) Accent300 else Neutral600,
+                modifier = Modifier.align(Alignment.End),
+            )
+        }
+    }
+}
+
+/**
+ * Bąbelek wiadomości czekającej na potwierdzenie.
+ *
+ * Przygaszony, dopóki nie ma potwierdzenia — widać, że jest, i widać, że
+ * jeszcze nie doszła. Nieudana dostaje obrys w kolorze błędu, bo to stan,
+ * z którym trzeba coś zrobić, a nie chwilowy.
+ */
+@Composable
+private fun BabelWLocie(w: WLocie) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .alpha(if (w.blad) 1f else 0.6f)
+                .background(Accent800, RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                .then(
+                    if (w.blad) {
+                        Modifier.border(
+                            1.dp,
+                            MaterialTheme.colorScheme.error,
+                            RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(horizontal = Odstep.l, vertical = Odstep.m),
+            verticalArrangement = Arrangement.spacedBy(Odstep.xs),
+        ) {
+            Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = Accent100)
+            Text(
+                if (w.blad) "nie wysłano" else "wysyłam…",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (w.blad) MaterialTheme.colorScheme.error else Accent300,
                 modifier = Modifier.align(Alignment.End),
             )
         }

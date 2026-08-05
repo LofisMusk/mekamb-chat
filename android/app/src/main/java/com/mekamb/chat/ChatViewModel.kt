@@ -45,6 +45,14 @@ data class StanCzatu(
     val uczestnicy: List<String> = emptyList(),
     /** Kod bezpieczeństwa bieżącej rozmowy. */
     val kodBezpieczenstwa: String? = null,
+    /**
+     * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
+     *
+     * Osobno od historii, a nie polem stanu w niej: wiadomość, której wysyłka
+     * nie dobiegła końca przed zamknięciem aplikacji, ma nieznany los. Zapisana
+     * wyglądałaby na wysłaną, a tego nie wiemy — więc nie zapisujemy jej wcale.
+     */
+    val wLocie: List<WLocie> = emptyList(),
     /** Jak poszła ostatnia wysyłka — pokazywane użytkownikowi. */
     val trybPolaczenia: DeliveryMode? = null,
     /** Sekret TOTP do wpisania w authenticatorze. Tylko przy rejestracji. */
@@ -60,6 +68,9 @@ data class StanCzatu(
     override fun equals(other: Any?): Boolean = this === other
     override fun hashCode(): Int = System.identityHashCode(this)
 }
+
+/** Wiadomość czekająca na potwierdzenie wysyłki. */
+data class WLocie(val id: String, val tresc: String, val blad: Boolean = false)
 
 data class Wiadomosc(
     val autor: String,
@@ -423,19 +434,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // Wiadomość pojawia się natychmiast ze znacznikiem „wysyłam".
+        // Wcześniej przez cały czas wysyłki — a przy nieudanej próbie
+        // bezpośredniej to kilka sekund — nie działo się nic i nie było
+        // wiadomo, czy cokolwiek poszło.
+        val id = UUID.randomUUID().toString()
+        stan = stan.copy(wLocie = stan.wLocie + WLocie(id, tresc))
+        onWyslane()
+
         viewModelScope.launch {
             runCatching { klient.sendText(groupId, tresc, rozmowca) }
                 .onSuccess { sposob ->
                     stan = stan.copy(
                         wiadomosci = stan.wiadomosci + Wiadomosc("Ty", tresc, wlasna = true),
+                        wLocie = stan.wLocie.filterNot { it.id == id },
                         trybPolaczenia = sposob,
                         blad = null,
                     )
                     zapiszHistorie()
-                    onWyslane()
                 }
                 .onFailure { blad ->
-                    stan = stan.copy(blad = blad.message ?: "nie udało się wysłać wiadomości")
+                    // Zostaje w locie, oznaczona jako nieudana. Treść nie
+                    // przepada: zawiodła sieć, nie użytkownik.
+                    stan = stan.copy(
+                        wLocie = stan.wLocie.map { if (it.id == id) it.copy(blad = true) else it },
+                        blad = blad.message ?: "nie udało się wysłać wiadomości",
+                    )
                 }
         }
     }

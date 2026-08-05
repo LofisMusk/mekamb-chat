@@ -30,6 +30,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -262,7 +265,17 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
     var kod by remember { mutableStateOf("") }
     val stan = model.stan
 
-    Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+    // Przewijanie i odsunięcie od klawiatury nie są kosmetyką: ekran ma kod QR,
+    // sekret i dwa przyciski, więc przy otwartej klawiaturze „Potwierdź" ląduje
+    // POD nią i nie da się go dosięgnąć. Bez tego rejestracji nie da się
+    // dokończyć — sprawdzone na emulatorze, zanim to naprawiłem.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .imePadding(),
+        verticalArrangement = Arrangement.spacedBy(Odstep.l),
+    ) {
         NaglowekEkranu("Drugi składnik", "Second factor")
 
         // Trzy drogi obok siebie, bo żadna nie działa wszędzie: kod QR wymaga

@@ -104,10 +104,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * sesji nie ma albo wygasła, `refreshSession` zwraca `null` i użytkownik
      * po prostu loguje się jak dotychczas.
      *
-     * Rejestracji urządzenia i publikacji key packages tu NIE powtarzamy —
-     * to jednorazowe czynności wykonane przy poprzednim logowaniu; robienie
-     * ich od nowa przy każdym cichym odświeżeniu tylko zaśmiecałoby katalog
-     * kolejnymi paczkami kluczy.
+     * Ta ścieżka ZASTĘPUJE logowanie, więc robi dokładnie to samo co ono —
+     * łącznie z publikacją key packages. Są JEDNORAZOWE: pominięcie tego kroku
+     * sprawia, że zapas wyczerpuje się po kilku rozmowach i nikt nie może już
+     * nas dodać do grupy. Wcześniej ratowało nas to, że każde uruchomienie
+     * aplikacji wymuszało pełne logowanie.
      */
     init {
         val konto = vault.loadAccount()
@@ -120,8 +121,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 wynik.refreshToken?.let(vault::saveRefreshToken)
 
-                val klient = runCatching { Messenger.open(vault, api, konto, wynik.token) }
-                    .getOrNull() ?: return@launch
+                val klient = runCatching {
+                    val otwarty = Messenger.open(vault, api, konto, wynik.token)
+
+                    // Kolejność jest istotna: key packages mają klucz obcy do
+                    // urządzenia, więc katalog musi je poznać najpierw.
+                    otwarty.registerDevice()
+                    otwarty.publishKeyPackages()
+                    otwarty
+                }.getOrNull() ?: return@launch
 
                 klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
                 messenger = klient

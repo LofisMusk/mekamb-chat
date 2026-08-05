@@ -101,9 +101,23 @@ export function App() {
       // odświeżającym (`/auth/refresh`) przeżywa odświeżenie strony. Dopiero
       // gdy go nie ma albo wygasł, wracamy do pełnego logowania hasłem+TOTP.
       const odswiezony = await refreshSession(konto.deviceId);
-      const messenger = odswiezony ? await Messenger.restore(konto, odswiezony.token) : null;
+      if (!odswiezony) {
+        setEkran({ nazwa: "logowanie" });
+        return;
+      }
 
-      setEkran(messenger ? { nazwa: "czat", messenger } : { nazwa: "logowanie" });
+      // Ta ścieżka ZASTĘPUJE logowanie, więc musi zrobić dokładnie to samo co
+      // ono — łącznie z publikacją key packages. Są JEDNORAZOWE: pominięcie
+      // tego kroku sprawia, że zapas wyczerpuje się po kilku rozmowach i nikt
+      // nie może już nas dodać do grupy („brak dostępnych key packages").
+      // Wcześniej ratowało nas to, że każde uruchomienie wymuszało logowanie.
+      try {
+        setEkran({ nazwa: "czat", messenger: await zakonczLogowanie(konto, odswiezony.token) });
+      } catch {
+        // Sieć mogła paść między odświeżeniem a rejestracją urządzenia.
+        // Ekran logowania jest tu bezpiecznym miejscem powrotu.
+        setEkran({ nazwa: "logowanie" });
+      }
     })();
   }, []);
 

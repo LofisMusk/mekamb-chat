@@ -1,7 +1,12 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import { availableKeyPackages, consumeKeyPackage, publishKeyPackages } from "../src/directory";
+import {
+  availableKeyPackages,
+  consumeKeyPackage,
+  lookupDevices,
+  publishKeyPackages,
+} from "../src/directory";
 
 /**
  * Key packages muszą być jednorazowe.
@@ -103,5 +108,54 @@ describe("key packages", () => {
     expect(await availableKeyPackages(env, drugie)).toBe(0);
     expect(await consumeKeyPackage(env, drugie)).toBeNull();
     expect(await availableKeyPackages(env, pierwsze)).toBe(1);
+  });
+});
+
+/**
+ * Kolejność urządzeń w katalogu.
+ *
+ * Sedno: `addMember` w obu klientach bierze z tej listy PIERWSZY wpis
+ * i pod niego pobiera key package. Stare wpisy urządzeń nigdy nie znikają
+ * (nowa przeglądarka albo wyczyszczone dane witryny to nowe `device_id`), więc
+ * bez sortowania zaproszenie trafiało do dawno martwego urządzenia — a wtedy
+ * odbiorca nie dołączał do grupy i „wiadomości nie dochodziły" bez żadnego
+ * błędu po stronie nadawcy.
+ */
+describe("katalog urządzeń", () => {
+  it("zwraca ostatnio używane urządzenie jako pierwsze", async () => {
+    const userId = crypto.randomUUID();
+    const username = `nazwa-${userId}`;
+    const teraz = Date.now();
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, username, teraz)
+      .run();
+
+    // Kolejność WSTAWIANIA jest odwrotna do kolejności użycia: martwe
+    // urządzenie zakładamy pierwsze, dokładnie tak jak dzieje się to
+    // w praktyce po przesiadce na inną przeglądarkę.
+    const martwe = "web-stare";
+    const zywe = "web-biezace";
+
+    for (const [deviceId, lastSeen] of [
+      [martwe, teraz - 30 * 24 * 60 * 60 * 1000],
+      [zywe, teraz],
+    ] as const) {
+      await env.DB.prepare(
+        `INSERT INTO devices
+           (id, user_id, mls_public_key, transport_key, transport_addresses,
+            addr_signature, created_at, last_seen_at)
+         VALUES (?, ?, X'00', NULL, NULL, NULL, ?, ?)`,
+      )
+        .bind(deviceId, userId, teraz, lastSeen)
+        .run();
+    }
+
+    const urzadzenia = await lookupDevices(env, username);
+
+    expect(urzadzenia).toHaveLength(2);
+    expect(urzadzenia[0]!.deviceId).toBe(zywe);
   });
 });

@@ -50,13 +50,14 @@ export const api = {
     path: string,
     body: unknown,
     token?: string,
-    opts?: { credentials?: RequestCredentials },
+    opts?: { credentials?: RequestCredentials; signal?: AbortSignal },
   ) =>
     request<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       credentials: opts?.credentials,
+      signal: opts?.signal,
     }),
 
   get: <T>(path: string) => request<T>(path),

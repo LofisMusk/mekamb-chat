@@ -36,6 +36,7 @@ import {
   type Account,
   isInstalled,
   isPersistent,
+  kontoZLogowania,
   loadAccount,
   requestPersistence,
   saveAccount,
@@ -421,7 +422,7 @@ function DrugiSkladnik({
           // nowy identyfikator przy każdym logowaniu zostawiałby w katalogu
           // stos martwych urządzeń, do których nikt się nie dodzwoni.
           const zapisane = await loadAccount();
-          const konto = zapisane ?? { userId: username, username, deviceId };
+          const konto = zapisane ?? kontoZLogowania(username, deviceId);
 
           onGotowe(await zakonczLogowanie(konto, token));
         } catch (err) {
@@ -479,7 +480,11 @@ function PrzyciskPasskey({
           const deviceId = zapisane?.deviceId ?? `web-${crypto.randomUUID().slice(0, 8)}`;
 
           const wynik = await webauthnLoginVerify(odpowiedz, deviceId);
-          const konto = zapisane ?? { userId: wynik.userId, username: wynik.username, deviceId };
+
+          // `wynik.userId` (UUID z bazy) celowo NIE trafia do konta — adresem
+          // skrzynki i tożsamością w MLS jest nazwa użytkownika. Uzasadnienie
+          // przy `kontoZLogowania`.
+          const konto = zapisane ?? kontoZLogowania(wynik.username, deviceId);
 
           onGotowe(await zakonczLogowanie(konto, wynik.token));
         } catch (err) {

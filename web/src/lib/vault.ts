@@ -39,6 +39,37 @@ export interface Account {
   deviceId: string;
 }
 
+/**
+ * Składa konto na podstawie tego, co zwróciło logowanie.
+ *
+ * # Dlaczego `userId` to nazwa użytkownika, a nie identyfikator z serwera
+ *
+ * `userId` nie jest tu wewnętrznym kluczem bazy — jest **adresem skrzynki**
+ * i **tożsamością w drzewie MLS**. Trafia w trzy miejsca, które muszą się
+ * zgadzać co do jednego znaku:
+ *
+ * 1. `connectInbox(account.userId)` — pod tą nazwą nasłuchujemy,
+ * 2. `new MekambClient(account.userId, …)` — pod tą nazwą widzą nas inni
+ *    w grupie (`members()` zwraca `user_id:device_id`),
+ * 3. `addMember` rozmówcy — welcome deponuje pod **nazwą użytkownika**
+ *    z katalogu, bo tylko ją zna, zanim nas do grupy doda.
+ *
+ * Punkt 3 przesądza sprawę: nazwa użytkownika to jedyny identyfikator, który
+ * strona zapraszająca ma w ręku. Ta sama konwencja obowiązuje w kliencie
+ * Androida (`Vault.kt`: `userId get() = username`) i w formacie zrzutu przy
+ * przenoszeniu konta, więc nie da się jej zmienić po jednej stronie.
+ *
+ * Ta funkcja istnieje, żeby obie ścieżki logowania — TOTP i passkey — nie
+ * mogły się co do tego rozjechać. Rozjechały się już raz: passkey zapisywał
+ * tu `userId` z serwera (UUID), więc świeżo zalogowana przeglądarka
+ * nasłuchiwała pod UUID-em, a zaproszenie szło pod nazwę użytkownika. Welcome
+ * nie dochodził, odbiorca nie dołączał do grupy i **żadna wiadomość nie była
+ * odszyfrowywana** — a nadawca nie widział przy tym błędu.
+ */
+export function kontoZLogowania(username: string, deviceId: string): Account {
+  return { userId: username, username, deviceId };
+}
+
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);

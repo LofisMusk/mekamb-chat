@@ -11,6 +11,7 @@ import {
   publishKeyPackages,
   registerDevice,
   toBytes,
+  usernameFor,
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
 import transfer, { cleanupExpiredTransfers } from "./transfer";
@@ -182,7 +183,17 @@ app.post("/groups/:groupId/commit", requireAuth, async (c) => {
 
   // Nadawcę bierzemy z TOKENU. Gdyby pochodził z ciała żądania, dałoby się
   // wykluczyć z rozsyłki dowolną osobę i po cichu odciąć ją od grupy.
-  const result = await relay.submitCommit(body.epoch, envelope, body.members, c.get("userId"));
+  //
+  // Token niesie wewnętrzny UUID, a relay adresuje skrzynki NAZWAMI — w tej
+  // samej przestrzeni co `body.members`. Bez przeliczenia nadawca nigdy nie
+  // zgadzałby się z żadnym członkiem i dostawałby z powrotem własny commit,
+  // którego MLS nie potrafi przetworzyć.
+  const nadawca = await usernameFor(c.env, c.get("userId"));
+  if (nadawca === null) {
+    return c.json({ error: "konto nie istnieje" }, 401);
+  }
+
+  const result = await relay.submitCommit(body.epoch, envelope, body.members, nadawca);
 
   if (!result.accepted) {
     return c.json(

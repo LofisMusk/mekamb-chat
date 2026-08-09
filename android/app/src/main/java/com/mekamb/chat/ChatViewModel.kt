@@ -190,6 +190,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val konto = vault.loadAccount()
         val tokenOdswiezajacy = vault.loadRefreshToken()
 
+        // Zamknięcie PRZED wyzerowaniem referencji. Samo `= null` zostawiało
+        // działający transport, a od czasu wpięcia skrzynki także otwarte
+        // gniazdo, które wznawiałoby się w nieskończoność i próbowało zapisywać
+        // stan MLS do skarbca skasowanego przed chwilą poniżej.
+        messenger?.close()
         messenger = null
         sesjaLogowania = null
         vault.wipe()
@@ -521,7 +526,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun obsluzZdarzenie(zdarzenie: IncomingEvent) {
+    /**
+     * Obsługuje odebrane zdarzenie.
+     *
+     * `tryb` mówi, KTÓRĄ drogą koperta przyszła — wprost od urządzenia czy ze
+     * skrzynki. Wcześniej było tu wpisane `DIRECT` na sztywno, bo istniała
+     * tylko jedna droga; dziś taki wpis kłamałby przy każdej wiadomości od
+     * rozmówcy z przeglądarki, a interfejs pokazuje na tej podstawie, czy
+     * rozmowa jest bezpośrednia.
+     */
+    private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
         stan = when (zdarzenie) {
             is IncomingEvent.Message -> stan.copy(
                 wiadomosci = stan.wiadomosci + Wiadomosc(
@@ -529,8 +543,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     tresc = zdarzenie.text,
                     wlasna = false,
                 ),
-                // Wiadomość przyszła prosto do nas, skoro odebrał ją transport P2P.
-                trybPolaczenia = DeliveryMode.DIRECT,
+                trybPolaczenia = tryb,
             )
 
             is IncomingEvent.JoinedConversation -> stan.copy(

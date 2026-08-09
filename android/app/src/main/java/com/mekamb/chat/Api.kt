@@ -281,6 +281,36 @@ class Api(private val baseUrl: String) {
         }
     }
 
+    /**
+     * Klient dla gniazda skrzynki.
+     *
+     * Współdzieli pulę połączeń i wątki z `http` — stąd `newBuilder`, a nie
+     * osobna instancja — ale **bez limitu odczytu**. Gniazdo skrzynki z
+     * założenia milczy między wiadomościami, więc trzydziestosekundowy limit
+     * zrywałby je co pół minuty i wymuszał ciągłe wznawianie.
+     */
+    private val httpSkrzynki by lazy {
+        http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
+    }
+
+    /**
+     * Otwiera trwałe połączenie ze skrzynką.
+     *
+     * Adres i klient zostają prywatne — wywołujący dostaje gotowe połączenie,
+     * którym może już tylko sterować. Zaległe koperty serwer wysyła sam,
+     * zaraz po podłączeniu.
+     */
+    fun polaczZeSkrzynka(
+        userId: String,
+        naRamke: (ByteArray, (Long) -> Unit) -> Unit,
+        naStan: (StanPolaczenia) -> Unit = {},
+    ): PolaczenieZeSkrzynka = PolaczenieZeSkrzynka(
+        http = httpSkrzynki,
+        adres = "$baseUrl/inbox/$userId/connect",
+        naRamke = naRamke,
+        naStan = naStan,
+    ).also { it.polacz() }
+
     private suspend fun postJson(
         sciezka: String,
         body: JsonObject,

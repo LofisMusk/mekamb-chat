@@ -86,6 +86,30 @@ export async function lookupDevices(env: Env, username: string): Promise<DeviceR
 }
 
 /**
+ * Tłumaczy wewnętrzny identyfikator konta na nazwę użytkownika.
+ *
+ * # Po co to tłumaczenie istnieje
+ *
+ * W bazie kontem rządzi UUID i to on siedzi w tokenie. Ale **skrzynki są
+ * adresowane nazwą użytkownika** — bo tylko ją zna strona zapraszająca, gdy
+ * dodaje kogoś do rozmowy, i tą samą nazwą klienci widzą się nawzajem
+ * w drzewie MLS (`members()` zwraca `user_id:device_id`).
+ *
+ * Bez tego przeliczenia `GroupRelay` porównywałby UUID z listą nazw i nigdy nie
+ * rozpoznałby nadawcy — więc odsyłałby mu jego własny commit, którego MLS nie
+ * potrafi przetworzyć.
+ *
+ * Zwraca `null`, gdy konta już nie ma; token mógł je przeżyć.
+ */
+export async function usernameFor(env: Env, userId: string): Promise<string | null> {
+  const row = await env.DB.prepare("SELECT username FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ username: string }>();
+
+  return row?.username ?? null;
+}
+
+/**
  * Wydaje jeden niezużyty key package i od razu oznacza go jako zużyty.
  *
  * # Dlaczego to jedno zapytanie, a nie SELECT plus UPDATE

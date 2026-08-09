@@ -1,5 +1,7 @@
-import { env } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+
+import { issueToken } from "../src/crypto";
 
 /**
  * Testy `GroupRelay` — gwarancji, dla której ten obiekt w ogóle istnieje.
@@ -132,5 +134,53 @@ describe("GroupRelay", () => {
 
     expect(odrzucony.accepted).toBe(false);
     expect(await grupa.members()).toEqual(["sklad-a", "sklad-b"]);
+  });
+});
+
+/**
+ * Trasa `POST /groups/:groupId/commit` — styk tokenu z routingiem.
+ *
+ * Sedno: relay rozpoznaje nadawcę, porównując go z listą członków, a ta jest
+ * listą NAZW użytkowników. Token niesie wewnętrzny UUID konta, więc trasa musi
+ * go przetłumaczyć. Bez tego nadawca nie zgadza się z żadnym członkiem
+ * i dostaje z powrotem własny commit — a własnego commitu MLS nie potrafi
+ * przetworzyć, więc koperta krąży po kolejce aż do odrzucenia.
+ */
+describe("trasa commitu a tożsamość nadawcy", () => {
+  it("nie odsyła nadawcy jego własnego commitu", async () => {
+    const userId = crypto.randomUUID();
+    const username = `nadawca-${userId.slice(0, 8)}`;
+    const odbiorca = `odbiorca-${userId.slice(0, 8)}`;
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, username, Date.now())
+      .run();
+
+    // Token niesie UUID — dokładnie tak, jak po prawdziwym zalogowaniu.
+    const bearer = await issueToken(env.TOKEN_SIGNING_KEY, {
+      userId,
+      deviceId: "test",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const odpowiedz = await SELF.fetch(`https://mekamb/groups/${userId.slice(0, 8)}/commit`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        epoch: 0,
+        envelope: btoa("udawana koperta z commitem"),
+        members: [username, odbiorca],
+      }),
+    });
+
+    expect(odpowiedz.status).toBe(200);
+
+    const wlasna = env.USER_INBOX.get(env.USER_INBOX.idFromName(username));
+    const cudza = env.USER_INBOX.get(env.USER_INBOX.idFromName(odbiorca));
+
+    expect(await wlasna.pendingCount()).toBe(0);
+    expect(await cudza.pendingCount()).toBe(1);
   });
 });

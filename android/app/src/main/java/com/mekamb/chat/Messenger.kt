@@ -2,8 +2,11 @@ package com.mekamb.chat
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
@@ -16,10 +19,16 @@ import uniffi.mekamb_ffi.tryDirectDelivery
  *
  * # Tu klient natywny różni się od webowego
  *
- * Android ma pełny transport iroh: przebija NAT i łączy się **wprost** z drugim
- * urządzeniem. Skrzynka na serwerze wchodzi do gry dopiero, gdy odbiorcy nie da
- * się osiągnąć. W przeglądarce jest odwrotnie — tam pośrednik jest zawsze,
- * bo sandbox nie pozwala na połączenia przychodzące.
+ * Android ma pełny transport: przebija NAT i łączy się **wprost** z drugim
+ * urządzeniem. Przy WYSYŁCE skrzynka na serwerze wchodzi więc do gry dopiero
+ * wtedy, gdy odbiorcy nie da się osiągnąć.
+ *
+ * Przy ODBIORZE tak nie jest i to kosztowało już jedną awarię. Rozmówca
+ * z przeglądarki nie potrafi dostarczyć bezpośrednio — sandbox nie pozwala mu
+ * wysłać pakietu UDP — więc jego wiadomości leżą wyłącznie w skrzynce.
+ * Nasłuchiwanie samego transportu oznaczało, że web → Android nie docierało
+ * nigdy, przy działającym kierunku odwrotnym. Dlatego [startReceiving]
+ * uruchamia obie drogi naraz.
  *
  * # Stan zapisujemy po każdej zmianie
  *
@@ -42,6 +51,11 @@ class Messenger private constructor(
      */
     val token: String,
 ) {
+    /** Szereguje dostęp do stanu MLS — patrz [przetworzKoperte]. */
+    private val mlsMutex = Mutex()
+
+    private var skrzynka: PolaczenieZeSkrzynka? = null
+    private var kolejkaSkrzynki: Channel<Pair<ByteArray, (Long) -> Unit>>? = null
 
     companion object {
         /** Tworzy nową tożsamość urządzenia albo odtwarza zapisaną. */
@@ -220,28 +234,86 @@ class Messenger private constructor(
     }
 
     /**
-     * Pętla odbioru połączeń przychodzących.
+     * Otwiera kopertę i utrwala stan MLS.
+     *
+     * # Dlaczego pod zamkiem
+     *
+     * Koperty przychodzą teraz DWIEMA drogami naraz — wprost przez transport
+     * i ze skrzynki. Obie przesuwają ten sam ratchet i obie zapisują ten sam
+     * stan, więc bez szeregowania dwa wątki potrafiłyby przeplatać
+     * `openEnvelope` z `exportState` i zapisać stan starszy niż wykonana już
+     * operacja. Skutkiem byłby klient cofnięty do poprzedniej epoki, czyli
+     * dokładnie ta awaria, przed którą chroni zapis po każdej zmianie.
+     */
+    private suspend fun przetworzKoperte(koperta: ByteArray): IncomingEvent = mlsMutex.withLock {
+        val zdarzenie = client.openEnvelope(koperta)
+        vault.saveState(client.exportState())
+        zdarzenie
+    }
+
+    /**
+     * Uruchamia odbiór: transport P2P **i** skrzynkę.
+     *
+     * # Dlaczego obie drogi, a nie sam transport
+     *
+     * Rozmówca z przeglądarki nie potrafi dostarczyć bezpośrednio — sandbox nie
+     * pozwala mu wysłać pakietu UDP — więc jego wiadomości leżą wyłącznie
+     * w skrzynce. Sam transport oznaczał, że web → Android nie docierało nigdy.
      *
      * Blokujące `receiveNext` chodzi na `Dispatchers.IO`, bo runtime asynchroniczny
      * mieszka po stronie Rusta — uzasadnienie w `core/bindings/uniffi/src/lib.rs`.
      */
-    fun startReceiving(scope: CoroutineScope, onEvent: (IncomingEvent) -> Unit) {
+    fun startReceiving(scope: CoroutineScope, onEvent: (IncomingEvent, DeliveryMode) -> Unit) {
+        // Powtórne uruchomienie porzucałoby poprzednie gniazdo bez zamknięcia:
+        // wisiałoby dalej, wznawiało się i przetwarzało koperty równolegle
+        // z nowym. Podmiana referencji sama tego nie sprząta.
+        skrzynka?.zamknij()
+        kolejkaSkrzynki?.close()
+
         scope.launch(Dispatchers.IO) {
             while (isActive) {
                 val koperta = runCatching { transport.receiveNext() }.getOrNull() ?: break
 
-                runCatching {
-                    val zdarzenie = client.openEnvelope(koperta)
-                    vault.saveState(client.exportState())
-                    zdarzenie
-                }.onSuccess(onEvent)
+                runCatching { przetworzKoperte(koperta) }
+                    .onSuccess { onEvent(it, DeliveryMode.DIRECT) }
                 // Błąd przetwarzania jednej koperty nie może zatrzymać pętli:
                 // spreparowany pakiet z sieci jest sytuacją spodziewaną.
             }
         }
+
+        // Ramki idą przez kolejkę, a nie każda we własnej korutynie, bo commity
+        // MLS muszą zostać zastosowane w kolejności nadania. Serwer wysyła je
+        // po kolei i ta kolejność musi przetrwać do `openEnvelope`.
+        //
+        // `trySend` do kolejki bez ograniczenia nie blokuje wątku czytającego
+        // gniazdo, więc odbiór nie czeka na przetworzenie poprzedniej koperty.
+        val kolejka = Channel<Pair<ByteArray, (Long) -> Unit>>(Channel.UNLIMITED)
+
+        scope.launch(Dispatchers.IO) {
+            val licznik = LicznikProb()
+
+            for ((ramka, potwierdz) in kolejka) {
+                obsluzRamke(
+                    ramka = ramka,
+                    licznik = licznik,
+                    przetworz = { koperta -> onEvent(przetworzKoperte(koperta), DeliveryMode.MAILBOX) },
+                    potwierdz = potwierdz,
+                )
+            }
+        }
+
+        skrzynka = api.polaczZeSkrzynka(
+            userId = account.userId,
+            naRamke = { ramka, potwierdz -> kolejka.trySend(ramka to potwierdz) },
+        )
+        kolejkaSkrzynki = kolejka
     }
 
     fun close() {
+        skrzynka?.zamknij()
+        skrzynka = null
+        kolejkaSkrzynki?.close()
+        kolejkaSkrzynki = null
         transport.shutdown()
     }
 }

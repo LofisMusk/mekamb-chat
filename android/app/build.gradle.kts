@@ -145,6 +145,11 @@ dependencies {
     implementation(variantOf(libs.jna) { artifactType("aar") })
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Testy jednostkowe na JVM. Obejmują logikę, która decyduje o utracie
+    // wiadomości (potwierdzanie kopert ze skrzynki) — ta nie może być
+    // sprawdzana wyłącznie ręcznie na urządzeniu.
+    testImplementation(libs.junit)
 }
 
 // ---------------------------------------------------------------------------

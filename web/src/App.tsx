@@ -26,6 +26,7 @@ import {
   zapiszRozmowe,
 } from "./lib/historia";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
+import { opisBledu, ustalRozruch } from "./lib/rozruch";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
@@ -89,21 +90,28 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      setTrwaly(await isPersistent());
-
-      const konto = await loadAccount();
-      if (!konto) {
-        setEkran({ nazwa: "powitanie" });
-        return;
+      try {
+        setTrwaly(await isPersistent());
+      } catch {
+        // Storage API bywa niedostępne (starsze WebView, tryb prywatny).
+        // To tylko ostrzeżenie na górze ekranu — nie może zatrzymać startu.
       }
 
       // Próba cichej trwałej sesji PRZED pokazaniem ekranu logowania: token
       // dostępowy żyje krócej niż tożsamość urządzenia, ale cookie z tokenem
       // odświeżającym (`/auth/refresh`) przeżywa odświeżenie strony. Dopiero
       // gdy go nie ma albo wygasł, wracamy do pełnego logowania hasłem+TOTP.
-      const odswiezony = await refreshSession(konto.deviceId);
-      if (!odswiezony) {
-        setEkran({ nazwa: "logowanie" });
+      //
+      // Decyzja i obsługa awarii siedzą w `ustalRozruch`, bo ekran
+      // „Wczytywanie…" nie ma wyjścia awaryjnego — patrz `rozruch.ts`.
+      const start = await ustalRozruch({
+        wczytajKonto: loadAccount,
+        odswiezSesje: refreshSession,
+      });
+
+      if (start.nazwa !== "sesja") {
+        if (start.blad) setBlad(start.blad);
+        setEkran({ nazwa: start.nazwa });
         return;
       }
 
@@ -113,16 +121,18 @@ export function App() {
       // nie może już nas dodać do grupy („brak dostępnych key packages").
       // Wcześniej ratowało nas to, że każde uruchomienie wymuszało logowanie.
       try {
-        setEkran({ nazwa: "czat", messenger: await zakonczLogowanie(konto, odswiezony.token) });
-      } catch {
+        setEkran({ nazwa: "czat", messenger: await zakonczLogowanie(start.konto, start.token) });
+      } catch (e) {
         // Sieć mogła paść między odświeżeniem a rejestracją urządzenia.
-        // Ekran logowania jest tu bezpiecznym miejscem powrotu.
+        // Ekran logowania jest tu bezpiecznym miejscem powrotu — ale z powodem
+        // wypisanym wprost, bo inaczej wygląda to na wylogowanie bez przyczyny.
+        setBlad(`Nie udało się przywrócić sesji (${opisBledu(e)}). Zaloguj się ponownie.`);
         setEkran({ nazwa: "logowanie" });
       }
     })();
   }, []);
 
-  const zglosBlad = (e: unknown) => setBlad(e instanceof Error ? e.message : String(e));
+  const zglosBlad = (e: unknown) => setBlad(opisBledu(e));
 
   return (
     <main className="aplikacja">

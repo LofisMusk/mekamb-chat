@@ -149,17 +149,32 @@ export async function loginWithTotp(
 // ---------------------------------------------------------------------------
 
 /**
+ * Ile czekamy na odpowiedź serwera przy starcie.
+ *
+ * `fetch` sam z siebie nie ma limitu czasu, a to żądanie blokuje pierwszy
+ * ekran aplikacji — serwer, który przyjmuje połączenie i milczy, zawiesiłby
+ * ją na „Wczytywanie…" bez końca. Lepiej po dziesięciu sekundach pokazać
+ * logowanie i powód.
+ */
+const LIMIT_ODSWIEZENIA_MS = 10_000;
+
+/**
  * Wymienia trwałą sesję (httpOnly cookie) na nowy token dostępowy.
  *
  * Wywoływane przy starcie aplikacji zamiast wymuszać ekran logowania —
  * patrz `App.tsx`. Zwraca `null` zamiast rzucać, gdy sesji nie ma albo
  * wygasła: to jest oczekiwany, częsty przypadek (pierwsze uruchomienie, długa
  * nieobecność), nie błąd do zgłoszenia użytkownikowi.
+ *
+ * Awaria sieci to co innego niż brak sesji, więc leci dalej jako wyjątek —
+ * obsługuje ją `ustalRozruch` (`rozruch.ts`), zamieniając na ekran logowania
+ * z komunikatem.
  */
 export async function refreshSession(deviceId: string): Promise<AccessToken | null> {
   try {
     return await api.post<AccessToken>("/auth/refresh", { deviceId }, undefined, {
       credentials: "include",
+      signal: AbortSignal.timeout(LIMIT_ODSWIEZENIA_MS),
     });
   } catch (err) {
     if (err instanceof ApiError) return null;

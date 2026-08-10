@@ -5,6 +5,7 @@ import init, {
   opaqueRegisterStart,
 } from "../wasm/mekamb_wasm";
 import { api, ApiError, base64ToBytes, bytesToBase64 } from "./api";
+import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./vault";
 import type {
   PasskeyAuthenticationOptions,
   PasskeyAuthenticationResponse,
@@ -121,7 +122,26 @@ export async function loginStart(username: string, password: string): Promise<Lo
 export interface AccessToken {
   token: string;
   expiresAt: number;
+  /** Token trwałej sesji — obecny, bo prosimy o niego w treści. Patrz [`ZAWSZE_W_TRESCI`]. */
+  refreshToken?: string;
 }
+
+/**
+ * Prosimy o token trwałej sesji **w treści odpowiedzi**, a nie tylko w cookie.
+ *
+ * # Dlaczego zawsze, a nie tylko na iOS
+ *
+ * Cookie jest tu cookie trzeciej strony (`github.io` → `workers.dev`), a
+ * Safari blokuje takie domyślnie — i na iOS każda przeglądarka jest Safari.
+ * Efekt: iPhone wylogowywał się przy każdym zamknięciu aplikacji, a desktop
+ * działał, więc usterki nie było widać stamtąd, skąd się ją pisze.
+ *
+ * Można by prosić o token tylko tam, gdzie cookie nie działa — i to jest
+ * dokładnie ten rodzaj rozgałęzienia, które tę usterkę stworzyło. Jedna
+ * ścieżka dla wszystkich przeglądarek znaczy, że jeśli zadziała u nas,
+ * zadziała i tam. Cookie nadal przychodzi i nadal jest używane, gdy jest.
+ */
+const ZAWSZE_W_TRESCI = true;
 
 /**
  * Kończy logowanie kodem TOTP i odbiera token dostępowy.
@@ -129,19 +149,33 @@ export interface AccessToken {
  * `credentials: "include"` jest tu konieczne — inaczej przeglądarka po cichu
  * odrzuca `Set-Cookie` z odpowiedzi, bo API stoi pod innym originem niż
  * aplikacja. Bez tego trwała sesja (patrz [`refreshSession`]) nigdy by się
- * nie włączyła.
+ * nie włączyła tam, gdzie cookie w ogóle przechodzi.
  */
 export async function loginWithTotp(
   session: LoginSession,
   code: string,
   deviceId: string,
 ): Promise<AccessToken> {
-  return api.post<AccessToken>(
+  const wynik = await api.post<AccessToken>(
     "/auth/login/totp",
-    { loginId: session.loginId, code, deviceId },
+    { loginId: session.loginId, code, deviceId, sesjaWTresci: ZAWSZE_W_TRESCI },
     undefined,
     { credentials: "include" },
   );
+
+  await zapamietajTrwalaSesje(wynik);
+  return wynik;
+}
+
+/**
+ * Zapisuje token trwałej sesji w skarbcu, jeśli serwer go przysłał.
+ *
+ * Jedno miejsce dla wszystkich dróg logowania — hasło+TOTP, passkey
+ * i odświeżenie — bo każda, która by tego nie zrobiła, kończy się cichym
+ * wylogowaniem przy następnym uruchomieniu.
+ */
+async function zapamietajTrwalaSesje(wynik: { refreshToken?: string }): Promise<void> {
+  if (wynik.refreshToken) await saveRefreshToken(wynik.refreshToken);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,32 +193,55 @@ export async function loginWithTotp(
 const LIMIT_ODSWIEZENIA_MS = 10_000;
 
 /**
- * Wymienia trwałą sesję (httpOnly cookie) na nowy token dostępowy.
+ * Wymienia trwałą sesję na nowy token dostępowy.
  *
  * Wywoływane przy starcie aplikacji zamiast wymuszać ekran logowania —
  * patrz `App.tsx`. Zwraca `null` zamiast rzucać, gdy sesji nie ma albo
  * wygasła: to jest oczekiwany, częsty przypadek (pierwsze uruchomienie, długa
  * nieobecność), nie błąd do zgłoszenia użytkownikowi.
  *
+ * Token idzie i cookie, i w treści — patrz [`ZAWSZE_W_TRESCI`]. Serwer rotuje
+ * go przy każdym użyciu, więc odpowiedź trzeba **zapisać**; pominięcie tego
+ * zostawiłoby w skarbcu token zużyty, czyli wylogowanie przy następnym starcie.
+ *
+ * Odrzucenie przez serwer kasuje token: skoro nie działa, jego kolejne próby
+ * też nie zadziałają, a zostawiony w magazynie udaje sesję, której nie ma.
+ *
  * Awaria sieci to co innego niż brak sesji, więc leci dalej jako wyjątek —
  * obsługuje ją `ustalRozruch` (`rozruch.ts`), zamieniając na ekran logowania
  * z komunikatem.
  */
 export async function refreshSession(deviceId: string): Promise<AccessToken | null> {
+  const zapamietany = await loadRefreshToken();
+
   try {
-    return await api.post<AccessToken>("/auth/refresh", { deviceId }, undefined, {
-      credentials: "include",
-      signal: AbortSignal.timeout(LIMIT_ODSWIEZENIA_MS),
-    });
+    const wynik = await api.post<AccessToken>(
+      "/auth/refresh",
+      { deviceId, refreshToken: zapamietany ?? undefined, sesjaWTresci: ZAWSZE_W_TRESCI },
+      undefined,
+      { credentials: "include", signal: AbortSignal.timeout(LIMIT_ODSWIEZENIA_MS) },
+    );
+
+    await zapamietajTrwalaSesje(wynik);
+    return wynik;
   } catch (err) {
-    if (err instanceof ApiError) return null;
+    if (err instanceof ApiError) {
+      await clearRefreshToken();
+      return null;
+    }
     throw err;
   }
 }
 
 /** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */
 export async function logout(deviceId: string): Promise<void> {
-  await api.post("/auth/logout", { deviceId }, undefined, { credentials: "include" });
+  // Kasujemy lokalnie niezależnie od tego, jak poszło serwerowi: token, który
+  // został na urządzeniu po wylogowaniu, wpuszcza z powrotem przy starcie.
+  try {
+    await api.post("/auth/logout", { deviceId }, undefined, { credentials: "include" });
+  } finally {
+    await clearRefreshToken();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -225,10 +282,13 @@ export async function webauthnLoginVerify(
   response: PasskeyAuthenticationResponse,
   deviceId: string,
 ): Promise<PasskeyLoginResult> {
-  return api.post<PasskeyLoginResult>(
+  const wynik = await api.post<PasskeyLoginResult>(
     "/auth/webauthn/login/verify",
-    { response, deviceId },
+    { response, deviceId, sesjaWTresci: ZAWSZE_W_TRESCI },
     undefined,
     { credentials: "include" },
   );
+
+  await zapamietajTrwalaSesje(wynik);
+  return wynik;
 }

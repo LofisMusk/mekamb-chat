@@ -37,8 +37,17 @@ function kodDlaOkna(secret: string, przesuniecieOkien = 0): string {
   }).generate({ timestamp: Date.now() + przesuniecieOkien * OKNO_MS });
 }
 
-/** Zakłada aktywne konto i loguje je do końca, zwracając cookie sesji i deviceId. */
-async function zalogujSie(deviceId: string): Promise<{ cookie: string; token: string; username: string }> {
+/**
+ * Zakłada aktywne konto i loguje je do końca, zwracając cookie sesji i deviceId.
+ *
+ * `sesjaWTresci` odwzorowuje klienta webowego na iOS: prosi o token
+ * odświeżający w treści odpowiedzi, bo cookie trzeciej strony i tak do niego
+ * nie dotrze.
+ */
+async function zalogujSie(
+  deviceId: string,
+  sesjaWTresci = false,
+): Promise<{ cookie: string; token: string; username: string; refreshToken?: string }> {
   const username = nazwa();
   const password = "haslo-do-testow-trwalej-sesji";
 
@@ -82,6 +91,7 @@ async function zalogujSie(deviceId: string): Promise<{ cookie: string; token: st
     loginId,
     code: kodDlaOkna(totpSecret, 1),
     deviceId,
+    sesjaWTresci,
   });
   expect(totpRes.status).toBe(200);
 
@@ -89,9 +99,9 @@ async function zalogujSie(deviceId: string): Promise<{ cookie: string; token: st
   expect(setCookie).not.toBeNull();
   const cookie = setCookie!.split(";")[0]!;
 
-  const { token } = await totpRes.json<{ token: string }>();
+  const { token, refreshToken } = await totpRes.json<{ token: string; refreshToken?: string }>();
 
-  return { cookie, token, username };
+  return { cookie, token, username, refreshToken };
 }
 
 describe("trwała sesja", () => {
@@ -198,5 +208,78 @@ describe("trwała sesja", () => {
     const totpRes = await post("/auth/login/totp", { loginId, code: kodDlaOkna(totpSecret, 1) });
     expect(totpRes.status).toBe(200);
     expect(totpRes.headers.get("Set-Cookie")).toBeNull();
+  });
+});
+
+/**
+ * Trwała sesja tam, gdzie cookie nie dociera.
+ *
+ * Sedno: strona stoi na innej domenie niż API, więc dla Safari to cookie
+ * trzeciej strony — blokowane domyślnie. iPhone wylogowywał się przy każdym
+ * zamknięciu aplikacji, a na desktopie ta sama ścieżka działała.
+ */
+describe("trwała sesja bez cookie", () => {
+  it("bez prośby token odświeżający NIE wychodzi w treści", async () => {
+    const { refreshToken } = await zalogujSie("bez-prosby-1");
+
+    expect(refreshToken).toBeUndefined();
+  });
+
+  it("na prośbę logowanie zwraca token odświeżający w treści", async () => {
+    const { refreshToken } = await zalogujSie("w-tresci-1", true);
+
+    expect(typeof refreshToken).toBe("string");
+    expect(refreshToken!.length).toBeGreaterThan(20);
+  });
+
+  it("token z treści wymienia się na nowy token dostępowy bez cookie", async () => {
+    const deviceId = "w-tresci-2";
+    const { refreshToken } = await zalogujSie(deviceId, true);
+
+    const res = await post("/auth/refresh", { deviceId, refreshToken });
+
+    expect(res.status).toBe(200);
+    const { token } = await res.json<{ token: string }>();
+    expect(token).toContain(".");
+  });
+
+  /// Sedno: rotacja jest bezwarunkowa, więc klient bez cookie MUSI dostać
+  /// nowy token tą samą drogą. Bez tego zostałby ze zużytym i kolejny start
+  /// aplikacji skończyłby się wylogowaniem — czyli dokładnie tym, co ta
+  /// ścieżka miała naprawić.
+  it("odświeżenie z treści zwraca zrotowany token, a stary przestaje działać", async () => {
+    const deviceId = "w-tresci-3";
+    const { refreshToken } = await zalogujSie(deviceId, true);
+
+    const pierwsze = await post("/auth/refresh", { deviceId, refreshToken });
+    const { refreshToken: nowy } = await pierwsze.json<{ refreshToken?: string }>();
+
+    expect(typeof nowy).toBe("string");
+    expect(nowy).not.toBe(refreshToken);
+
+    // Nowy działa…
+    const drugie = await post("/auth/refresh", { deviceId, refreshToken: nowy });
+    expect(drugie.status).toBe(200);
+
+    // …a zużyty już nie.
+    const trzecie = await post("/auth/refresh", { deviceId, refreshToken });
+    expect(trzecie.status).toBe(401);
+  });
+
+  it("cudzy token z treści nie pasuje do naszego urządzenia", async () => {
+    const { refreshToken } = await zalogujSie("w-tresci-4", true);
+    await zalogujSie("w-tresci-5", true);
+
+    const res = await post("/auth/refresh", { deviceId: "w-tresci-5", refreshToken });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("wylogowanie unieważnia też token trzymany przez klienta", async () => {
+    const deviceId = "w-tresci-6";
+    const { refreshToken } = await zalogujSie(deviceId, true);
+
+    expect((await post("/auth/logout", { deviceId })).status).toBe(200);
+    expect((await post("/auth/refresh", { deviceId, refreshToken })).status).toBe(401);
   });
 });

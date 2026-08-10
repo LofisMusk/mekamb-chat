@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -121,6 +122,61 @@ private fun Zawartosc(
             // użytkownika w gałęzi, z której wyszedł.
             galaz = Galaz.ROZMOWY
         }
+    }
+
+    /*
+     * Systemowe „wstecz".
+     *
+     * Bez tego przycisk i gest krawędziowy zamykały aplikację z każdego
+     * ekranu — także z rozmowy, do której użytkownik przed chwilą wszedł
+     * z listy. Ekrany mają już strzałki, ale to Android decyduje, co robi
+     * jego własny gest, i musi robić dokładnie to samo.
+     *
+     * Kolejność odpowiada kolejności ekranów w `when` niżej: obsługujemy ten
+     * ekran, który jest na wierzchu. `enabled = false` oznacza „nie mamy dokąd
+     * wrócić" — wtedy back wychodzi z aplikacji, tak jak wypada na ekranie
+     * startowym.
+     */
+    BackHandler(enabled = wPrzeniesieniu) { wPrzeniesieniu = false }
+    BackHandler(enabled = !wPrzeniesieniu && wUstawieniach) { wUstawieniach = false }
+    BackHandler(enabled = !wPrzeniesieniu && !wUstawieniach && wUczestnikach) {
+        wUczestnikach = false
+    }
+
+    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach
+
+    // Rozmowa wraca do listy — nie do gałęzi, z której ją otwarto.
+    BackHandler(enabled = !wGlebi && stan.zalogowany && wRozmowie) {
+        wRozmowie = false
+        galaz = Galaz.ROZMOWY
+    }
+
+    BackHandler(enabled = !wGlebi && stan.zalogowany && !wRozmowie && nowaRozmowa) {
+        nowaRozmowa = false
+    }
+
+    BackHandler(
+        enabled = !wGlebi && stan.zalogowany && !wRozmowie && !nowaRozmowa &&
+            galaz != Galaz.ROZMOWY,
+    ) {
+        galaz = Galaz.ROZMOWY
+    }
+
+    // Przed zalogowaniem wracamy do powitania, bo ono prowadzi do wszystkich
+    // trzech dróg wejścia. Wyjątek to drugi krok logowania: on wraca do
+    // pierwszego, żeby dało się poprawić nazwę albo hasło.
+    BackHandler(enabled = !stan.zalogowany && stan.ekran == Ekran.KOD_LOGOWANIA) {
+        model.pokaz(Ekran.LOGOWANIE)
+    }
+    BackHandler(
+        enabled = !stan.zalogowany && stan.ekran in
+            setOf(Ekran.REJESTRACJA, Ekran.LOGOWANIE, Ekran.ODBIOR, Ekran.POTWIERDZENIE),
+    ) {
+        // Z potwierdzenia wychodzi się z konsekwencją: konto już istnieje, ale
+        // bez kodu jest bezużyteczne, a jego nazwy nie da się zająć drugi raz.
+        // Ekran mówi o tym wprost, zamiast po cichu cofnąć.
+        if (stan.ekran == Ekran.POTWIERDZENIE) model.ostrzezONiepotwierdzonymKoncie()
+        model.pokaz(Ekran.POWITANIE)
     }
 
     // Kod zeskanowany aparatem otwiera od razu ekran odbioru. Robimy to tylko

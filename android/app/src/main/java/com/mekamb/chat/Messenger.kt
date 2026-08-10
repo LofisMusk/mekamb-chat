@@ -12,7 +12,25 @@ import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
 import uniffi.mekamb_ffi.MekambClient
 import uniffi.mekamb_ffi.MekambTransport
+import uniffi.mekamb_ffi.canStripMetadata
+import uniffi.mekamb_ffi.maxAttachmentBytes
+import uniffi.mekamb_ffi.openAttachment
+import uniffi.mekamb_ffi.sealAttachment
+import uniffi.mekamb_ffi.stripMetadata
 import uniffi.mekamb_ffi.tryDirectDelivery
+
+/**
+ * Wynik wysyłki załącznika.
+ *
+ * `metadaneUsuniete = false` znaczy, że plik poszedł z metadanymi — interfejs
+ * ma o tym powiedzieć wprost. Milczenie byłoby wprowadzaniem w błąd:
+ * użytkownik ma prawo wiedzieć, że akurat to zdjęcie niesie lokalizację.
+ */
+data class WyslanyZalacznik(
+    val zalacznik: Zalacznik,
+    val metadaneUsuniete: Boolean,
+    val sposob: DeliveryMode,
+)
 
 /**
  * Warstwa spinająca rdzeń w Rust z siecią.
@@ -207,6 +225,83 @@ class Messenger private constructor(
 
         val urzadzenie = api.lookupDevices(recipient).firstOrNull()
         wyslij(recipient, urzadzenie, koperta)
+    }
+
+    /**
+     * Wysyła załącznik: czyści metadane, szyfruje, wgrywa, rozsyła klucz.
+     *
+     * # Kolejność ma znaczenie
+     *
+     * Metadane usuwamy **przed** zaszyfrowaniem. Lokalizacja z EXIF-a
+     * umieszczona w środku szyfrogramu dociera do odbiorcy dokładnie tak samo
+     * jak treść — szyfrowanie nie chroni przed tym, co sami tam włożyliśmy.
+     *
+     * Szyfrogram idzie do R2, a klucz osobno, w wiadomości MLS. Serwer nigdy
+     * nie ma obu naraz i to jest cały sens tego podziału.
+     *
+     * Zwraca `false` w drugim polu, gdy metadanych nie dało się usunąć —
+     * użytkownik ma się o tym dowiedzieć wprost, a nie z milczenia.
+     */
+    suspend fun sendAttachment(
+        groupId: ByteArray,
+        bajty: ByteArray,
+        mimeType: String,
+        nazwaPliku: String?,
+        recipient: String,
+    ): WyslanyZalacznik = withContext(Dispatchers.IO) {
+        // UniFFI zwraca `u64` jako `ULong` — porównanie z rozmiarem tablicy
+        // wymaga wspólnego typu, a limit i tak mieści się w `Long`.
+        val limit = maxAttachmentBytes().toLong()
+        require(bajty.size.toLong() <= limit) {
+            "plik jest za duży — limit to ${limit / 1024 / 1024} MB"
+        }
+
+        val (doWyslania, oczyszczone) = if (canStripMetadata(mimeType)) {
+            runCatching { stripMetadata(bajty, mimeType) }
+                .fold({ it to true }, { bajty to false })
+        } else {
+            bajty to false
+        }
+
+        val zapieczetowany = sealAttachment(doWyslania, mimeType)
+        val blobId = api.uploadAttachment(token, zapieczetowany.ciphertext)
+
+        val koperta = client.sealAttachmentMessage(
+            groupId,
+            blobId,
+            zapieczetowany.key,
+            zapieczetowany.nonce,
+            mimeType,
+            doWyslania.size.toULong(),
+            nazwaPliku,
+            System.currentTimeMillis().toULong(),
+        )
+
+        // Ratchet przesunął się już przy szyfrowaniu, więc zapis musi nastąpić
+        // nawet wtedy, gdy wysyłka po nim zawiedzie.
+        vault.saveState(client.exportState())
+
+        val urzadzenie = api.lookupDevices(recipient).firstOrNull()
+        val sposob = wyslij(recipient, urzadzenie, koperta)
+
+        WyslanyZalacznik(
+            zalacznik = Zalacznik(
+                blobId = blobId,
+                klucz = zapieczetowany.key,
+                nonce = zapieczetowany.nonce,
+                mimeType = mimeType,
+                rozmiar = doWyslania.size.toLong(),
+                nazwaPliku = nazwaPliku,
+            ),
+            metadaneUsuniete = oczyszczone,
+            sposob = sposob,
+        )
+    }
+
+    /** Pobiera szyfrogram załącznika i odszyfrowuje go na urządzeniu. */
+    suspend fun openAttachment(zalacznik: Zalacznik): ByteArray = withContext(Dispatchers.IO) {
+        val szyfrogram = api.downloadAttachment(token, zalacznik.blobId)
+        openAttachment(szyfrogram, zalacznik.klucz, zalacznik.nonce, zalacznik.mimeType)
     }
 
     /**

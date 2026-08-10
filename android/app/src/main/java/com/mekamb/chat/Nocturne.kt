@@ -69,6 +69,14 @@ val Akcent = Color(0xFF9184D9)
 val Linia = Tekst.copy(alpha = 0.16f)
 
 /**
+ * Zasłona pod arkuszem wysuwanym od dołu.
+ *
+ * Przyciemnia to, co zostaje na ekranie, zamiast to zakrywać: arkusz jest
+ * kolejnym krokiem w tej samej rozmowie, a nie osobnym miejscem.
+ */
+val Zaslona = Neutral900.copy(alpha = 0.62f)
+
+/**
  * Kolor tekstu przygaszonego.
  *
  * Osobna stała, bo przygaszanie przez przezroczystość w kilkunastu miejscach

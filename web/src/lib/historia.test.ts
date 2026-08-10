@@ -98,6 +98,35 @@ describe("historia rozmów", () => {
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toEqual([]);
   });
 
+  /// Sedno: podniesienie numeru wersji nie może skasować historii, której
+  /// nikt nie ma w kopii. Wersja 3 różni się od 4 wyłącznie polem, którego
+  /// Android wtedy nie zapisywał — pozostałe pola mają ten sam kształt.
+  it("historia z poprzedniej wersji formatu czyta się bez straty", async () => {
+    const klucz = Array.from(GRUPA_A, (b) => b.toString(16).padStart(2, "0")).join("");
+    dysk = new TextEncoder().encode(
+      JSON.stringify({
+        wersja: 3,
+        rozmowy: {
+          [klucz]: {
+            rozmowca: "bartek",
+            wiadomosci: [
+              { id: "1", autor: "bartek", tresc: "sprzed migracji", czas: 7, wlasna: false },
+            ],
+          },
+        },
+      }),
+    );
+
+    const odczytane = await wczytajRozmowe(GRUPA_A);
+
+    expect(odczytane).toHaveLength(1);
+    expect(odczytane[0]!.tresc).toBe("sprzed migracji");
+
+    // …i po pierwszym zapisie leży już w bieżącej wersji.
+    await zapiszRozmowe(GRUPA_A, "bartek", odczytane);
+    expect(JSON.parse(new TextDecoder().decode(dysk!)).wersja).toBe(4);
+  });
+
   /// Numer wersji ma odróżniać UKŁADY, nie tylko datę zmiany. Przez chwilę
   /// oba klienty deklarowały wersję 1 przy niezgodnych kształtach, więc
   /// przeniesienie konta między nimi dawało historię nie do odczytania.

@@ -9,6 +9,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
@@ -280,6 +281,46 @@ class Api(private val baseUrl: String) {
             }
         }
     }
+
+    /**
+     * Wgrywa zaszyfrowany załącznik i zwraca nadany przez serwer identyfikator.
+     *
+     * Do serwera trafia **wyłącznie szyfrogram** — klucz zostaje po tej stronie
+     * i pojedzie osobno, wewnątrz wiadomości MLS. Serwer nigdy nie ma obu naraz.
+     */
+    suspend fun uploadAttachment(token: String, ciphertext: ByteArray): String =
+        withContext(Dispatchers.IO) {
+            val zadanie = Request.Builder()
+                .url("$baseUrl/attachments")
+                .header("Authorization", "Bearer $token")
+                .post(ciphertext.toRequestBody(BINARNE))
+                .build()
+
+            http.newCall(zadanie).execute().use { odpowiedz ->
+                val tresc = odpowiedz.body?.string().orEmpty()
+                if (!odpowiedz.isSuccessful) {
+                    throw ApiException(odpowiedz.code, "nie udało się wgrać załącznika")
+                }
+
+                Json.parseToJsonElement(tresc).jsonObject["blobId"]!!.jsonPrimitive.content
+            }
+        }
+
+    /** Pobiera szyfrogram załącznika. Odszyfrowanie dzieje się na urządzeniu. */
+    suspend fun downloadAttachment(token: String, blobId: String): ByteArray =
+        withContext(Dispatchers.IO) {
+            val zadanie = Request.Builder()
+                .url("$baseUrl/attachments/$blobId")
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            http.newCall(zadanie).execute().use { odpowiedz ->
+                if (!odpowiedz.isSuccessful) {
+                    throw ApiException(odpowiedz.code, "nie udało się pobrać załącznika")
+                }
+                odpowiedz.body!!.bytes()
+            }
+        }
 
     /**
      * Klient dla gniazda skrzynki.

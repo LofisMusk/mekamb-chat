@@ -157,13 +157,15 @@ jobs:
       - name: Wskaż NDK
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
-      - name: Testy jednostkowe
+      # Jedno wywołanie na oba zadania i `-Pabi` przy OBU.
+      #
+      # `testDebugUnitTest` wygląda na niezależny od kodu natywnego, ale ciągnie
+      # `buildRustLibs`, a ten bez `-Pabi` buduje wszystkie domyślne ABI — czyli
+      # także armv7, którego toolchain tu nie ma. Rozdzielone wywołania budowały
+      # przy okazji rdzeń dwa razy.
+      - name: Testy i build APK
         working-directory: android
-        run: ./gradlew --no-daemon testDebugUnitTest
-
-      - name: Build APK
-        working-directory: android
-        run: ./gradlew --no-daemon assembleDebug -Pabi=arm64-v8a
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug -Pabi=arm64-v8a
 
   audit:
     name: Audyt zależności

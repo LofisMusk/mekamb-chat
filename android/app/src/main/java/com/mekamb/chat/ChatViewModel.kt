@@ -1,6 +1,8 @@
 package com.mekamb.chat
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -72,12 +74,28 @@ data class StanCzatu(
 /** Wiadomość czekająca na potwierdzenie wysyłki. */
 data class WLocie(val id: String, val tresc: String, val blad: Boolean = false)
 
+/** Nazwa dla pliku, którego nadawca nie nazwał — sam typ wystarczy za opis. */
+internal fun opisTypu(mimeType: String): String = when {
+    mimeType.startsWith("image/") -> "zdjęcie"
+    mimeType.startsWith("video/") -> "nagranie"
+    mimeType.startsWith("audio/") -> "dźwięk"
+    else -> "plik"
+}
+
 data class Wiadomosc(
     val autor: String,
     val tresc: String,
     val wlasna: Boolean,
     /** Czas lokalny odebrania albo wysłania — do pokazania godziny. */
     val czas: Long = System.currentTimeMillis(),
+    /**
+     * Załącznik, jeśli wiadomość go niesie.
+     *
+     * Trzymamy wyłącznie klucz i adres szyfrogramu — sam plik pobieramy
+     * dopiero przy pokazaniu. Zapisanie go w historii podwoiłoby rekord,
+     * który przy każdym zapisie szyfrujemy w całości.
+     */
+    val zalacznik: Zalacznik? = null,
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -579,14 +597,61 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
         stan = when (zdarzenie) {
-            is IncomingEvent.Message -> stan.copy(
-                wiadomosci = stan.wiadomosci + Wiadomosc(
+            /*
+             * Wiadomość trafia do SWOJEJ rozmowy, nie do tej otwartej na ekranie.
+             *
+             * Wcześniej zdarzenie nie niosło identyfikatora grupy, więc klient
+             * dopisywał każdą przychodzącą wiadomość do rozmowy akurat
+             * widocznej — i tam ją zapisywał. Wiadomość od jednej osoby lądowała
+             * w historii drugiej, bez śladu, że coś poszło nie tak.
+             */
+            is IncomingEvent.Message -> {
+                val wiadomosc = Wiadomosc(
                     autor = zdarzenie.senderUserId,
                     tresc = zdarzenie.text,
                     wlasna = false,
-                ),
-                trybPolaczenia = tryb,
-            )
+                )
+
+                if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
+                    stan.copy(
+                        wiadomosci = stan.wiadomosci + wiadomosc,
+                        trybPolaczenia = tryb,
+                    )
+                } else {
+                    // Rozmowa spoza ekranu: dopisujemy prosto na dysk i
+                    // odświeżamy listę, żeby licznik nieprzeczytanych urósł.
+                    dopiszDoRozmowy(zdarzenie.groupId, wiadomosc)
+                    stan.copy(rozmowy = historia.lista(), trybPolaczenia = tryb)
+                }
+            }
+
+            is IncomingEvent.Attachment -> {
+                val wiadomosc = Wiadomosc(
+                    autor = zdarzenie.senderUserId,
+                    tresc = zdarzenie.fileName ?: opisTypu(zdarzenie.mimeType),
+                    wlasna = false,
+                    zalacznik = Zalacznik(
+                        blobId = zdarzenie.blobId,
+                        klucz = zdarzenie.decryptionKey,
+                        nonce = zdarzenie.nonce,
+                        mimeType = zdarzenie.mimeType,
+                        rozmiar = zdarzenie.sizeBytes.toLong(),
+                        nazwaPliku = zdarzenie.fileName,
+                    ),
+                )
+
+                if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
+                    stan.copy(wiadomosci = stan.wiadomosci + wiadomosc, trybPolaczenia = tryb)
+                } else {
+                    dopiszDoRozmowy(zdarzenie.groupId, wiadomosc)
+                    stan.copy(rozmowy = historia.lista(), trybPolaczenia = tryb)
+                }
+            }
+
+            // Sygnalizacja A/V ma już drogę przez rdzeń, ale nie ma jeszcze
+            // ekranu rozmowy. Milczymy świadomie — dzwonek bez ekranu, na który
+            // można odebrać, byłby gorszy niż jego brak.
+            is IncomingEvent.CallSignal -> stan.copy(trybPolaczenia = tryb)
 
             is IncomingEvent.JoinedConversation -> stan.copy(
                 groupId = zdarzenie.groupId,
@@ -611,6 +676,87 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         zapiszHistorie()
+    }
+
+    /**
+     * Wysyła plik jako załącznik.
+     *
+     * Odczyt przez `ContentResolver`, bo wybrany dokument jest adresem, a nie
+     * ścieżką — aplikacja nie ma prawa czytać cudzych katalogów i nie musi.
+     *
+     * Gdy metadanych nie dało się usunąć, mówimy o tym w treści dymka.
+     * Milczenie byłoby wprowadzaniem w błąd: użytkownik ma prawo wiedzieć,
+     * że akurat to zdjęcie poszło z lokalizacją.
+     */
+    fun wyslijZalacznik(uri: Uri) {
+        val klient = messenger ?: return
+        val groupId = stan.groupId ?: return
+        val rozmowca = stan.rozmowca ?: return
+
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            val wynik = runCatching {
+                val resolver = getApplication<Application>().contentResolver
+                val bajty = resolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("nie udało się odczytać pliku")
+                val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+
+                klient.sendAttachment(groupId, bajty, mimeType, nazwaPliku(uri), rozmowca)
+            }
+
+            stan = wynik.fold(
+                { wyslany ->
+                    val opis = wyslany.zalacznik.nazwaPliku ?: opisTypu(wyslany.zalacznik.mimeType)
+                    stan.copy(
+                        pracuje = false,
+                        trybPolaczenia = wyslany.sposob,
+                        wiadomosci = stan.wiadomosci + Wiadomosc(
+                            autor = "Ty",
+                            tresc = if (wyslany.metadaneUsuniete) {
+                                opis
+                            } else {
+                                "$opis — nie udało się usunąć metadanych"
+                            },
+                            wlasna = true,
+                            zalacznik = wyslany.zalacznik,
+                        ),
+                    )
+                },
+                { blad ->
+                    stan.copy(
+                        pracuje = false,
+                        blad = blad.message ?: "nie udało się wysłać załącznika",
+                    )
+                },
+            )
+
+            zapiszHistorie()
+        }
+    }
+
+    /** Pobiera i odszyfrowuje załącznik. `null`, gdy się nie udało. */
+    suspend fun pobierzZalacznik(zalacznik: Zalacznik): ByteArray? =
+        messenger?.let { runCatching { it.openAttachment(zalacznik) }.getOrNull() }
+
+    /** Nazwa pliku z dostawcy treści — sam adres jej nie niesie. */
+    private fun nazwaPliku(uri: Uri): String? =
+        getApplication<Application>().contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { kursor ->
+                if (kursor.moveToFirst()) kursor.getString(0) else null
+            }
+
+    /**
+     * Dopisuje wiadomość do rozmowy, której nie ma na ekranie.
+     *
+     * Czyta i zapisuje wprost z dysku, bo stan w pamięci dotyczy wyłącznie
+     * rozmowy otwartej. Nazwę bierzemy ze składu grupy — rozmowa mogła
+     * powstać przed chwilą i nie mieć jeszcze żadnej.
+     */
+    private fun dopiszDoRozmowy(groupId: ByteArray, wiadomosc: Wiadomosc) {
+        val nazwa = nazwaZeSkladu(groupId) ?: historia.rozmowca(groupId) ?: return
+        runCatching { historia.zapisz(groupId, nazwa, historia.wczytaj(groupId) + wiadomosc) }
     }
 
     /**

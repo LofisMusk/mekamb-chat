@@ -84,6 +84,14 @@ impl From<mekamb_transport::Error> for MekambError {
 pub enum IncomingEvent {
     /// Wiadomość aplikacyjna wraz z **uwierzytelnionym** nadawcą.
     Message {
+        /// Rozmowa, do której należy ta wiadomość.
+        ///
+        /// Bez tego pola klient nie ma jak rozpoznać, gdzie ją zapisać —
+        /// dopisywał ją do rozmowy akurat otwartej na ekranie, więc wiadomość
+        /// z jednej rozmowy lądowała w historii drugiej. Wiązanie WASM niosło
+        /// identyfikator od początku (`receive` zwraca `groupId`), to tutaj go
+        /// brakowało.
+        group_id: Vec<u8>,
         sender_user_id: String,
         sender_device_id: String,
         text: String,
@@ -91,12 +99,93 @@ pub enum IncomingEvent {
         sent_at_ms: u64,
         message_id: Vec<u8>,
     },
+    /// Załącznik: metadane i klucz do odszyfrowania pobranego szyfrogramu.
+    ///
+    /// Klucz jedzie **wewnątrz** wiadomości MLS, a szyfrogram leży w R2 —
+    /// serwer nigdy nie ma obu naraz.
+    Attachment {
+        group_id: Vec<u8>,
+        sender_user_id: String,
+        sender_device_id: String,
+        blob_id: String,
+        decryption_key: Vec<u8>,
+        nonce: Vec<u8>,
+        mime_type: String,
+        size_bytes: u64,
+        file_name: Option<String>,
+        sent_at_ms: u64,
+        message_id: Vec<u8>,
+    },
+    /// Sygnalizacja rozmowy A/V — oferta, odpowiedź, kandydat ICE albo rozłączenie.
+    CallSignal {
+        group_id: Vec<u8>,
+        sender_user_id: String,
+        sender_device_id: String,
+        kind: CallSignalKind,
+        call_id: Vec<u8>,
+        payload: String,
+        /// Odcisk DTLS zadeklarowany w MLS — do porównania z tym z SDP.
+        dtls_fingerprint: String,
+        /// Adresat sygnału w rozmowie mesh; pusty znaczy „do wszystkich".
+        target: String,
+        sent_at_ms: u64,
+    },
     /// Skład grupy uległ zmianie.
     MembershipChanged,
     /// Propozycja odłożona do czasu commitu.
     ProposalQueued,
     /// Dołączyliśmy do nowej rozmowy.
     JoinedConversation { group_id: Vec<u8> },
+}
+
+/// Rodzaj sygnału rozmowy A/V.
+///
+/// Własny typ zamiast łańcucha znaków, jak w wiązaniu WASM: UniFFI generuje
+/// z tego enum Kotlina, więc literówka w nazwie rodzaju przestaje być błędem
+/// wykrywanym dopiero w czasie działania.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallSignalKind {
+    Offer,
+    Answer,
+    IceCandidate,
+    Hangup,
+    /// Sygnał, którego ta wersja nie rozumie — do zignorowania, nie do awarii.
+    Unspecified,
+}
+
+impl From<mekamb_core::framing::CallSignalKind> for CallSignalKind {
+    fn from(kind: mekamb_core::framing::CallSignalKind) -> Self {
+        match kind {
+            mekamb_core::framing::CallSignalKind::Offer => Self::Offer,
+            mekamb_core::framing::CallSignalKind::Answer => Self::Answer,
+            mekamb_core::framing::CallSignalKind::IceCandidate => Self::IceCandidate,
+            mekamb_core::framing::CallSignalKind::Hangup => Self::Hangup,
+            mekamb_core::framing::CallSignalKind::Unspecified => Self::Unspecified,
+        }
+    }
+}
+
+impl From<CallSignalKind> for mekamb_core::framing::CallSignalKind {
+    fn from(kind: CallSignalKind) -> Self {
+        match kind {
+            CallSignalKind::Offer => Self::Offer,
+            CallSignalKind::Answer => Self::Answer,
+            CallSignalKind::IceCandidate => Self::IceCandidate,
+            CallSignalKind::Hangup => Self::Hangup,
+            CallSignalKind::Unspecified => Self::Unspecified,
+        }
+    }
+}
+
+/// Zaszyfrowany załącznik gotowy do wysłania.
+///
+/// Klucz i nonce **nie** jadą razem z szyfrogramem: szyfrogram trafia do R2,
+/// a klucz do wiadomości MLS. Serwer nigdy nie ma obu naraz.
+#[derive(Debug, uniffi::Record)]
+pub struct SealedAttachment {
+    pub ciphertext: Vec<u8>,
+    pub key: Vec<u8>,
+    pub nonce: Vec<u8>,
 }
 
 /// Kod QR jako płaska tablica modułów.
@@ -109,6 +198,88 @@ pub struct KodQr {
     pub bok: u32,
     /// `true` znaczy moduł ciemny. Długość to `bok * bok`.
     pub moduly: Vec<bool>,
+}
+
+/// Szyfruje załącznik kluczem jednorazowym.
+///
+/// Klucz nie wraca do serwera w żadnej postaci — jedzie osobno, w wiadomości
+/// MLS. Ta sama implementacja obsługuje klienta webowego (`sealAttachment`
+/// w wiązaniu WASM), więc format nie ma jak się rozjechać między platformami.
+#[uniffi::export]
+pub fn seal_attachment(
+    plaintext: Vec<u8>,
+    mime_type: String,
+) -> Result<SealedAttachment, MekambError> {
+    let sealed = mekamb_core::seal_attachment(&plaintext, &mime_type)?;
+
+    // Kopiujemy zamiast przenosić: `SealedAttachment` w rdzeniu implementuje
+    // `Drop`, żeby wyzerować klucz przy zwolnieniu, a to wyklucza rozbiórkę
+    // struktury na części.
+    Ok(SealedAttachment {
+        ciphertext: sealed.ciphertext.clone(),
+        key: sealed.key.to_vec(),
+        nonce: sealed.nonce.to_vec(),
+    })
+}
+
+/// Odszyfrowuje załącznik pobrany z serwera.
+#[uniffi::export]
+pub fn open_attachment(
+    ciphertext: Vec<u8>,
+    key: Vec<u8>,
+    nonce: Vec<u8>,
+    mime_type: String,
+) -> Result<Vec<u8>, MekambError> {
+    Ok(mekamb_core::open_attachment(
+        &ciphertext,
+        &key,
+        &nonce,
+        &mime_type,
+    )?)
+}
+
+/// Górny limit rozmiaru załącznika — interfejs odsiewa za duże pliki od razu.
+#[uniffi::export]
+pub fn max_attachment_bytes() -> u64 {
+    mekamb_core::MAX_ATTACHMENT_BYTES as u64
+}
+
+/// Usuwa metadane z pliku — zdjęcia albo wideo.
+///
+/// Wołane **przed** zaszyfrowaniem: dane umieszczone w środku szyfrogramu
+/// docierają do odbiorcy tak samo jak sama treść, więc szyfrowanie nie chroni
+/// przed tym, co sami tam włożyliśmy. Obraz i dźwięk zostają nietknięte.
+#[uniffi::export]
+pub fn strip_metadata(bytes: Vec<u8>, mime_type: String) -> Result<Vec<u8>, MekambError> {
+    Ok(mekamb_core::media::strip_metadata(&bytes, &mime_type)?)
+}
+
+/// Czy dla tego typu pliku potrafimy usunąć metadane.
+#[uniffi::export]
+pub fn can_strip_metadata(mime_type: String) -> bool {
+    mekamb_core::can_strip(&mime_type)
+}
+
+/// Sprawdza, czy SDP niesie DOKŁADNIE ten odcisk, który przyszedł kanałem MLS.
+///
+/// To jest miejsce, w którym rozmowa A/V przestaje ufać sygnalizacji. SDP
+/// przechodzi przez serwer; odcisk przychodzi zaszyfrowanym kanałem MLS.
+/// Niezgodność znaczy, że ktoś podstawił własne połączenie DTLS — wtedy
+/// zrywamy, bez pytania użytkownika o zgodę.
+#[uniffi::export]
+pub fn verify_sdp_fingerprint(sdp: String, expected: String) -> Result<(), MekambError> {
+    Ok(mekamb_core::calls::verify_sdp_fingerprint(&sdp, &expected)?)
+}
+
+/// Odcisk DTLS z własnego SDP — do wysłania kanałem MLS.
+#[uniffi::export]
+pub fn own_sdp_fingerprint(sdp: String) -> Result<String, MekambError> {
+    mekamb_core::calls::extract_fingerprints(&sdp)
+        .into_iter()
+        .next()
+        .ok_or_else(|| MekambError::InvalidInput {
+            powod: "SDP nie zawiera odcisku DTLS".into(),
+        })
 }
 
 /// Generuje kod QR.
@@ -371,6 +542,84 @@ impl MekambClient {
         Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
     }
 
+    /// Pakuje załącznik: metadane i klucz jadą w wiadomości MLS.
+    ///
+    /// Sam szyfrogram trafia osobno do R2 — ta funkcja go nie dotyka. Dzięki
+    /// temu serwer nigdy nie ma klucza i szyfrogramu naraz.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_attachment_message(
+        &self,
+        group_id: Vec<u8>,
+        blob_id: String,
+        key: Vec<u8>,
+        nonce: Vec<u8>,
+        mime_type: String,
+        size_bytes: u64,
+        file_name: Option<String>,
+        sent_at_ms: u64,
+    ) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let message = ChatMessage::attachment(
+            mekamb_core::framing::AttachmentBody {
+                blob_id,
+                decryption_key: key,
+                nonce,
+                mime_type,
+                size_bytes,
+                file_name,
+            },
+            sent_at_ms,
+        );
+        let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
+
+        Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+    }
+
+    /// Szyfruje sygnalizację rozmowy A/V i pakuje ją do wysłania.
+    ///
+    /// `dtls_fingerprint` podróżuje **wewnątrz** MLS, niezależnie od SDP.
+    /// Odbiorca porówna jedno z drugim przed zestawieniem połączenia — bez
+    /// tego pośrednik mógłby podstawić własne połączenie DTLS, a rozmowa
+    /// wyglądałaby na zabezpieczoną.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_call_signal(
+        &self,
+        group_id: Vec<u8>,
+        kind: CallSignalKind,
+        call_id: Vec<u8>,
+        payload: String,
+        dtls_fingerprint: String,
+        target: String,
+        sent_at_ms: u64,
+    ) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let message = ChatMessage::call_signal(
+            mekamb_core::framing::CallSignalBody {
+                kind: mekamb_core::framing::CallSignalKind::from(kind) as i32,
+                call_id,
+                payload,
+                dtls_fingerprint,
+                target,
+            },
+            sent_at_ms,
+        );
+        let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
+
+        Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+    }
+
     /// Przetwarza kopertę odebraną z sieci.
     ///
     /// Obsługuje też zaproszenia: koperta typu `welcome` wprowadza nas do nowej
@@ -394,18 +643,57 @@ impl MekambClient {
         let incoming =
             pobierz(conversations, &envelope.group_id)?.receive(provider, &envelope.payload)?;
 
+        let group_id = envelope.group_id.clone();
+
         Ok(match incoming {
             Incoming::Message {
                 sender_user_id,
                 sender_device_id,
                 message,
-            } => IncomingEvent::Message {
-                sender_user_id,
-                sender_device_id,
-                text: message.as_text().unwrap_or_default().to_string(),
-                sent_at_ms: message.sent_at_ms,
-                message_id: message.message_id.clone(),
-            },
+            } => {
+                // Rozróżnienie po TREŚCI, nie po deklaracji nadawcy: wiadomość
+                // z ciałem załącznika, podana jako tekst, dawała pusty dymek —
+                // `as_text` zwraca wtedy `None`, a klient nie miał czego pokazać.
+                if let Some(zalacznik) = message.as_attachment() {
+                    IncomingEvent::Attachment {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        blob_id: zalacznik.blob_id.clone(),
+                        decryption_key: zalacznik.decryption_key.clone(),
+                        nonce: zalacznik.nonce.clone(),
+                        mime_type: zalacznik.mime_type.clone(),
+                        size_bytes: zalacznik.size_bytes,
+                        file_name: zalacznik.file_name.clone(),
+                        sent_at_ms: message.sent_at_ms,
+                        message_id: message.message_id.clone(),
+                    }
+                } else if let Some(sygnal) = message.as_call_signal() {
+                    IncomingEvent::CallSignal {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        kind: CallSignalKind::from(
+                            mekamb_core::framing::CallSignalKind::try_from(sygnal.kind)
+                                .unwrap_or(mekamb_core::framing::CallSignalKind::Unspecified),
+                        ),
+                        call_id: sygnal.call_id.clone(),
+                        payload: sygnal.payload.clone(),
+                        dtls_fingerprint: sygnal.dtls_fingerprint.clone(),
+                        target: sygnal.target.clone(),
+                        sent_at_ms: message.sent_at_ms,
+                    }
+                } else {
+                    IncomingEvent::Message {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        text: message.as_text().unwrap_or_default().to_string(),
+                        sent_at_ms: message.sent_at_ms,
+                        message_id: message.message_id.clone(),
+                    }
+                }
+            }
             Incoming::MembershipChanged => IncomingEvent::MembershipChanged,
             Incoming::ProposalQueued => IncomingEvent::ProposalQueued,
         })

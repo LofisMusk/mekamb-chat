@@ -1,6 +1,18 @@
 package com.mekamb.chat
 
+import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,8 +86,18 @@ fun EkranRozmowy(
     onRozmowa: (wideo: Boolean) -> Unit,
 ) {
     var tresc by remember { mutableStateOf("") }
+    var arkuszZalacznikow by remember { mutableStateOf(false) }
     val stan = model.stan
     val lista = rememberLazyListState()
+
+    // Wybór pliku oddajemy systemowi. Aplikacja nie prosi o dostęp do galerii
+    // ani do pamięci — dostaje adres jednego dokumentu, który użytkownik sam
+    // wskazał, i nic poza nim. Uprawnienie, o które się nie prosi, nie może
+    // zostać nadużyte.
+    val wybierz = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        arkuszZalacznikow = false
+        uri?.let(model::wyslijZalacznik)
+    }
 
     // Nowa wiadomość ma być widoczna bez przewijania. Bez tego rozmowa
     // „stoi" na starej treści i wygląda, jakby nic nie przyszło.
@@ -84,7 +106,13 @@ fun EkranRozmowy(
         if (ile > 0) lista.animateScrollToItem(ile - 1)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    // Arkusz zamyka się systemowym „wstecz" wcześniej niż rozmowa — inaczej
+    // pierwsze cofnięcie zabierałoby cały ekran zamiast schować to, co na nim
+    // przed chwilą wyskoczyło.
+    BackHandler(enabled = arkuszZalacznikow) { arkuszZalacznikow = false }
+
+    Box(modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         PasekRozmowy(
             nazwa = stan.rozmowca ?: "rozmowa",
             tryb = stan.trybPolaczenia,
@@ -110,7 +138,99 @@ fun EkranRozmowy(
             onZmiana = { tresc = it },
             wlaczone = !stan.pracuje,
             onWyslij = { model.wyslij(tresc) { tresc = "" } },
+            onZalacz = { arkuszZalacznikow = true },
         )
+    }
+
+        if (arkuszZalacznikow) {
+            ArkuszZalacznikow(
+                onZamknij = { arkuszZalacznikow = false },
+                onWybierz = { typ -> wybierz.launch(typ) },
+            )
+        }
+    }
+}
+
+/**
+ * Arkusz wyboru załącznika.
+ *
+ * Cztery drogi, bo prowadzą do różnych miejsc systemu: galeria zdjęć, galeria
+ * nagrań i dowolny plik to trzy różne filtry tego samego wyboru.
+ *
+ * Notka o szyfrowaniu i metadanych stoi tutaj, a nie po wysłaniu: obietnica
+ * pokazana po fakcie nie daje już wyboru.
+ */
+@Composable
+private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Zaslona)
+            .clickable(onClick = onZamknij),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Powierzchnia, RoundedCornerShape(14.dp, 14.dp, 0.dp, 0.dp))
+                // Kliknięcie w sam arkusz nie może go zamykać — zamyka je
+                // dopiero kliknięcie w zasłonę obok.
+                .clickable(enabled = false) {}
+                .padding(Odstep.l),
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .size(width = 36.dp, height = 4.dp)
+                    .background(Neutral700, RoundedCornerShape(2.dp)),
+            )
+
+            Text("Załącz · Attach", style = MaterialTheme.typography.titleMedium)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
+                KafelekZalacznika("Zdjęcie", Ikony.Aparat, Modifier.weight(1f)) {
+                    onWybierz("image/*")
+                }
+                KafelekZalacznika("Wideo", Ikony.Kamera, Modifier.weight(1f)) {
+                    onWybierz("video/*")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
+                KafelekZalacznika("Dźwięk", Ikony.Dzwonek, Modifier.weight(1f)) {
+                    onWybierz("audio/*")
+                }
+                KafelekZalacznika("Plik", Ikony.Spinacz, Modifier.weight(1f)) {
+                    onWybierz("*/*")
+                }
+            }
+
+            Wskazowka(
+                "Każdy plik szyfrowany osobnym kluczem. Usuwamy lokalizację i dane " +
+                    "urządzenia — gdy się nie uda, powiemy o tym wprost.",
+                Ikony.Tarcza,
+            )
+        }
+    }
+}
+
+@Composable
+private fun KafelekZalacznika(
+    etykieta: String,
+    ikona: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .border(1.dp, Linia, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = Odstep.l),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Odstep.xs),
+    ) {
+        Icon(ikona, contentDescription = null, tint = Tekst, modifier = Modifier.size(24.dp))
+        Text(etykieta, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -219,6 +339,10 @@ private fun Babel(wiadomosc: Wiadomosc) {
                 )
             }
 
+            wiadomosc.zalacznik?.let { zalacznik ->
+                PodgladZalacznika(zalacznik, wlasna)
+            }
+
             Text(
                 wiadomosc.tresc,
                 style = MaterialTheme.typography.bodyLarge,
@@ -233,6 +357,85 @@ private fun Babel(wiadomosc: Wiadomosc) {
             )
         }
     }
+}
+
+/**
+ * Podgląd załącznika w dymku.
+ *
+ * # Zdjęcia odszyfrowują się same
+ *
+ * Zdjęcie w rozmowie ma być zdjęciem, a nie zadaniem do wykonania. Klikanie
+ * „pobierz" przy każdym z nich zamieniałoby rozmowę w listę plików.
+ * Deszyfrowanie dzieje się lokalnie, więc jedynym kosztem jest pobranie
+ * szyfrogramu — które i tak nastąpiłoby po kliknięciu.
+ *
+ * Pozostałe typy zostają opisem: dokumentu nie ma jak pokazać w dymku,
+ * a udawanie podglądu byłoby gorsze niż jego brak.
+ */
+@Composable
+private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
+    val model: ChatViewModel = viewModel()
+    val obraz = zalacznik.mimeType.startsWith("image/")
+    var bitmapa by remember(zalacznik.blobId) { mutableStateOf<ImageBitmap?>(null) }
+    var nieudane by remember(zalacznik.blobId) { mutableStateOf(false) }
+
+    LaunchedEffect(zalacznik.blobId) {
+        if (!obraz) return@LaunchedEffect
+
+        val bajty = model.pobierzZalacznik(zalacznik)
+        if (bajty == null) {
+            nieudane = true
+            return@LaunchedEffect
+        }
+
+        bitmapa = runCatching {
+            BitmapFactory.decodeByteArray(bajty, 0, bajty.size)?.asImageBitmap()
+        }.getOrNull()
+        if (bitmapa == null) nieudane = true
+    }
+
+    when {
+        bitmapa != null -> Image(
+            bitmap = bitmapa!!,
+            contentDescription = zalacznik.nazwaPliku ?: "zdjęcie",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .widthIn(max = 260.dp)
+                .heightIn(max = 320.dp)
+                .clip(RoundedCornerShape(8.dp)),
+        )
+
+        else -> Row(
+            modifier = Modifier
+                .background(Tlo, RoundedCornerShape(8.dp))
+                .padding(Odstep.m),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            Icon(
+                imageVector = Ikony.Spinacz,
+                contentDescription = null,
+                tint = if (wlasna) Accent300 else Neutral500,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = when {
+                    nieudane -> "nie udało się pobrać — spróbuj później"
+                    obraz -> "odszyfrowuję…"
+                    else -> "${opisTypu(zalacznik.mimeType)} · ${rozmiarTekstem(zalacznik.rozmiar)}"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (wlasna) Accent200 else Neutral500,
+            )
+        }
+    }
+}
+
+/** Rozmiar pliku w postaci, którą da się przeczytać bez liczenia zer. */
+internal fun rozmiarTekstem(bajty: Long): String = when {
+    bajty >= 1024 * 1024 -> "%.1f MB".format(bajty / 1024.0 / 1024.0)
+    bajty >= 1024 -> "${bajty / 1024} kB"
+    else -> "$bajty B"
 }
 
 /**
@@ -296,6 +499,7 @@ private fun PoleWysylki(
     onZmiana: (String) -> Unit,
     wlaczone: Boolean,
     onWyslij: () -> Unit,
+    onZalacz: () -> Unit,
 ) {
     Column {
         Box(Modifier.fillMaxWidth().size(1.dp).background(Linia))
@@ -305,9 +509,9 @@ private fun PoleWysylki(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
-            // Załączniki na Androidzie jeszcze nie są podpięte. Przycisk jest
-            // w projekcie, ale pokazywanie martwej kontrolki byłoby obietnicą
-            // bez pokrycia — dojdzie razem z wyborem pliku.
+            IconButton(onClick = onZalacz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
+                Icon(Ikony.Spinacz, contentDescription = "Załącz", tint = Tekst)
+            }
 
             OutlinedTextField(
                 value = tresc,

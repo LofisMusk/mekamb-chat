@@ -33,12 +33,88 @@ private const val LIMIT_WIADOMOSCI = 500
 /**
  * Wersja formatu.
  *
- * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania. Numer był przy wersji 2
- * przez chwilę taki sam jak w kliencie webowym mimo niezgodnego kształtu —
- * przeniesienie konta między klientami dałoby wtedy historię nie do odczytania.
- * Każda zmiana układu idzie teraz po obu stronach naraz.
+ * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania, 4 załącznik po tej
+ * stronie. Numer był przy wersji 2 przez chwilę taki sam jak w kliencie
+ * webowym mimo niezgodnego kształtu — przeniesienie konta między klientami
+ * dałoby wtedy historię nie do odczytania. Każda zmiana układu idzie teraz po
+ * obu stronach naraz.
  */
-private const val WERSJA = 3
+private const val WERSJA = 4
+
+/**
+ * Wersje, które umiemy wczytać.
+ *
+ * 3 różni się od 4 wyłącznie brakiem załącznika — kształt pozostałych pól jest
+ * ten sam, więc odczyt jest bezstratny. Odrzucenie starszego zapisu byłoby
+ * **skasowaniem historii użytkownika**, której serwer nie ma w kopii. Reguła
+ * „numer odróżnia układy" zostaje; od odrzucania jest niezgodny układ, a nie
+ * każdy inny numer.
+ */
+private val CZYTANE_WERSJE = setOf(3, WERSJA)
+
+/**
+ * Załącznik zapisany obok wiadomości.
+ *
+ * Kształt jest ten sam co w kliencie webowym (`historia.ts`): szyfrogram leży
+ * na serwerze, a tutaj zostaje wyłącznie klucz do niego. Klucz i nonce jako
+ * listy liczb, bo tak zapisuje je web — a zrzut przenoszenia konta wędruje
+ * między klientami i musi się czytać po obu stronach.
+ */
+@Serializable
+data class ZapisanyZalacznik(
+    val blobId: String,
+    val key: List<Int>,
+    val nonce: List<Int>,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val fileName: String? = null,
+)
+
+/**
+ * Załącznik w postaci używanej przez interfejs.
+ *
+ * `ByteArray` zamiast listy liczb, bo tak wygodniej go odszyfrować — konwersja
+ * przy zapisie i odczycie jest ceną za zgodność z zapisem klienta webowego.
+ */
+data class Zalacznik(
+    val blobId: String,
+    val klucz: ByteArray,
+    val nonce: ByteArray,
+    val mimeType: String,
+    val rozmiar: Long,
+    val nazwaPliku: String? = null,
+) {
+    // ByteArray porównuje się przez referencję, więc data class wymaga tu
+    // ręcznej roboty — bez tego dwa takie same załączniki są różne.
+    override fun equals(other: Any?): Boolean =
+        other is Zalacznik &&
+            blobId == other.blobId &&
+            klucz.contentEquals(other.klucz) &&
+            nonce.contentEquals(other.nonce) &&
+            mimeType == other.mimeType &&
+            rozmiar == other.rozmiar &&
+            nazwaPliku == other.nazwaPliku
+
+    override fun hashCode(): Int = blobId.hashCode() * 31 + klucz.contentHashCode()
+
+    fun doZapisu(): ZapisanyZalacznik = ZapisanyZalacznik(
+        blobId = blobId,
+        key = klucz.map { it.toInt() and 0xff },
+        nonce = nonce.map { it.toInt() and 0xff },
+        mimeType = mimeType,
+        sizeBytes = rozmiar,
+        fileName = nazwaPliku,
+    )
+}
+
+fun ZapisanyZalacznik.doModelu(): Zalacznik = Zalacznik(
+    blobId = blobId,
+    klucz = ByteArray(key.size) { key[it].toByte() },
+    nonce = ByteArray(nonce.size) { nonce[it].toByte() },
+    mimeType = mimeType,
+    rozmiar = sizeBytes,
+    nazwaPliku = fileName,
+)
 
 @Serializable
 private data class ZapisanaWiadomosc(
@@ -46,6 +122,7 @@ private data class ZapisanaWiadomosc(
     val tresc: String,
     val wlasna: Boolean,
     val czas: Long,
+    val zalacznik: ZapisanyZalacznik? = null,
 )
 
 /**
@@ -109,7 +186,9 @@ class Historia(private val vault: Vault) {
     fun wczytaj(groupId: ByteArray): List<Wiadomosc> =
         wczytajWszystko().rozmowy[klucz(groupId)]
             ?.wiadomosci
-            ?.map { Wiadomosc(it.autor, it.tresc, it.wlasna, it.czas) }
+            ?.map {
+                Wiadomosc(it.autor, it.tresc, it.wlasna, it.czas, it.zalacznik?.doModelu())
+            }
             ?: emptyList()
 
     /** Z kim była ta rozmowa. */
@@ -127,7 +206,9 @@ class Historia(private val vault: Vault) {
 
         // Obcinamy od początku — najstarsze idą pierwsze.
         val przyciete = wiadomosci.takeLast(LIMIT_WIADOMOSCI)
-            .map { ZapisanaWiadomosc(it.autor, it.tresc, it.wlasna, it.czas) }
+            .map {
+                ZapisanaWiadomosc(it.autor, it.tresc, it.wlasna, it.czas, it.zalacznik?.doZapisu())
+            }
 
         val klucz = klucz(groupId)
         val nowe = zapis.copy(
@@ -193,10 +274,12 @@ class Historia(private val vault: Vault) {
         return runCatching {
             val zapis = json.decodeFromString<ZapisanaHistoria>(String(surowe))
 
-            // Historia z innej wersji formatu jest odrzucana w całości. Próba
-            // odgadnięcia starego układu dałaby rozmowy poprzestawiane
-            // w czasie — gorsze niż pusty ekran, bo wygląda na prawdziwe.
-            if (zapis.wersja != WERSJA) ZapisanaHistoria() else zapis
+            // Historia z UKŁADU, którego nie znamy, jest odrzucana w całości.
+            // Próba odgadnięcia go dałaby rozmowy poprzestawiane w czasie —
+            // gorsze niż pusty ekran, bo wygląda na prawdziwe. Wersje z listy
+            // czytamy normalnie: różnią się polem, którego brak jest
+            // nieodróżnialny od jego pustej wartości.
+            if (zapis.wersja !in CZYTANE_WERSJE) ZapisanaHistoria() else zapis.copy(wersja = WERSJA)
         }.getOrElse { ZapisanaHistoria() }
     }
 

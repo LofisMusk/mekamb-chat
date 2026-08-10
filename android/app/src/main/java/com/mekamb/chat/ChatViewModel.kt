@@ -734,25 +734,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val klient = messenger ?: return
         val przychodzaca = stan.przychodzacaRozmowa ?: return
 
-        val nowa = RozmowaAV.odbierz(
+        // Oferta idzie razem z odebraniem: `RozmowaAV` przetworzy ją dopiero
+        // po pobraniu poświadczeń ICE — patrz komentarz przy `odbierz`.
+        rozmowa = RozmowaAV.odbierz(
             kontekst = kontekst,
             messenger = klient,
             groupId = przychodzaca.groupId,
             callId = przychodzaca.callId,
             zWideo = zWideo,
+            od = przychodzaca.od,
+            oferta = przychodzaca.oferta,
+            odcisk = przychodzaca.odcisk,
             zakres = viewModelScope,
         ) { uczestnicy -> stan = stan.copy(rozmowaAV = uczestnicy) }
 
-        rozmowa = nowa
         stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
-
-        // Oferta czekała na odebranie — teraz jest komu ją przetworzyć.
-        nowa.przyjmij(
-            przychodzaca.od,
-            CallSignalKind.OFFER,
-            przychodzaca.oferta,
-            przychodzaca.odcisk,
-        )
     }
 
     /** Kończy rozmowę i zwalnia mikrofon oraz kamerę. */

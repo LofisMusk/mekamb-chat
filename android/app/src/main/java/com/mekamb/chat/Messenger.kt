@@ -340,6 +340,9 @@ class Messenger private constructor(
         wyslij(target, urzadzenie, koperta)
     }
 
+    /** Poświadczenia STUN/TURN dla rozmowy A/V — token trzyma `Messenger`. */
+    suspend fun serweryIce(): List<Api.SerwerIce> = api.iceServers(token)
+
     /** Pobiera szyfrogram załącznika i odszyfrowuje go na urządzeniu. */
     suspend fun openAttachment(zalacznik: Zalacznik): ByteArray = withContext(Dispatchers.IO) {
         val szyfrogram = api.downloadAttachment(token, zalacznik.blobId)

@@ -306,6 +306,48 @@ class Api(private val baseUrl: String) {
             }
         }
 
+    /** Serwer ICE: STUN zawsze, TURN tylko wtedy, gdy Worker go ma. */
+    data class SerwerIce(
+        val urls: String,
+        val username: String? = null,
+        val credential: String? = null,
+    )
+
+    /**
+     * Pobiera poświadczenia STUN/TURN z Workera.
+     *
+     * TURN jest potrzebny tylko wtedy, gdy obie strony siedzą za restrykcyjnym
+     * NAT-em. Poświadczenia są krótkożyjące — trwały sekret w kliencie
+     * pozwalałby dowolnej osobie zużywać nasz limit transferu.
+     *
+     * Niepowodzenie NIE jest błędem: bez TURN-a nie uda się wyłącznie
+     * połączenie między dwoma restrykcyjnymi NAT-ami, a reszta działa dalej.
+     * Dlatego zwracamy wtedy sam STUN, zamiast przerywać zestawianie rozmowy.
+     */
+    suspend fun iceServers(token: String): List<SerwerIce> = withContext(Dispatchers.IO) {
+        runCatching {
+            val zadanie = Request.Builder()
+                .url("$baseUrl/calls/ice-servers")
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            http.newCall(zadanie).execute().use { odpowiedz ->
+                if (!odpowiedz.isSuccessful) return@runCatching null
+
+                Json.parseToJsonElement(odpowiedz.body!!.string())
+                    .jsonObject["iceServers"]!!.jsonArray
+                    .map { wpis ->
+                        val obiekt = wpis.jsonObject
+                        SerwerIce(
+                            urls = obiekt["urls"]!!.jsonPrimitive.content,
+                            username = obiekt["username"]?.jsonPrimitive?.content,
+                            credential = obiekt["credential"]?.jsonPrimitive?.content,
+                        )
+                    }
+            }
+        }.getOrNull() ?: listOf(SerwerIce(STUN_ZAPASOWY))
+    }
+
     /** Pobiera szyfrogram załącznika. Odszyfrowanie dzieje się na urządzeniu. */
     suspend fun downloadAttachment(token: String, blobId: String): ByteArray =
         withContext(Dispatchers.IO) {
@@ -417,6 +459,15 @@ class Api(private val baseUrl: String) {
     private companion object {
         val JSON_MEDIA = "application/json".toMediaType()
         val BINARNE = "application/octet-stream".toMediaType()
+
+        /**
+         * STUN na wypadek, gdyby Worker nie odpowiedział.
+         *
+         * Bez ŻADNEGO serwera ICE rozmowa nie zestawi się nawet między dwoma
+         * urządzeniami w tej samej sieci — a niedostępny endpoint nie jest
+         * powodem, żeby jej w ogóle nie próbować.
+         */
+        const val STUN_ZAPASOWY = "stun:stun.cloudflare.com:3478"
     }
 }
 

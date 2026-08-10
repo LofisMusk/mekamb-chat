@@ -1,6 +1,7 @@
 package com.mekamb.chat
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
@@ -9,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import uniffi.mekamb_ffi.CallSignalKind
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
 import java.util.UUID
@@ -65,8 +67,27 @@ data class StanCzatu(
     val zakladaneKonto: String? = null,
     /** Komunikat powodzenia, np. po odebraniu konta. */
     val informacja: String? = null,
+    /** Uczestnicy trwającej rozmowy A/V. Pusta lista znaczy: nie dzwonimy. */
+    val rozmowaAV: List<UczestnikRozmowy> = emptyList(),
+    /** Czy w trwającej rozmowie nadajemy obraz. */
+    val rozmowaZWideo: Boolean = false,
+    /** Kto dzwoni i do której rozmowy — zanim odbierzemy. */
+    val przychodzacaRozmowa: PrzychodzacaRozmowa? = null,
 ) {
     // ByteArray nie ma sensownego equals, a data class go potrzebuje.
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = System.identityHashCode(this)
+}
+
+/** Rozmowa A/V, na którą jeszcze nie odpowiedzieliśmy. */
+data class PrzychodzacaRozmowa(
+    val od: String,
+    val groupId: ByteArray,
+    val callId: ByteArray,
+    /** Pierwszy sygnał — oferta, którą trzeba przetworzyć zaraz po odebraniu. */
+    val oferta: String,
+    val odcisk: String,
+) {
     override fun equals(other: Any?): Boolean = this === other
     override fun hashCode(): Int = System.identityHashCode(this)
 }
@@ -648,10 +669,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // Sygnalizacja A/V ma już drogę przez rdzeń, ale nie ma jeszcze
-            // ekranu rozmowy. Milczymy świadomie — dzwonek bez ekranu, na który
-            // można odebrać, byłby gorszy niż jego brak.
-            is IncomingEvent.CallSignal -> stan.copy(trybPolaczenia = tryb)
+            is IncomingEvent.CallSignal -> obsluzSygnalRozmowy(zdarzenie, tryb)
 
             is IncomingEvent.JoinedConversation -> stan.copy(
                 groupId = zdarzenie.groupId,
@@ -676,6 +694,146 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         zapiszHistorie()
+    }
+
+    // -----------------------------------------------------------------------
+    // Rozmowy A/V
+    // -----------------------------------------------------------------------
+
+    private var rozmowa: RozmowaAV? = null
+
+    /**
+     * Zaczyna rozmowę z uczestnikami bieżącej grupy.
+     *
+     * Skład bierzemy z drzewa MLS, nie z nazwy rozmowy: dzwonimy do osób,
+     * które naprawdę są w grupie, a nie do etykiety na liście.
+     */
+    fun zadzwon(kontekst: Context, zWideo: Boolean) {
+        val klient = messenger ?: return
+        val groupId = stan.groupId ?: return
+        val ja = vault.loadAccount()?.userId.orEmpty()
+
+        val rozmowcy = runCatching { klient.uczestnicy(groupId) }.getOrDefault(emptyList())
+            .filter { it != ja }
+        if (rozmowcy.isEmpty()) return
+
+        rozmowa = RozmowaAV.zadzwon(
+            kontekst = kontekst,
+            messenger = klient,
+            groupId = groupId,
+            rozmowcy = rozmowcy,
+            zWideo = zWideo,
+            zakres = viewModelScope,
+        ) { uczestnicy -> stan = stan.copy(rozmowaAV = uczestnicy) }
+
+        stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
+    }
+
+    /** Odbiera dzwoniącą rozmowę. */
+    fun odbierzRozmowe(kontekst: Context, zWideo: Boolean) {
+        val klient = messenger ?: return
+        val przychodzaca = stan.przychodzacaRozmowa ?: return
+
+        val nowa = RozmowaAV.odbierz(
+            kontekst = kontekst,
+            messenger = klient,
+            groupId = przychodzaca.groupId,
+            callId = przychodzaca.callId,
+            zWideo = zWideo,
+            zakres = viewModelScope,
+        ) { uczestnicy -> stan = stan.copy(rozmowaAV = uczestnicy) }
+
+        rozmowa = nowa
+        stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
+
+        // Oferta czekała na odebranie — teraz jest komu ją przetworzyć.
+        nowa.przyjmij(
+            przychodzaca.od,
+            CallSignalKind.OFFER,
+            przychodzaca.oferta,
+            przychodzaca.odcisk,
+        )
+    }
+
+    /** Kończy rozmowę i zwalnia mikrofon oraz kamerę. */
+    fun zakonczRozmowe() {
+        rozmowa?.zakoncz()
+        rozmowa = null
+        stan = stan.copy(rozmowaAV = emptyList(), przychodzacaRozmowa = null)
+    }
+
+    fun przelaczMikrofon() = rozmowa?.przelaczMikrofon()
+    fun przelaczKamere() = rozmowa?.przelaczKamere()
+
+    /** Czy mikrofon jest włączony — ekran rysuje po tym stan przycisku. */
+    val mikrofonWlaczony: Boolean get() = rozmowa?.mikrofonWlaczony ?: true
+    val kameraWlaczona: Boolean get() = rozmowa?.kameraWlaczona ?: false
+
+    /**
+     * Odrzuca dzwoniącą rozmowę.
+     *
+     * Wysyłamy rozłączenie, zamiast po prostu zamilknąć: dzwoniący ma zobaczyć
+     * odmowę, a nie czekać, aż połączenie samo wygaśnie.
+     */
+    fun odrzucRozmowe() {
+        val przychodzaca = stan.przychodzacaRozmowa ?: return
+        val klient = messenger ?: return
+
+        viewModelScope.launch {
+            runCatching {
+                klient.sendCallSignal(
+                    przychodzaca.groupId,
+                    CallSignalKind.HANGUP,
+                    przychodzaca.callId,
+                    "",
+                    "",
+                    przychodzaca.od,
+                )
+            }
+        }
+
+        stan = stan.copy(przychodzacaRozmowa = null)
+    }
+
+    /**
+     * Sygnał rozmowy z sieci.
+     *
+     * Oferta bez trwającej rozmowy znaczy, że ktoś do nas dzwoni — odkładamy ją
+     * i pokazujemy pytanie. Przetworzenie jej od razu włączyłoby mikrofon bez
+     * pytania nikogo o zgodę.
+     */
+    private fun obsluzSygnalRozmowy(
+        zdarzenie: IncomingEvent.CallSignal,
+        tryb: DeliveryMode,
+    ): StanCzatu {
+        val biezaca = rozmowa
+
+        if (biezaca == null) {
+            return if (zdarzenie.kind == CallSignalKind.OFFER) {
+                stan.copy(
+                    trybPolaczenia = tryb,
+                    przychodzacaRozmowa = PrzychodzacaRozmowa(
+                        od = zdarzenie.senderUserId,
+                        groupId = zdarzenie.groupId,
+                        callId = zdarzenie.callId,
+                        oferta = zdarzenie.payload,
+                        odcisk = zdarzenie.dtlsFingerprint,
+                    ),
+                )
+            } else {
+                // Kandydat albo rozłączenie bez rozmowy: spóźniony sygnał
+                // z rozmowy, która już się skończyła. Nie ma czego robić.
+                stan.copy(trybPolaczenia = tryb)
+            }
+        }
+
+        biezaca.przyjmij(
+            zdarzenie.senderUserId,
+            zdarzenie.kind,
+            zdarzenie.payload,
+            zdarzenie.dtlsFingerprint,
+        )
+        return stan.copy(trybPolaczenia = tryb)
     }
 
     /**

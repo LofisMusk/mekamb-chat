@@ -6,6 +6,21 @@
     <!-- Powiadomienia o nowych wiadomościach (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      Mikrofon i aparat WYŁĄCZNIE do rozmów A/V. Prosimy o nie dopiero
+      w chwili dzwonienia, a nie przy starcie aplikacji: uprawnienie, którego
+      użytkownik nie umie powiązać z konkretną czynnością, jest uprawnieniem
+      nadanym na ślepo.
+
+      `android:required="false"` przy sprzęcie, bo telefon bez aparatu ma
+      nadal działać — rozmowa głosowa go nie potrzebuje.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name"

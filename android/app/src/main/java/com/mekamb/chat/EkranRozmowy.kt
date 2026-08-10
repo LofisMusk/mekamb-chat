@@ -480,9 +480,13 @@ private fun BabelWLocie(w: WLocie) {
 
 /** Awatar z inicjałami. Zdjęć nie ma i nie będzie — nie ma ich gdzie trzymać. */
 @Composable
-internal fun Awatar(nazwa: String, rozmiar: androidx.compose.ui.unit.Dp) {
+internal fun Awatar(
+    nazwa: String,
+    rozmiar: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = Modifier.size(rozmiar).background(Accent800, CircleShape),
+        modifier = modifier.size(rozmiar).background(Accent800, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -76,6 +76,9 @@ val Linia = Tekst.copy(alpha = 0.16f)
  */
 val Zaslona = Neutral900.copy(alpha = 0.62f)
 
+/** Stan, z którym trzeba coś zrobić — nie chwilowy, nie ozdobny. */
+val Alarm = Color(0xFFE5484D)
+
 /**
  * Kolor tekstu przygaszonego.
  *

@@ -206,7 +206,11 @@ webauthn.post("/login/verify", async (c) => {
     return c.json({ error: "zbyt wiele prób" }, 429);
   }
 
-  const body = await c.req.json<{ response: AuthenticationResponseJSON; deviceId?: string }>();
+  const body = await c.req.json<{
+    response: AuthenticationResponseJSON;
+    deviceId?: string;
+    sesjaWTresci?: boolean;
+  }>();
 
   if (!body.deviceId) {
     return c.json({ error: "brak deviceId" }, 400);
@@ -281,14 +285,17 @@ webauthn.post("/login/verify", async (c) => {
     expiresAt,
   });
 
-  await issueRefreshToken(c, credentialRow.userId, body.deviceId);
+  const refreshToken = await issueRefreshToken(c, credentialRow.userId, body.deviceId);
 
-  return c.json({
+  const odpowiedz = {
     token,
     expiresAt,
     userId: credentialRow.userId,
     username: credentialRow.username,
-  });
+  };
+
+  // Token w treści tylko na życzenie — patrz `session.ts`.
+  return c.json(body.sesjaWTresci ? { ...odpowiedz, refreshToken } : odpowiedz);
 });
 
 export default webauthn;

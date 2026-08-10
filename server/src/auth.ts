@@ -303,7 +303,12 @@ auth.post("/login/finish", async (c) => {
 
 /** Runda 3: drugi składnik. Dopiero tutaj powstaje token dostępowy. */
 auth.post("/login/totp", async (c) => {
-  const body = await c.req.json<{ loginId: string; code: string; deviceId?: string }>();
+  const body = await c.req.json<{
+    loginId: string;
+    code: string;
+    deviceId?: string;
+    sesjaWTresci?: boolean;
+  }>();
 
   if (!(await withinRateLimit(c.env, `totp:${body.loginId}`))) {
     return c.json({ error: "zbyt wiele prób" }, 429);
@@ -362,11 +367,15 @@ auth.post("/login/totp", async (c) => {
 
   // Bez `deviceId` nie ma czego użyć jako klucza rotacji — trwała sesja po
   // prostu nie włącza się dla tego logowania, reszta ścieżki działa jak dziś.
-  if (body.deviceId) {
-    await issueRefreshToken(c, session.user_id, body.deviceId);
+  if (!body.deviceId) {
+    return c.json({ token, expiresAt });
   }
 
-  return c.json({ token, expiresAt });
+  const refreshToken = await issueRefreshToken(c, session.user_id, body.deviceId);
+
+  // Token w treści tylko na życzenie — patrz `session.ts`, dlaczego to nie
+  // jest domyślne i dlaczego mimo to musi istnieć.
+  return c.json(body.sesjaWTresci ? { token, expiresAt, refreshToken } : { token, expiresAt });
 });
 
 // ---------------------------------------------------------------------------
@@ -374,20 +383,27 @@ auth.post("/login/totp", async (c) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Wymienia token odświeżający z cookie na nowy token dostępowy.
+ * Wymienia token odświeżający na nowy token dostępowy.
  *
  * Klient wywołuje to przy starcie aplikacji zamiast wymuszać OPAQUE+TOTP —
  * patrz `App.tsx`, gdzie zastępuje to dotychczasowe „zawsze pokaż ekran
  * logowania po odświeżeniu strony".
  *
- * Token w cookie jest ROTOWANY: nowy nadpisuje stary wiersz w bazie, więc
- * powtórne przedstawienie starego (np. skradzionego przed rotacją) tokenu
- * już nie znajduje dopasowania i kończy się 401 — to jedyna potrzebna ochrona
- * przed powtórzeniem, bez osobnego mechanizmu detekcji.
+ * Token bierzemy z cookie, a gdy go nie ma — z treści żądania. Ta druga droga
+ * istnieje dla przeglądarek blokujących cookie trzeciej strony; uzasadnienie
+ * i koszt opisuje `session.ts`.
+ *
+ * Token jest ROTOWANY: nowy nadpisuje stary wiersz w bazie, więc powtórne
+ * przedstawienie starego (np. skradzionego przed rotacją) tokenu już nie
+ * znajduje dopasowania i kończy się 401 — to jedyna potrzebna ochrona przed
+ * powtórzeniem, bez osobnego mechanizmu detekcji.
  */
 auth.post("/refresh", async (c) => {
-  const body = await c.req.json<{ deviceId?: string }>().catch(() => ({ deviceId: undefined }));
-  const raw = getCookie(c, REFRESH_COOKIE_NAME);
+  const body = await c.req
+    .json<{ deviceId?: string; refreshToken?: string; sesjaWTresci?: boolean }>()
+    .catch(() => ({ deviceId: undefined, refreshToken: undefined, sesjaWTresci: undefined }));
+
+  const raw = getCookie(c, REFRESH_COOKIE_NAME) ?? body.refreshToken;
 
   if (!raw || !body.deviceId) {
     return c.json({ error: "brak trwałej sesji" }, 401);
@@ -410,7 +426,7 @@ auth.post("/refresh", async (c) => {
     return c.json({ error: "trwała sesja wygasła" }, 401);
   }
 
-  await issueRefreshToken(c, row.user_id, body.deviceId);
+  const refreshToken = await issueRefreshToken(c, row.user_id, body.deviceId);
 
   const expiresAt = Date.now() + TOKEN_TTL_MS;
   const token = await issueToken(c.env.TOKEN_SIGNING_KEY, {
@@ -419,7 +435,12 @@ auth.post("/refresh", async (c) => {
     expiresAt,
   });
 
-  return c.json({ token, expiresAt });
+  // Rotacja jest bezwarunkowa, więc klient, który przysłał token w treści,
+  // MUSI dostać nowy tą samą drogą — inaczej zostałby ze zużytym i kolejny
+  // start aplikacji skończyłby się wylogowaniem.
+  return c.json(
+    body.sesjaWTresci || body.refreshToken ? { token, expiresAt, refreshToken } : { token, expiresAt },
+  );
 });
 
 /** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */

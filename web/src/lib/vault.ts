@@ -30,6 +30,7 @@ const SEED_ID = "ziarno-urzadzenia";
 const STATE_ID = "stan-mls";
 const ACCOUNT_ID = "konto";
 const HISTORY_ID = "historia";
+const REFRESH_ID = "token-odswiezajacy";
 
 const IV_BYTES = 12;
 
@@ -184,6 +185,44 @@ export async function saveAccount(account: Account): Promise<void> {
 export async function loadAccount(): Promise<Account | null> {
   const account = await tx<Account | undefined>("readonly", (store) => store.get(ACCOUNT_ID));
   return account ?? null;
+}
+
+/**
+ * Token trwałej sesji — szyfrowany tak samo jak reszta skarbca.
+ *
+ * # Dlaczego nie zostaje w cookie
+ *
+ * Strona stoi na `github.io`, a API na `workers.dev`, więc dla przeglądarki
+ * to cookie **trzeciej strony**. Safari blokuje takie cookie domyślnie, a na
+ * iOS Safari jest jedynym silnikiem — więc `Set-Cookie` z serwera po prostu
+ * znikało i iPhone wylogowywał się przy każdym zamknięciu aplikacji. Na
+ * desktopie ta sama ścieżka działała bez zarzutu, więc usterki nie było widać
+ * stamtąd, skąd się ją pisze.
+ *
+ * Czym to płacimy, opisuje `server/src/session.ts`: token przestaje być
+ * `httpOnly`. W tym magazynie leży już ziarno urządzenia i stan MLS, więc
+ * skrypt wstrzyknięty na stronę i tak ma wszystko (docs/THREAT_MODEL.md) —
+ * a bez tego iPhone nie ma trwałej sesji w ogóle.
+ */
+export async function saveRefreshToken(token: string): Promise<void> {
+  const packed = await encrypt(new TextEncoder().encode(token));
+  await tx("readwrite", (store) => store.put(packed, REFRESH_ID));
+}
+
+export async function loadRefreshToken(): Promise<string | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(REFRESH_ID));
+  if (!packed) return null;
+
+  // Skarbiec przeniesiony z innego urządzenia albo uszkodzony wpis nie może
+  // wywrócić startu — brak tokenu znaczy tyle, co ekran logowania.
+  return await decrypt(packed)
+    .then((bytes) => new TextDecoder().decode(bytes))
+    .catch(() => null);
+}
+
+/** Kasuje token trwałej sesji — przy wylogowaniu i po jego odrzuceniu przez serwer. */
+export async function clearRefreshToken(): Promise<void> {
+  await tx("readwrite", (store) => store.delete(REFRESH_ID));
 }
 
 /** Kasuje wszystko. Po tym kroku historia rozmów jest nie do odzyskania. */

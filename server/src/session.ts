@@ -1,9 +1,32 @@
 /**
- * Trwała sesja: token odświeżający w httpOnly cookie.
+ * Trwała sesja: token odświeżający w httpOnly cookie — i w treści odpowiedzi
+ * dla klientów, którym cookie nie przysługuje.
  *
  * Wydzielone z `auth.ts`, żeby zarówno logowanie hasłem+TOTP, jak i logowanie
  * passkeyem (`webauthn.ts`) mogły z tego korzystać bez cyklicznego importu
  * między tymi dwoma plikami.
+ *
+ * # Dlaczego samo cookie nie wystarcza
+ *
+ * Strona stoi na `lofismusk.github.io`, a API na `…workers.dev` — z punktu
+ * widzenia przeglądarki to **cookie trzeciej strony**. Safari (a na iOS każda
+ * przeglądarka, bo wszystkie są WebKitem) blokuje takie cookie domyślnie, więc
+ * `Set-Cookie` po prostu znika. Efekt: iPhone wylogowywał się przy każdym
+ * zamknięciu aplikacji, a na desktopie ta sama ścieżka działała bez zarzutu —
+ * najgorszy rodzaj usterki, bo niewidoczny dla tego, kto ją napisał.
+ *
+ * Dlatego klient może poprosić o token **w treści odpowiedzi** (`sesjaWTresci`)
+ * i odesłać go w treści żądania. Cookie zostaje dla tych, którzy je przyjmują.
+ *
+ * # Co to kosztuje
+ *
+ * Token w treści przestaje być `httpOnly`, więc skrypt wstrzyknięty na stronę
+ * może go odczytać i mieć trwały dostęp, a nie tylko bieżącą sesję. Płacimy to
+ * świadomie: klient webowy trzyma w tym samym magazynie stan MLS i ziarno
+ * urządzenia, więc XSS na tej stronie i tak oznacza pełną kompromitację (patrz
+ * docs/THREAT_MODEL.md) — a bez tego iPhone nie ma trwałej sesji w ogóle.
+ * Prosi o to wyłącznie klient, który sam o to poprosi; Android i każdy inny
+ * klient z działającym cookie dostają jak dotąd samo cookie.
  */
 
 import type { Context } from "hono";
@@ -27,6 +50,10 @@ export const REFRESH_COOKIE_PATH = "/auth/refresh";
  * Wystawia token odświeżający: zapisuje jego hash w bazie (nadpisując
  * poprzedni dla tego urządzenia — rotacja) i ustawia httpOnly cookie.
  *
+ * Zwraca token w postaci jawnej, żeby wywołujący mógł go dołączyć do treści
+ * odpowiedzi, gdy klient o to poprosił. Nie robi tego sam — decyzja należy do
+ * trasy, która zna żądanie.
+ *
  * `device_id` NIE ma więzu REFERENCES do `devices` — patrz komentarz
  * w migracji `0005_refresh_tokens.sql`: token powstaje zanim klient zdąży
  * zarejestrować urządzenie.
@@ -35,7 +62,7 @@ export async function issueRefreshToken<E extends { Bindings: Env }>(
   c: Context<E>,
   userId: string,
   deviceId: string,
-): Promise<void> {
+): Promise<string> {
   const raw = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
   const hash = await hashRefreshToken(raw);
   const now = Date.now();
@@ -57,6 +84,8 @@ export async function issueRefreshToken<E extends { Bindings: Env }>(
     path: REFRESH_COOKIE_PATH,
     maxAge: Math.floor(REFRESH_TOKEN_TTL_MS / 1000),
   });
+
+  return raw;
 }
 
 /** Kasuje cookie tokenu odświeżającego (ta sama ścieżka, z którą je ustawiono). */

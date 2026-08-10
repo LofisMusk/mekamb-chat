@@ -321,6 +321,48 @@ describe("rejestracja passkeya", () => {
     expect(wynik.username).toBe(username);
   });
 
+  /// Sedno: logowanie passkeyem musi umieć oddać token trwałej sesji w treści
+  /// tak samo jak logowanie hasłem. Inaczej użytkownik iPhone'a, który
+  /// przeszedł na passkey, dalej logowałby się przy każdym uruchomieniu —
+  /// czyli wybrałby wygodniejszą metodę i dostał ten sam kłopot.
+  it("logowanie passkeyem oddaje token trwałej sesji w treści, gdy klient o to prosi", async () => {
+    const { token } = await zalogujSie("urzadzenie-passkey-tresc");
+    const authenticator = await generujAuthenticator();
+
+    const optionsRes = await post(
+      "/auth/webauthn/register/options",
+      {},
+      { Authorization: `Bearer ${token}` },
+    );
+    const options = await optionsRes.json<{ challenge: string }>();
+    const response = await odpowiedzRejestracji(authenticator, options.challenge);
+    await post(
+      "/auth/webauthn/register/verify",
+      { response },
+      { Authorization: `Bearer ${token}` },
+    );
+
+    const ip = crypto.randomUUID();
+    const loginOptionsRes = await post("/auth/webauthn/login/options", {}, { "CF-Connecting-IP": ip });
+    const loginOptions = await loginOptionsRes.json<{ challenge: string }>();
+    const assertion = await odpowiedzLogowania(authenticator, loginOptions.challenge, 1);
+
+    const deviceId = "urzadzenie-passkey-tresc-2";
+    const verifyRes = await post(
+      "/auth/webauthn/login/verify",
+      { response: assertion, deviceId, sesjaWTresci: true },
+      { "CF-Connecting-IP": ip },
+    );
+
+    expect(verifyRes.status).toBe(200);
+    const { refreshToken } = await verifyRes.json<{ refreshToken?: string }>();
+    expect(typeof refreshToken).toBe("string");
+
+    // I ten token faktycznie odnawia sesję — bez cookie.
+    const odnowienie = await post("/auth/refresh", { deviceId, refreshToken });
+    expect(odnowienie.status).toBe(200);
+  });
+
   it("wyzwanie rejestracji jest jednorazowe", async () => {
     const { token } = await zalogujSie("urzadzenie-passkey-2");
     const authenticator = await generujAuthenticator();

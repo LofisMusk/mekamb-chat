@@ -229,6 +229,16 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.size(Odstep.m))
         PrzyciskCichy("Przenoszę konto z innego urządzenia") { model.pokaz(Ekran.ODBIOR) }
+
+        // Droga powrotna do powitania — bez niej ten ekran był ślepą uliczką.
+        //
+        // Aplikacja startuje wprost na logowaniu, gdy w skarbcu leży konto
+        // (patrz `ChatViewModel`), a logowanie nie miało żadnego wyjścia:
+        // konta nie dało się już założyć ani na tym urządzeniu odzyskać
+        // inaczej niż przez odinstalowanie aplikacji. Powitanie prowadzi do
+        // wszystkich trzech dróg wejścia, więc wystarczy do niego wrócić.
+        Spacer(Modifier.size(Odstep.s))
+        PrzyciskCichy("Nie mam jeszcze konta · Create account") { model.pokaz(Ekran.POWITANIE) }
     }
 }
 

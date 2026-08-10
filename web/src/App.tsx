@@ -27,6 +27,7 @@ import {
 } from "./lib/historia";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import { opisBledu, ustalRozruch } from "./lib/rozruch";
+import { znajdzRozmowe1na1 } from "./lib/rozmowy";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
@@ -198,12 +199,34 @@ export function App() {
       )}
 
       {ekran.nazwa === "logowanie" && (
-        <FormularzLogowania
-          onBlad={zglosBlad}
-          onGotowe={(username, sesja) =>
-            setEkran({ nazwa: "drugi-skladnik", username, sesja })
-          }
-        />
+        <>
+          <FormularzLogowania
+            onBlad={zglosBlad}
+            onGotowe={(username, sesja) =>
+              setEkran({ nazwa: "drugi-skladnik", username, sesja })
+            }
+          />
+
+          {/*
+            Passkey także tutaj, nie tylko na powitaniu.
+
+            Powitanie widzi się raz — potem urządzenie ma już konto w skarbcu
+            i aplikacja startuje wprost na logowaniu. Passkey stał więc na
+            ekranie, do którego stały użytkownik nigdy nie wraca: kto raz się
+            zalogował, nie miał go już nigdy zobaczyć. Na iPhonie, gdzie sesja
+            i tak nie przeżywała zamknięcia aplikacji, znaczyło to hasło i kod
+            TOTP przy każdym uruchomieniu.
+          */}
+          <div className="karta">
+            <PrzyciskPasskey
+              onBlad={zglosBlad}
+              onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
+            />
+            <button onClick={() => setEkran({ nazwa: "powitanie" })}>
+              Nie mam jeszcze konta
+            </button>
+          </div>
+        </>
       )}
 
       {ekran.nazwa === "drugi-skladnik" && (
@@ -894,7 +917,27 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              setGroupId(await messenger.startConversation(rozmowca));
+              const nazwa = rozmowca.trim();
+
+              // Rozmowa z tą osobą mogła już powstać. Bez tego sprawdzenia
+              // każde „rozpocznij rozmowę" zakładało nową grupę MLS, więc
+              // lista puchła od duplikatów, a historia rozjeżdżała się między
+              // nimi — patrz `rozmowy.ts`.
+              const istniejaca = znajdzRozmowe1na1(
+                rozmowy,
+                (g) => messenger.memberUserIds(g),
+                messenger.account.userId,
+                nazwa,
+              );
+
+              if (istniejaca) {
+                setGroupId(istniejaca.groupId);
+                setGalaz("rozmowy");
+                return;
+              }
+
+              setGroupId(await messenger.startConversation(nazwa));
+              setGalaz("rozmowy");
             } catch (err) {
               onBlad(err);
             }

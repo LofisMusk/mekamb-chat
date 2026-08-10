@@ -454,6 +454,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun rozpocznijRozmowe(rozmowca: String) {
         val klient = messenger ?: return
 
+        // Rozmowa z tą osobą mogła już powstać. Bez tego sprawdzenia każde
+        // „rozpocznij rozmowę" zakładało nową grupę MLS, więc lista puchła od
+        // duplikatów, a historia rozjeżdżała się między nimi — patrz
+        // `Rozmowy.kt`, gdzie ta sama reguła jest opisana i przetestowana.
+        val istniejaca = Rozmowy.znajdz1na1(
+            rozmowy = historia.lista(),
+            groupId = { it.groupId },
+            czlonkowie = klient::uczestnicy,
+            ja = vault.loadAccount()?.userId.orEmpty(),
+            rozmowca = rozmowca,
+        )
+
+        if (istniejaca != null) {
+            otworzRozmowe(istniejaca)
+            return
+        }
+
         viewModelScope.launch {
             runCatching { klient.startConversation(rozmowca) }
                 .onSuccess { groupId ->

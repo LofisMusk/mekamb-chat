@@ -147,9 +147,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun otworzRozmowe(pozycja: PozycjaListy) {
         stan = stan.copy(
             groupId = pozycja.groupId,
-            rozmowca = pozycja.rozmowca,
+            // Skład grupy ma pierwszeństwo przed zapisaną nazwą: rozmowy
+            // zapisane wcześniej mogą jej w ogóle nie mieć.
+            rozmowca = nazwaZeSkladu(pozycja.groupId) ?: pozycja.rozmowca,
             wiadomosci = historia.wczytaj(pozycja.groupId),
             blad = null,
+        )
+    }
+
+    /**
+     * Nazwa rozmowy z drzewa MLS — kto w niej jest poza nami.
+     *
+     * `null`, gdy stanu tej grupy nie ma (np. po przeniesieniu konta) albo
+     * zostaliśmy w niej sami. Wywołujący zostaje wtedy przy nazwie zapisanej
+     * na dysku: stara jest lepsza niż żadna.
+     */
+    private fun nazwaZeSkladu(groupId: ByteArray): String? {
+        val klient = messenger ?: return null
+        val ja = vault.loadAccount()?.userId.orEmpty()
+
+        val nazwa = runCatching { Rozmowy.nazwa(klient.uczestnicy(groupId), ja) }.getOrNull()
+        return nazwa?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Ostrzega, że konto zostało założone, ale nie potwierdzone kodem. */
+    fun ostrzezONiepotwierdzonymKoncie() {
+        stan = stan.copy(
+            blad = "Konto zostało założone, ale niepotwierdzone — bez kodu z authenticatora " +
+                "nie da się na nie zalogować, a jego nazwa pozostaje zajęta.",
         )
     }
 
@@ -565,6 +590,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             is IncomingEvent.JoinedConversation -> stan.copy(
                 groupId = zdarzenie.groupId,
+                // Nazwa ze SKŁADU grupy, nie ze stanu ekranu.
+                //
+                // Rozmowę założył ktoś inny, więc nie przeszła przez żadne
+                // miejsce, w którym użytkownik podaje nazwę. Zostawała nazwa
+                // poprzednio otwartej rozmowy — czyli wiadomości od jednej
+                // osoby podpisywały się drugą — albo nie było jej wcale
+                // i lista pokazywała wiersz bez imienia.
+                rozmowca = nazwaZeSkladu(zdarzenie.groupId) ?: stan.rozmowca,
                 // Dołączenie do rozmowy przez welcome: historia mogła już tu
                 // być, jeśli to nie pierwsze uruchomienie.
                 wiadomosci = historia.wczytaj(zdarzenie.groupId),

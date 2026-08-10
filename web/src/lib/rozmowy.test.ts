@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { znajdzRozmowe1na1 } from "./rozmowy";
+import { nazwaRozmowy, znajdzRozmowe1na1 } from "./rozmowy";
 
 const JA = "ala";
 
@@ -72,5 +72,30 @@ describe("wybór rozmowy jeden na jeden", () => {
 
   it("brak rozmów to brak dopasowania, nie wyjątek", () => {
     expect(znajdzRozmowe1na1([], sklad({}), JA, "bartek")).toBeUndefined();
+  });
+});
+
+describe("nazwa rozmowy", () => {
+  /// Sedno: to jest ta usterka. Wiadomość od kogoś, kto założył nową grupę,
+  /// nie przechodziła przez żadne miejsce ustawiające nazwę, więc na liście
+  /// pojawiał się wiersz bez imienia i bez awatara.
+  it("rozmowa dwóch osób nazywa się tą drugą", () => {
+    expect(nazwaRozmowy([JA, "bartek"], JA)).toBe("bartek");
+  });
+
+  it("grupa wymienia wszystkich poza nami", () => {
+    expect(nazwaRozmowy([JA, "bartek", "celina"], JA)).toBe("bartek, celina");
+  });
+
+  /// MLS zwraca członków po urządzeniach, więc jedna osoba z dwoma telefonami
+  /// pojawia się dwa razy. Nazwa dotyczy osób, nie urządzeń.
+  it("osoba z kilkoma urządzeniami liczy się raz", () => {
+    expect(nazwaRozmowy([JA, "bartek", "bartek"], JA)).toBe("bartek");
+  });
+
+  /// Pusto tylko wtedy, gdy zostaliśmy sami — wywołujący ma wtedy zostawić
+  /// nazwę, którą już zapisał, bo stara jest lepsza niż żadna.
+  it("sami w rozmowie dają pustą nazwę", () => {
+    expect(nazwaRozmowy([JA], JA)).toBe("");
   });
 });

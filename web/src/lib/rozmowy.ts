@@ -27,6 +27,29 @@ export interface RozmowaDoWyboru {
 }
 
 /**
+ * Nazwa rozmowy — kto w niej jest poza nami.
+ *
+ * # Czemu to musiało powstać
+ *
+ * Nazwa brała się ze stanu interfejsu: wpisanej w Kontaktach albo odczytanej
+ * z klikniętej pozycji listy. Wiadomość od kogoś, kto założył **nową** grupę,
+ * nie przechodziła przez żadne z tych miejsc, więc rozmowa zapisywała się
+ * z nazwą pustą — na liście pojawiał się wiersz bez imienia i bez awatara.
+ * W gorszym wariancie zostawała nazwa poprzednio otwartej rozmowy, czyli
+ * wiadomości od jednej osoby podpisywały się drugą.
+ *
+ * Skład z drzewa MLS jest jedynym źródłem, które zna każdy sposób powstania
+ * rozmowy — bo grupa nie istnieje bez składu.
+ */
+export function nazwaRozmowy(czlonkowie: readonly string[], ja: string): string {
+  const inni = [...new Set(czlonkowie)].filter((osoba) => osoba !== ja);
+
+  // Pusto tylko wtedy, gdy zostaliśmy sami. Wywołujący ma wtedy zostawić to,
+  // co już zapisał: stara nazwa jest lepsza niż jej brak.
+  return inni.join(", ");
+}
+
+/**
  * Znajduje istniejącą rozmowę jeden na jeden z podaną osobą.
  *
  * `czlonkowie` zwraca identyfikatory użytkowników w grupie. Wyjątek dla

@@ -46,6 +46,18 @@ import {
   wipe,
 } from "./lib/vault";
 
+/**
+ * Godzina wiadomości — bez daty.
+ *
+ * Dzień rozdziela osobna etykieta na liście; w dymku liczy się „o której",
+ * a data powtarzana przy każdej wiadomości jest szumem.
+ */
+const GODZINA = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function godzina(czas: number): string {
+  return GODZINA.format(new Date(czas));
+}
+
 /** Odtwarza albo zakłada `Messenger` po udanym uwierzytelnieniu i zgłasza urządzenie do katalogu. */
 async function zakonczLogowanie(konto: Account, token: string): Promise<Messenger> {
   // Trwały magazyn zapewniamy PRZED wygenerowaniem kluczy. Odwrotna kolejność
@@ -591,6 +603,25 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
 
   /*
+   * Wyzwalacz rozmowy A/V.
+   *
+   * Przyciski „Zadzwoń" i „Wideo" stoją w nagłówku wątku, a rozmową zarządza
+   * komponent niżej. Zamiast przekazywać w dół funkcję, przekazujemy DANE:
+   * licznik zmienia się przy każdym kliknięciu, więc powtórne wybranie tego
+   * samego trybu też jest zauważone.
+   */
+  const [zadanieRozmowy, setZadanieRozmowy] = useState<{ wideo: boolean; n: number } | null>(null);
+
+  /*
+   * Inspektor na wąskim ekranie jest schowany, dopóki ktoś o niego nie poprosi.
+   *
+   * Na szerokim stoi obok wątku i nic nie zasłania — tam zostaje widoczny
+   * zawsze, o co dba arkusz stylów. Na telefonie doklejał się POD wiadomościami
+   * i wyglądał jak przypadkowy dodatek do rozmowy.
+   */
+  const [inspektorOtwarty, setInspektorOtwarty] = useState(false);
+
+  /*
    * Trwałość magazynu pokazujemy w panelu konta, a nie tylko w ostrzeżeniu
    * na górze: ostrzeżenie znika po jej przyznaniu, a wtedy nie ma już gdzie
    * sprawdzić, czy naprawdę jest przyznana.
@@ -919,7 +950,43 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               >
                 ←
               </button>
-              <span className="pasek-nazwa">{rozmowca}</span>
+
+              <span className="awatar" aria-hidden="true">
+                {rozmowca.slice(0, 1).toUpperCase()}
+              </span>
+
+              <span className="pasek-tozsamosc">
+                <span className="pasek-nazwa">{rozmowca}</span>
+                {/* Droga dostarczania przy nazwie, nie w ustawieniach:
+                    „przez serwer" to zdanie o tym, kto widzi metadane. */}
+                <span className="pasek-meta">
+                  {stanSieci === "polaczone" && "przez serwer · szyfrowane end-to-end"}
+                  {stanSieci === "laczenie" && "łączę…"}
+                  {stanSieci === "rozlaczone" && "brak połączenia — ponawiam"}
+                </span>
+              </span>
+
+              <div className="akcje-watku">
+                <button
+                  title="Zadzwoń"
+                  onClick={() => setZadanieRozmowy({ wideo: false, n: Date.now() })}
+                >
+                  Zadzwoń
+                </button>
+                <button
+                  title="Rozmowa z obrazem"
+                  onClick={() => setZadanieRozmowy({ wideo: true, n: Date.now() })}
+                >
+                  Wideo
+                </button>
+                <button
+                  title="Uczestnicy i kod bezpieczeństwa"
+                  className={inspektorOtwarty ? "aktywna" : undefined}
+                  onClick={() => setInspektorOtwarty((o) => !o)}
+                >
+                  Uczestnicy
+                </button>
+              </div>
             </header>
 
             {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
@@ -928,6 +995,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               messenger={messenger}
               groupId={groupId}
               sygnal={sygnalRozmowy}
+              zadanie={zadanieRozmowy}
               onBlad={onBlad}
             />
 
@@ -940,6 +1008,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
             ) : (
               <span className="tresc">{w.tresc}</span>
             )}
+            <span className="czas-wiadomosci">{godzina(w.czas)}</span>
           </li>
         ))}
 
@@ -952,7 +1021,14 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
       </ol>
 
       {groupId && (
-        <label className="dolacz-plik">
+        <>
+        {/* Spinacz zamiast pola na całą szerokość.
+
+            Wielki prostokąt „Dołącz zdjęcie lub wideo" nad polem tekstowym
+            zajmował tyle miejsca co dwie wiadomości i podpowiadał, że
+            załącznik jest głównym sposobem pisania. Ikona przy polu mówi to
+            samo i nie zabiera rozmowie ekranu. */}
+        <label className="dolacz-plik" title="Dołącz zdjęcie lub wideo">
           <input
             type="file"
             accept="image/*,video/*"
@@ -991,14 +1067,10 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
               }
             }}
           />
-          Dołącz zdjęcie lub wideo
-          <span className="wskazowka-plik">
-            Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia
-          </span>
+          <span aria-hidden="true">📎</span>
+          <span className="tylko-dla-czytnika">Dołącz zdjęcie lub wideo</span>
         </label>
-      )}
 
-      {groupId && (
         <form
           className="pisanie"
           onSubmit={async (e) => {
@@ -1037,6 +1109,12 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
           />
           <button className="glowny">Wyślij</button>
         </form>
+
+        {/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */}
+        <p className="wskazowka-plik">
+          Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia przed wysłaniem.
+        </p>
+        </>
       )}
           </div>
         )}
@@ -1189,7 +1267,10 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
       </section>
 
       {galaz === "rozmowy" && groupId && (
-        <aside className="inspektor" aria-label="Uczestnicy i kod bezpieczeństwa">
+        <aside
+          className={inspektorOtwarty ? "inspektor otwarty" : "inspektor"}
+          aria-label="Uczestnicy i kod bezpieczeństwa"
+        >
           <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
         </aside>
       )}
@@ -1361,8 +1442,22 @@ function Uczestnicy({
   // Licznik wymusza odczytanie składu na nowo po każdej udanej zmianie.
   const [odswiezenie, setOdswiezenie] = useState(0);
 
+  /*
+   * Skład czytamy OSTROŻNIE.
+   *
+   * `members()` rzuca dla grupy, której nie ma w stanie MLS — a taka grupa
+   * potrafi zostać na liście rozmów, bo historia i stan MLS to dwa osobne
+   * zapisy. Wyjątek leciał stąd przez render i zabierał całą aplikację:
+   * po ponownym uruchomieniu kliknięcie takiej rozmowy dawało czarny ekran.
+   */
   const osoby = useMemo(
-    () => messenger.memberUserIds(groupId),
+    () => {
+      try {
+        return messenger.memberUserIds(groupId);
+      } catch {
+        return [];
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [messenger, groupId, odswiezenie],
   );
@@ -1513,11 +1608,14 @@ function Rozmowa({
   messenger,
   groupId,
   sygnal,
+  zadanie,
   onBlad,
 }: {
   messenger: Messenger;
   groupId: Uint8Array;
   sygnal: SygnalRozmowy | null;
+  /** Prośba o rozpoczęcie rozmowy z nagłówka wątku. Licznik odróżnia kliknięcia. */
+  zadanie: { wideo: boolean; n: number } | null;
   onBlad: (e: unknown) => void;
 }) {
   const [call, setCall] = useState<Call | null>(null);
@@ -1551,6 +1649,19 @@ function Rozmowa({
       )
       .catch(onBlad);
   }, [sygnal, call, onBlad]);
+
+  /*
+   * Prośba z nagłówka uruchamia rozmowę.
+   *
+   * Zależność na samym liczniku, nie na całym obiekcie: bez niego powtórne
+   * kliknięcie „Zadzwoń" w tym samym trybie nie zmieniłoby referencji i nic by
+   * się nie stało.
+   */
+  useEffect(() => {
+    if (!zadanie || call) return;
+    void zadzwon(zadanie.wideo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zadanie?.n]);
 
   const zadzwon = async (wideo: boolean) => {
     try {
@@ -1626,16 +1737,10 @@ function Rozmowa({
     );
   }
 
-  if (!call) {
-    return (
-      <section className="rozmowa">
-        <div className="rozmowa-przyciski">
-          <button onClick={() => void zadzwon(false)}>Zadzwoń</button>
-          <button onClick={() => void zadzwon(true)}>Wideo</button>
-        </div>
-      </section>
-    );
-  }
+  // Bez trwającej rozmowy ten komponent nie ma nic do pokazania: przyciski
+  // startu stoją w nagłówku wątku, tam gdzie w projekcie. Pusta sekcja
+  // zabierałaby wysokość rozmowie.
+  if (!call) return null;
 
   return (
     <section className="rozmowa">

@@ -192,20 +192,53 @@ button:disabled:hover { background: transparent; }
 }
 .autor { display: block; font-size: .7rem; color: var(--przygaszony); }
 
+/*
+ * Godzina w dymku.
+ *
+ * Przy własnej krawędzi i przygaszona: rozmowę czyta się po treści, a godzina
+ * jest odpowiedzią na pytanie zadawane rzadko — ale wtedy zadawane wprost.
+ */
+.czas-wiadomosci {
+  display: block;
+  font-size: .62rem;
+  text-align: right;
+  margin-top: .15rem;
+  color: var(--neutral-600);
+}
+.wlasna .czas-wiadomosci { color: color-mix(in srgb, var(--akcent-100) 60%, transparent); }
+
 .pisanie { display: flex; gap: .5rem; }
 .pisanie input { flex: 1; }
 
+/*
+ * Załącznik jako spinacz przy polu, nie prostokąt nad nim.
+ *
+ * Pole na całą szerokość zajmowało tyle miejsca co dwie wiadomości
+ * i podpowiadało, że załącznik jest głównym sposobem pisania.
+ */
 .dolacz-plik {
-  display: block;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  min-height: 2.75rem;
   border: 1px solid var(--neutral-700);
   border-radius: var(--promien-m);
-  padding: .7rem 1rem;
-  text-align: center;
   cursor: pointer;
-  font-size: .9rem;
-  margin-bottom: .5rem;
+  font-size: 1.05rem;
 }
+.dolacz-plik:hover { background: color-mix(in srgb, var(--tekst) 5%, transparent); }
 .dolacz-plik input { display: none; }
+
+/* Treść wyłącznie dla czytników ekranu — ikona sama nie mówi nic. */
+.tylko-dla-czytnika {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 .zalacznik {
   max-width: 100%;
@@ -539,6 +572,15 @@ button:disabled:hover { background: transparent; }
 @media (max-width: 46rem) {
   .uklad.rozmowa-otwarta .panel-listy { display: none; }
   .uklad:not(.rozmowa-otwarta) .pusty-watek { display: none; }
+
+  /*
+   * Inspektor na telefonie pojawia się na żądanie.
+   *
+   * Doklejony pod wiadomościami wyglądał jak przypadkowy dodatek do rozmowy
+   * i spychał pole pisania poza ekran. Na szerokim stoi obok wątku i nie ma
+   * powodu go chować — dlatego reguła jest tylko tutaj.
+   */
+  .inspektor:not(.otwarty) { display: none; }
 }
 
 /* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
@@ -546,12 +588,49 @@ button:disabled:hover { background: transparent; }
   .pasek-watku .wstecz { display: none; }
 }
 
+/*
+ * Nagłówek wątku: kto, jaką drogą i co można z tym zrobić.
+ *
+ * Wysokość 60 px z projektu. Droga dostarczania stoi przy nazwie, a nie
+ * w ustawieniach — „przez serwer" to zdanie o tym, kto widzi metadane
+ * rozmowy, więc ma być tam, gdzie się na tę rozmowę patrzy.
+ */
 .pasek-watku {
   display: flex;
   align-items: center;
   gap: var(--odstep-3);
+  min-height: 3.75rem;
   padding-bottom: var(--odstep-3);
   border-bottom: 1px solid var(--linia);
+}
+
+.pasek-tozsamosc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pasek-meta {
+  font-size: .7rem;
+  color: var(--neutral-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.akcje-watku { display: flex; gap: var(--odstep-2); flex: none; }
+.akcje-watku button {
+  min-height: 2.4rem;
+  padding: 0 var(--odstep-4);
+  font-size: .78rem;
+  border-color: transparent;
+  color: var(--neutral-400);
+}
+.akcje-watku button.aktywna { border-color: var(--akcent); color: var(--akcent-300); }
+
+/* Na wąskim ekranie zostają same ikony — trzy etykiety nie mieszczą się
+   obok nazwy, a nazwa jest ważniejsza. */
+@media (max-width: 30rem) {
+  .akcje-watku button { padding: 0 var(--odstep-3); font-size: 0; min-width: 2.4rem; }
+  .akcje-watku button::before { font-size: .95rem; }
+  .akcje-watku button:nth-child(1)::before { content: "☎"; }
+  .akcje-watku button:nth-child(2)::before { content: "▢"; }
+  .akcje-watku button:nth-child(3)::before { content: "☰"; }
 }
 
 /* Cel dotyku 44 px z projektu — poniżej tego trafia się w niego przypadkiem. */

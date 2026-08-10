@@ -579,14 +579,41 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
         stan = when (zdarzenie) {
-            is IncomingEvent.Message -> stan.copy(
-                wiadomosci = stan.wiadomosci + Wiadomosc(
+            /*
+             * Wiadomość trafia do SWOJEJ rozmowy, nie do tej otwartej na ekranie.
+             *
+             * Wcześniej zdarzenie nie niosło identyfikatora grupy, więc klient
+             * dopisywał każdą przychodzącą wiadomość do rozmowy akurat
+             * widocznej — i tam ją zapisywał. Wiadomość od jednej osoby lądowała
+             * w historii drugiej, bez śladu, że coś poszło nie tak.
+             */
+            is IncomingEvent.Message -> {
+                val wiadomosc = Wiadomosc(
                     autor = zdarzenie.senderUserId,
                     tresc = zdarzenie.text,
                     wlasna = false,
-                ),
-                trybPolaczenia = tryb,
-            )
+                )
+
+                if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
+                    stan.copy(
+                        wiadomosci = stan.wiadomosci + wiadomosc,
+                        trybPolaczenia = tryb,
+                    )
+                } else {
+                    // Rozmowa spoza ekranu: dopisujemy prosto na dysk i
+                    // odświeżamy listę, żeby licznik nieprzeczytanych urósł.
+                    dopiszDoRozmowy(zdarzenie.groupId, wiadomosc)
+                    stan.copy(rozmowy = historia.lista(), trybPolaczenia = tryb)
+                }
+            }
+
+            // Załączniki i sygnalizacja A/V mają już drogę przez rdzeń, ale nie
+            // mają jeszcze interfejsu na Androidzie. Milczymy świadomie —
+            // pokazanie dymka, którego nie da się otworzyć, jest obietnicą bez
+            // pokrycia. Doklejamy tylko drogę dostarczania, bo ta jest znana.
+            is IncomingEvent.Attachment,
+            is IncomingEvent.CallSignal,
+            -> stan.copy(trybPolaczenia = tryb)
 
             is IncomingEvent.JoinedConversation -> stan.copy(
                 groupId = zdarzenie.groupId,
@@ -611,6 +638,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         zapiszHistorie()
+    }
+
+    /**
+     * Dopisuje wiadomość do rozmowy, której nie ma na ekranie.
+     *
+     * Czyta i zapisuje wprost z dysku, bo stan w pamięci dotyczy wyłącznie
+     * rozmowy otwartej. Nazwę bierzemy ze składu grupy — rozmowa mogła
+     * powstać przed chwilą i nie mieć jeszcze żadnej.
+     */
+    private fun dopiszDoRozmowy(groupId: ByteArray, wiadomosc: Wiadomosc) {
+        val nazwa = nazwaZeSkladu(groupId) ?: historia.rozmowca(groupId) ?: return
+        runCatching { historia.zapisz(groupId, nazwa, historia.wczytaj(groupId) + wiadomosc) }
     }
 
     /**

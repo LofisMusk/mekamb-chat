@@ -1,10 +1,13 @@
 package com.mekamb.chat
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
@@ -104,6 +107,40 @@ private fun Zawartosc(
     // niego nie da się do rozmowy wrócić.
     var wRozmowie by remember { mutableStateOf(false) }
     var wPrzeniesieniu by remember { mutableStateOf(false) }
+
+    // Wideo albo sam głos — o co poprosimy system, zanim zaczniemy rozmowę.
+    var rozmowaZWideo by remember { mutableStateOf(false) }
+    var odbieramy by remember { mutableStateOf(false) }
+    val kontekst = LocalContext.current
+
+    /*
+     * Uprawnienia bierzemy dopiero przy dzwonieniu.
+     *
+     * Prośba przy starcie aplikacji jest prośbą, której użytkownik nie umie
+     * powiązać z niczym konkretnym — a uprawnienie nadane na ślepo jest gorsze
+     * niż odmowa. Odmowa też nie jest awarią: rozmowa się po prostu nie zaczyna.
+     */
+    val uprawnienia = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { wynik ->
+        val mikrofon = wynik[Manifest.permission.RECORD_AUDIO] ?: false
+        if (!mikrofon) return@rememberLauncherForActivityResult
+
+        val zObrazem = rozmowaZWideo && (wynik[Manifest.permission.CAMERA] ?: false)
+        if (odbieramy) model.odbierzRozmowe(kontekst, zObrazem)
+        else model.zadzwon(kontekst, zObrazem)
+    }
+
+    fun zacznijRozmowe(zWideo: Boolean, odbior: Boolean) {
+        rozmowaZWideo = zWideo
+        odbieramy = odbior
+
+        val potrzebne = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (zWideo) add(Manifest.permission.CAMERA)
+        }
+        uprawnienia.launch(potrzebne.toTypedArray())
+    }
     var wUczestnikach by remember { mutableStateOf(false) }
     var wUstawieniach by remember { mutableStateOf(false) }
 
@@ -137,6 +174,12 @@ private fun Zawartosc(
      * wrócić" — wtedy back wychodzi z aplikacji, tak jak wypada na ekranie
      * startowym.
      */
+    // Rozmowy nie kończy przypadkowy gest wstecz — kończy ją przycisk.
+    // „Wstecz" podczas rozmowy nie robi nic, zamiast rozłączyć bez pytania.
+    BackHandler(enabled = stan.rozmowaAV.isNotEmpty()) {}
+
+    BackHandler(enabled = stan.przychodzacaRozmowa != null) { model.odrzucRozmowe() }
+
     BackHandler(enabled = wPrzeniesieniu) { wPrzeniesieniu = false }
     BackHandler(enabled = !wPrzeniesieniu && wUstawieniach) { wUstawieniach = false }
     BackHandler(enabled = !wPrzeniesieniu && !wUstawieniach && wUczestnikach) {
@@ -227,6 +270,18 @@ private fun Zawartosc(
         }
 
         when {
+            // Rozmowa A/V przykrywa wszystko: gdy trwa, jest jedyną rzeczą,
+            // którą użytkownik chce widzieć.
+            stan.zalogowany && stan.rozmowaAV.isNotEmpty() ->
+                EkranRozmowyAV(model, onZakoncz = { model.zakonczRozmowe() })
+
+            stan.zalogowany && stan.przychodzacaRozmowa != null ->
+                EkranPrzychodzacejRozmowy(
+                    od = stan.przychodzacaRozmowa!!.od,
+                    onOdbierz = { zWideo -> zacznijRozmowe(zWideo, odbior = true) },
+                    onOdrzuc = { model.odrzucRozmowe() },
+                )
+
             // Po zalogowaniu ekranem startowym jest lista, a nie od razu
             // formularz „z kim rozmawiasz". Wybór rozmówcy zszedł pod
             // „Nowa rozmowa", bo dotyczy pierwszego kontaktu, a nie każdego
@@ -263,7 +318,7 @@ private fun Zawartosc(
                         model.odswiezUczestnikow()
                         wUczestnikach = true
                     },
-                    onRozmowa = {},
+                    onRozmowa = { zWideo -> zacznijRozmowe(zWideo, odbior = false) },
                 )
 
             stan.zalogowany && nowaRozmowa -> EkranKontaktow(model, onGalaz = { galaz = it })

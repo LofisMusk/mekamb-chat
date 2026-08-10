@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import uniffi.mekamb_ffi.CallSignalKind
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
 import uniffi.mekamb_ffi.MekambClient
@@ -296,6 +297,47 @@ class Messenger private constructor(
             metadaneUsuniete = oczyszczone,
             sposob = sposob,
         )
+    }
+
+    /**
+     * Wysyła sygnał rozmowy A/V do jednego uczestnika.
+     *
+     * # Dlaczego odcisk DTLS jedzie osobno
+     *
+     * SDP przechodzi tą samą drogą co reszta ruchu, więc pośrednik może je
+     * podmienić. Odcisk podróżuje **wewnątrz** MLS, którego podmienić nie może,
+     * a odbiorca porównuje jedno z drugim przed zestawieniem połączenia.
+     * Niezgodność znaczy podstawione połączenie — wtedy zrywamy.
+     *
+     * `target` jest konieczny, bo wiadomość MLS trafia do CAŁEJ grupy, a
+     * w rozmowie mesh każda para negocjuje osobne połączenie. Bez adresata
+     * trzecia osoba próbowałaby przetworzyć ofertę przeznaczoną dla kogoś
+     * innego i zerwałaby własne.
+     */
+    suspend fun sendCallSignal(
+        groupId: ByteArray,
+        kind: CallSignalKind,
+        callId: ByteArray,
+        payload: String,
+        dtlsFingerprint: String,
+        target: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val koperta = client.sealCallSignal(
+            groupId,
+            kind,
+            callId,
+            payload,
+            dtlsFingerprint,
+            target,
+            System.currentTimeMillis().toULong(),
+        )
+
+        // Ratchet przesunął się przy szyfrowaniu — zapis musi nastąpić nawet
+        // wtedy, gdy wysyłka po nim zawiedzie.
+        vault.saveState(client.exportState())
+
+        val urzadzenie = api.lookupDevices(target).firstOrNull()
+        wyslij(target, urzadzenie, koperta)
     }
 
     /** Pobiera szyfrogram załącznika i odszyfrowuje go na urządzeniu. */

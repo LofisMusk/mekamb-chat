@@ -141,6 +141,12 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
 
+    // WebRTC waży swoje: biblioteka natywna dokłada kilkanaście MB do APK
+    // (przy 5,4 MB wydania to zmiana rzędu wielkości). Jest to cena za
+    // rozmowy A/V, których inaczej na Androidzie nie ma wcale — a klient
+    // webowy ma je od dawna, więc bez tego jedna strona nigdy nie odbierze.
+    implementation(libs.webrtc)
+
     // Wymagane przez kod generowany przez UniFFI.
     implementation(variantOf(libs.jna) { artifactType("aar") })
 

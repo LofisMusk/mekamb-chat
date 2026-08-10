@@ -565,6 +565,54 @@ button:disabled:hover { background: transparent; }
   line-height: 1;
 }
 
+/*
+ * Panel konta: siatka, nie stos.
+ *
+ * Ekran po zalogowaniu ma całą szerokość okna, a karty konta są krótkie —
+ * ustawione jedna pod drugą zostawiały pustą prawą połowę i kazały przewijać
+ * po rzeczy, które mieszczą się obok siebie. Kolumny mają górny limit, bo
+ * karta rozciągnięta na 900 px czyta się gorzej niż wąska.
+ */
+.naglowek-konta { display: flex; flex-direction: column; gap: var(--odstep-1); }
+.naglowek-konta h2 { margin: 0; }
+
+.siatka-konta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 23.75rem));
+  gap: var(--odstep-6);
+  align-items: start;
+}
+
+.tozsamosc {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+}
+.tozsamosc > span { display: flex; flex-direction: column; min-width: 0; }
+
+/* Stan urządzenia: etykieta po lewej, wartość po prawej — czyta się rzutem oka. */
+.stan-konta { margin: 0; display: flex; flex-direction: column; gap: .45rem; }
+.stan-konta > div { display: flex; justify-content: space-between; gap: var(--odstep-3); }
+.stan-konta dt { color: var(--neutral-500); font-size: .8rem; }
+.stan-konta dd { margin: 0; color: var(--akcent-300); font-size: .8rem; }
+
+/*
+ * Strefa kasowania.
+ *
+ * Za linią i na dole, osobno od reszty. Nieodwracalne obok odwracalnego jest
+ * zaproszeniem do pomyłki — a tej pomyłki nie da się cofnąć, bo historii nie
+ * ma nigdzie indziej.
+ */
+.strefa-kasowania {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-2);
+  margin-top: var(--odstep-6);
+  padding-top: var(--odstep-6);
+  border-top: 1px solid var(--linia);
+}
+.strefa-kasowania .rozlacz { align-self: flex-start; }
+
 /* Ten sam pasek przed zalogowaniem — rejestracja, logowanie, odbiór konta. */
 .pasek-ekranu {
   display: flex;

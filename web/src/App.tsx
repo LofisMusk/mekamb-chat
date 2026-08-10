@@ -589,6 +589,16 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
   const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
   const [galaz, setGalaz] = useState<"rozmowy" | "kontakty" | "konto">("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
+
+  /*
+   * Trwałość magazynu pokazujemy w panelu konta, a nie tylko w ostrzeżeniu
+   * na górze: ostrzeżenie znika po jej przyznaniu, a wtedy nie ma już gdzie
+   * sprawdzić, czy naprawdę jest przyznana.
+   */
+  const [trwaly, setTrwaly] = useState(true);
+  useEffect(() => {
+    void isPersistent().then(setTrwaly).catch(() => {});
+  }, []);
   /**
    * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
    *
@@ -1086,24 +1096,78 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
 
         {galaz === "konto" && (
           <>
-            <h2>Konto</h2>
-            <div className="karta">
-              <strong>{messenger.account.username}</strong>
-              <span className="wskazowka">{messenger.account.deviceId}</span>
-            </div>
-
-            <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
-
-            <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
-
-            <div className="karta">
-              <strong>Klucze na tym urządzeniu</strong>
+            <header className="naglowek-konta">
+              <h2>Konto</h2>
               <p className="wskazowka">
-                Serwer nie ma czego wydać ani zgubić — ale też nie odtworzy niczego,
-                gdy stracisz wszystkie urządzenia.
+                Wszystko poniżej dotyczy tej przeglądarki, nie serwera.
               </p>
+            </header>
+
+            {/*
+              Siatka, a nie stos kart.
+
+              Ekran po zalogowaniu ma całą szerokość okna, a karty konta są
+              krótkie — ustawione jedna pod drugą zostawiały pustą prawą
+              połowę i kazały przewijać po rzeczy, które mieszczą się razem.
+            */}
+            <div className="siatka-konta">
+              <div className="karta">
+                <div className="tozsamosc">
+                  <span className="awatar" aria-hidden="true">
+                    {messenger.account.username.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span>
+                    <strong>{messenger.account.username}</strong>
+                    <span className="wskazowka">{messenger.account.deviceId}</span>
+                  </span>
+                </div>
+
+                <dl className="stan-konta">
+                  <div>
+                    <dt>Trwały magazyn</dt>
+                    <dd>{trwaly ? "przyznany" : "nieprzyznany"}</dd>
+                  </div>
+                  <div>
+                    <dt>Aplikacja zainstalowana</dt>
+                    <dd>{isInstalled() ? "tak" : "nie"}</dd>
+                  </div>
+                  <div>
+                    <dt>Połączenie ze skrzynką</dt>
+                    <dd>
+                      {stanSieci === "polaczone" && "działa"}
+                      {stanSieci === "laczenie" && "łączę…"}
+                      {stanSieci === "rozlaczone" && "zerwane"}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
+
+              <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
+
+              <div className="karta">
+                <strong>Klucze w tej przeglądarce</strong>
+                <p className="wskazowka">
+                  Serwer nie ma czego wydać ani zgubić — ale też nie odtworzy niczego,
+                  gdy stracisz wszystkie urządzenia. Historia leży w jednym
+                  zaszyfrowanym rekordzie IndexedDB.
+                </p>
+              </div>
             </div>
 
+            {/*
+              Kasowanie w osobnej strefie, na dole i za linią.
+
+              Nieodwracalne obok odwracalnego to zaproszenie do pomyłki —
+              a tej pomyłki nie da się cofnąć, bo historii nie ma nigdzie
+              indziej.
+            */}
+            <section className="strefa-kasowania">
+              <strong>Usunięcie konta z tego urządzenia</strong>
+              <p className="wskazowka">
+                Historii nie da się odzyskać — nigdzie jej nie zapisujemy.
+              </p>
             <button
               className="rozlacz"
               onClick={async () => {
@@ -1119,6 +1183,7 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
             >
               Usuń konto z tego urządzenia
             </button>
+            </section>
           </>
         )}
       </section>

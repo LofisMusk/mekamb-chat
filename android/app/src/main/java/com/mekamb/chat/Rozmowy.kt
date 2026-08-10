@@ -25,6 +25,21 @@ package com.mekamb.chat
 object Rozmowy {
 
     /**
+     * Nazwa rozmowy — kto w niej jest poza nami.
+     *
+     * Nazwa brała się ze stanu ekranu: wpisanej w Kontaktach albo odczytanej
+     * z klikniętej pozycji listy. Rozmowa założona przez KOGOŚ INNEGO nie
+     * przechodzi przez żadne z tych miejsc, więc zostawała nazwa poprzednio
+     * otwartej rozmowy — wiadomości od jednej osoby podpisywały się drugą —
+     * albo nie było jej wcale i lista pokazywała wiersz bez imienia.
+     *
+     * Skład z drzewa MLS zna każdy sposób powstania rozmowy, bo grupa nie
+     * istnieje bez składu. Odpowiednik `nazwaRozmowy` w `rozmowy.ts`.
+     */
+    fun nazwa(czlonkowie: List<String>, ja: String): String =
+        czlonkowie.distinct().filter { it != ja }.joinToString(", ")
+
+    /**
      * Znajduje istniejącą rozmowę jeden na jeden z podaną osobą.
      *
      * [czlonkowie] zwraca identyfikatory użytkowników w grupie. Wyjątek dla

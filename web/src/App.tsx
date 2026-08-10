@@ -27,7 +27,8 @@ import {
 } from "./lib/historia";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import { opisBledu, ustalRozruch } from "./lib/rozruch";
-import { znajdzRozmowe1na1 } from "./lib/rozmowy";
+import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
+import { useWstecz } from "./lib/nawigacja";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import type { LoginSession } from "./lib/auth";
 import { Call } from "./lib/calls";
@@ -135,6 +136,45 @@ export function App() {
 
   const zglosBlad = (e: unknown) => setBlad(opisBledu(e));
 
+  /*
+   * Cofanie się z ekranów, do których się wchodzi.
+   *
+   * Jedna decyzja „dokąd wraca ten ekran" dla wszystkich trzech dróg wyjścia:
+   * strzałki, gestu i systemowego „wstecz" — patrz `nawigacja.ts`. Rozbicie
+   * tego na osobne obsługi kończy się tym, że przycisk systemowy wyrzuca
+   * z aplikacji zamiast wrócić o krok.
+   */
+  const wstecz = useCallback(() => {
+    setEkran((biezacy) => {
+      switch (biezacy.nazwa) {
+        case "drugi-skladnik":
+          return { nazwa: "logowanie" };
+
+        case "potwierdzenie":
+          // Wyjście stąd ma cenę i użytkownik musi ją poznać: konto już
+          // istnieje, ale bez potwierdzenia jest bezużyteczne, a jego nazwy
+          // nie da się zająć drugi raz (serwer odpowiada „nazwa jest zajęta").
+          setBlad(
+            "Konto zostało założone, ale niepotwierdzone — bez kodu z authenticatora nie da " +
+              "się na nie zalogować, a jego nazwa pozostaje zajęta.",
+          );
+          return { nazwa: "logowanie" };
+
+        default:
+          return { nazwa: "powitanie" };
+      }
+    });
+  }, []);
+
+  const wEkranieZPowrotem =
+    ekran.nazwa === "rejestracja" ||
+    ekran.nazwa === "potwierdzenie" ||
+    ekran.nazwa === "logowanie" ||
+    ekran.nazwa === "drugi-skladnik" ||
+    ekran.nazwa === "odbior-przeniesienia";
+
+  useWstecz(wEkranieZPowrotem, wstecz, ekran.nazwa);
+
   return (
     <main className="aplikacja">
       <header>
@@ -148,6 +188,14 @@ export function App() {
           {blad}
           <button onClick={() => setBlad(null)}>×</button>
         </p>
+      )}
+
+      {wEkranieZPowrotem && (
+        <header className="pasek-ekranu">
+          <button className="wstecz" aria-label="Wróć" onClick={() => history.back()}>
+            ←
+          </button>
+        </header>
       )}
 
       {ekran.nazwa === "ladowanie" && <p>Wczytywanie…</p>}
@@ -550,6 +598,26 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
    */
   const [wLocie, setWLocie] = useState<{ id: string; tresc: string; blad: boolean }[]>([]);
   const nieprzeczytane = rozmowy.reduce((suma, p) => suma + p.nieprzeczytane, 0);
+
+  /*
+   * Nazwa pozycji na liście, z naprawą wstecz.
+   *
+   * Rozmowy zapisane przed poprawką mają nazwę pustą, a wiersz bez imienia
+   * i bez awatara nie mówi nic o tym, z kim się rozmawia. Skład z drzewa MLS
+   * odtwarza ją bez pytania serwera o cokolwiek — a gdy i tego nie ma (grupa
+   * spoza stanu MLS, np. po przeniesieniu konta), mówimy wprost, że nazwy nie
+   * znamy, zamiast pokazywać pusty wiersz.
+   */
+  const nazwaPozycji = (pozycja: PozycjaListy): string => {
+    if (pozycja.rozmowca) return pozycja.rozmowca;
+
+    try {
+      const z = nazwaRozmowy(messenger.memberUserIds(pozycja.groupId), messenger.account.userId);
+      return z || "rozmowa bez nazwy";
+    } catch {
+      return "rozmowa bez nazwy";
+    }
+  };
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
    *
@@ -663,6 +731,28 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
     void listaRozmow().then(setRozmowy);
   }, []);
 
+  /*
+   * Nazwa rozmowy pochodzi z drzewa MLS, nie ze stanu interfejsu.
+   *
+   * Wcześniej brała się z tego, co użytkownik wpisał w Kontaktach albo
+   * kliknął na liście. Rozmowa założona przez KOGOŚ INNEGO nie przechodzi
+   * przez żadne z tych miejsc, więc zapisywała się bez nazwy — na liście
+   * pojawiał się wiersz bez imienia i bez awatara. Gorszy wariant: zostawała
+   * nazwa poprzednio otwartej rozmowy, więc wiadomości od jednej osoby
+   * podpisywały się drugą.
+   */
+  useEffect(() => {
+    if (!groupId) return;
+
+    try {
+      const nazwa = nazwaRozmowy(messenger.memberUserIds(groupId), messenger.account.userId);
+      // Pusto znaczy „zostaliśmy sami" — wtedy stara nazwa jest lepsza niż żadna.
+      if (nazwa) setRozmowca(nazwa);
+    } catch {
+      // Grupa spoza stanu MLS zostaje z nazwą zapisaną na dysku.
+    }
+  }, [groupId, messenger]);
+
   // Historia rozmowy z dysku. Bez tego odświeżenie strony kasowało rozmowę,
   // a odświeżenie było jedynym ratunkiem na zerwane połączenie.
   useEffect(() => {
@@ -701,8 +791,22 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
       });
   }, [groupId, rozmowca, wiadomosci]);
 
+  /*
+   * Otwarta rozmowa jest osobnym ekranem, nie doklejką pod listą.
+   *
+   * Klasa na układzie mówi arkuszowi stylów, że na wąskim ekranie ma pokazać
+   * sam wątek. Wyjście z niego idzie przez historię przeglądarki, więc
+   * strzałka, gest i systemowe „wstecz" robią dokładnie to samo — patrz
+   * `nawigacja.ts`.
+   */
+  useWstecz(
+    galaz === "rozmowy" && groupId !== null,
+    () => setGroupId(null),
+    groupId ? kluczRozmowy(groupId) : "",
+  );
+
   return (
-    <div className="uklad">
+    <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
       <nav className="sidebar" aria-label="Nawigacja">
         <div className="marka">
           <span className="marka-znak" aria-hidden="true" />
@@ -756,14 +860,14 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
                       className="wiersz-rozmowy"
                       onClick={() => {
                         setGroupId(pozycja.groupId);
-                        setRozmowca(pozycja.rozmowca);
+                        setRozmowca(nazwaPozycji(pozycja));
                       }}
                     >
                       <span className="awatar" aria-hidden="true">
-                        {pozycja.rozmowca.slice(0, 1).toUpperCase()}
+                        {nazwaPozycji(pozycja).slice(0, 1).toUpperCase()}
                       </span>
                       <span className="wiersz-tresc">
-                        <span className="wiersz-nazwa">{pozycja.rozmowca}</span>
+                        <span className="wiersz-nazwa">{nazwaPozycji(pozycja)}</span>
                         <span className="wiersz-ostatnia">
                           {pozycja.ostatnia
                             ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + pozycja.ostatnia.tresc
@@ -789,6 +893,25 @@ function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown
 
         {galaz === "rozmowy" && groupId && (
           <div className="watek">
+            {/*
+              Pasek rozmowy: strzałka wstecz i z kim się rozmawia.
+
+              Na wąskim ekranie rozmowa zajmuje cały widok, więc bez tego nie
+              było jak wrócić do listy — wcześniej wątek doklejał się POD listą
+              i wyglądał, jakby pozycja się rozwinęła. Na szerokim lista stoi
+              obok i strzałka jest zbędna, dlatego chowa ją arkusz stylów.
+            */}
+            <header className="pasek-watku">
+              <button
+                className="wstecz"
+                aria-label="Wróć do listy rozmów"
+                onClick={() => history.back()}
+              >
+                ←
+              </button>
+              <span className="pasek-nazwa">{rozmowca}</span>
+            </header>
+
             {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
                 najważniejszą rzeczą na ekranie. */}
             <Rozmowa

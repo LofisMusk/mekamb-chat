@@ -524,6 +524,69 @@ button:disabled:hover { background: transparent; }
   .panel-listy { border-right: none; padding-right: 0; }
 }
 
+/*
+ * Wąski ekran: jeden panel naraz.
+ *
+ * Poniżej 46rem trzy kolumny stają się jedną, więc lista i wątek układały się
+ * jeden POD drugim — kliknięcie rozmowy wyglądało, jakby pozycja listy się
+ * rozwinęła, i nie było jak wrócić. Telefon ma na to jedno rozwiązanie: ekran
+ * pokazuje albo listę, albo rozmowę, a między nimi chodzi się „wstecz".
+ *
+ * Robi to arkusz stylów, a nie warunek w kodzie: szerokość okna zmienia się
+ * bez udziału Reacta (obrót telefonu, podzielony ekran), a stan komponentu
+ * musiałby za nią nadążać i gubiłby się przy każdej takiej zmianie.
+ */
+@media (max-width: 46rem) {
+  .uklad.rozmowa-otwarta .panel-listy { display: none; }
+  .uklad:not(.rozmowa-otwarta) .pusty-watek { display: none; }
+}
+
+/* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
+@media (min-width: 46.01rem) {
+  .pasek-watku .wstecz { display: none; }
+}
+
+.pasek-watku {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  padding-bottom: var(--odstep-3);
+  border-bottom: 1px solid var(--linia);
+}
+
+/* Cel dotyku 44 px z projektu — poniżej tego trafia się w niego przypadkiem. */
+.pasek-watku .wstecz {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-color: transparent;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+/* Ten sam pasek przed zalogowaniem — rejestracja, logowanie, odbiór konta. */
+.pasek-ekranu {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--odstep-3);
+}
+.pasek-ekranu .wstecz {
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-color: transparent;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.pasek-nazwa {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 46rem) {
   .uklad { grid-template-columns: 1fr; }
 

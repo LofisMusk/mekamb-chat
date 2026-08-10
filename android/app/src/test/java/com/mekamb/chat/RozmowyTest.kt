@@ -79,4 +79,26 @@ class RozmowyTest {
     fun `brak rozmow to brak dopasowania`() {
         assertNull(szukaj(emptyList(), emptyMap(), "bartek"))
     }
+
+    /** Sedno: to jest ta usterka z listy rozmów — wiersz bez imienia. */
+    @Test
+    fun `rozmowa dwoch osob nazywa sie ta druga`() {
+        assertEquals("bartek", Rozmowy.nazwa(listOf(ja, "bartek"), ja))
+    }
+
+    @Test
+    fun `grupa wymienia wszystkich poza nami`() {
+        assertEquals("bartek, celina", Rozmowy.nazwa(listOf(ja, "bartek", "celina"), ja))
+    }
+
+    /** MLS liczy urządzenia, nazwa dotyczy osób. */
+    @Test
+    fun `osoba z kilkoma urzadzeniami liczy sie raz`() {
+        assertEquals("bartek", Rozmowy.nazwa(listOf(ja, "bartek", "bartek"), ja))
+    }
+
+    @Test
+    fun `sami w rozmowie dajemy pusta nazwe`() {
+        assertEquals("", Rozmowy.nazwa(listOf(ja), ja))
+    }
 }

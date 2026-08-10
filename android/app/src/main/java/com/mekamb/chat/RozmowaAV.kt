@@ -72,6 +72,17 @@ class RozmowaAV private constructor(
     /** Połączenia po nazwie rozmówcy. Mesh: jedno na parę. */
     private val polaczenia = LinkedHashMap<String, Polaczenie>()
 
+    /**
+     * Serwery ICE z Workera.
+     *
+     * Pobierane raz na rozmowę, zanim powstanie pierwsze połączenie: TURN
+     * dostaje krótkożyjące poświadczenia, więc nie da się ich trzymać na stałe,
+     * a każde połączenie w siatce ma używać tych samych.
+     */
+    private var serweryIce: List<PeerConnection.IceServer> = listOf(
+        PeerConnection.IceServer.builder(STUN_ZAPASOWY).createIceServer(),
+    )
+
     var mikrofonWlaczony: Boolean = true
         private set
     var kameraWlaczona: Boolean = false
@@ -99,6 +110,9 @@ class RozmowaAV private constructor(
          */
         const val LIMIT_UCZESTNIKOW = 4
 
+        /** Gdy Worker nie odpowie — bez żadnego serwera ICE nie zestawi się nic. */
+        private const val STUN_ZAPASOWY = "stun:stun.cloudflare.com:3478"
+
         /** Zaczyna rozmowę: wysyła ofertę do każdego pozostałego uczestnika. */
         fun zadzwon(
             kontekst: Context,
@@ -119,7 +133,15 @@ class RozmowaAV private constructor(
             )
 
             rozmowa.przygotujMedia(zWideo)
-            rozmowcy.take(LIMIT_UCZESTNIKOW - 1).forEach { rozmowa.zaproponuj(it) }
+
+            // Oferty idą dopiero po pobraniu poświadczeń: połączenie zestawione
+            // bez TURN-a nie doda go sobie później, a użytkownik za
+            // restrykcyjnym NAT-em nie usłyszałby nikogo bez śladu przyczyny.
+            zakres.launch {
+                rozmowa.pobierzSerweryIce()
+                rozmowcy.take(LIMIT_UCZESTNIKOW - 1).forEach { rozmowa.zaproponuj(it) }
+            }
+
             return rozmowa
         }
 
@@ -129,6 +151,11 @@ class RozmowaAV private constructor(
          * Identyfikator rozmowy bierzemy z oferty, a nie losujemy własnego:
          * dwie strony z różnymi identyfikatorami zestawiłyby dwie rozmowy
          * zamiast jednej.
+         *
+         * Oferta jest przetwarzana TUTAJ, po pobraniu poświadczeń ICE — a nie
+         * przez wywołującego zaraz po powrocie. Połączenie zestawione przed
+         * ich pobraniem nie doda sobie TURN-a później, więc strona odbierająca
+         * za restrykcyjnym NAT-em nie usłyszałaby nikogo, bez śladu przyczyny.
          */
         fun odbierz(
             kontekst: Context,
@@ -136,10 +163,22 @@ class RozmowaAV private constructor(
             groupId: ByteArray,
             callId: ByteArray,
             zWideo: Boolean,
+            od: String,
+            oferta: String,
+            odcisk: String,
             zakres: CoroutineScope,
             onZmiana: (List<UczestnikRozmowy>) -> Unit,
-        ): RozmowaAV = RozmowaAV(kontekst, messenger, groupId, callId, zakres, onZmiana)
-            .also { it.przygotujMedia(zWideo) }
+        ): RozmowaAV {
+            val rozmowa = RozmowaAV(kontekst, messenger, groupId, callId, zakres, onZmiana)
+            rozmowa.przygotujMedia(zWideo)
+
+            zakres.launch {
+                rozmowa.pobierzSerweryIce()
+                rozmowa.przyjmij(od, CallSignalKind.OFFER, oferta, odcisk)
+            }
+
+            return rozmowa
+        }
     }
 
     /** Kontekst OpenGL do podglądu — potrzebny widokom rysującym obraz. */
@@ -264,7 +303,7 @@ class RozmowaAV private constructor(
         polaczenia[rozmowca]?.let { return it }
         if (polaczenia.size >= LIMIT_UCZESTNIKOW - 1) return null
 
-        val konfiguracja = PeerConnection.RTCConfiguration(serweryIce()).apply {
+        val konfiguracja = PeerConnection.RTCConfiguration(serweryIce).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
 
@@ -281,15 +320,22 @@ class RozmowaAV private constructor(
     }
 
     /**
-     * Serwery ICE.
+     * Pobiera poświadczenia STUN/TURN z Workera.
      *
-     * Sam STUN, bo TURN wymaga krótkożyjących poświadczeń z Workera —
-     * dochodzi razem z podłączeniem `/calls/ice-servers`. Bez TURN-a nie uda
-     * się wyłącznie połączenie między dwoma restrykcyjnymi NAT-ami.
+     * Bez TURN-a nie uda się wyłącznie połączenie między dwoma restrykcyjnymi
+     * NAT-ami — reszta działa na samym STUN-ie, więc niepowodzenie zostawia
+     * zapasowy serwer zamiast przerywać rozmowę.
      */
-    private fun serweryIce(): List<PeerConnection.IceServer> = listOf(
-        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-    )
+    internal suspend fun pobierzSerweryIce() {
+        serweryIce = messenger.serweryIce().map { serwer ->
+            PeerConnection.IceServer.builder(serwer.urls)
+                .apply {
+                    serwer.username?.let { setUsername(it) }
+                    serwer.credential?.let { setPassword(it) }
+                }
+                .createIceServer()
+        }
+    }
 
     private fun wyslij(doKogo: String, rodzaj: CallSignalKind, tresc: String) {
         val odcisk = if (rodzaj == CallSignalKind.OFFER || rodzaj == CallSignalKind.ANSWER) {
@@ -366,6 +412,30 @@ class RozmowaAV private constructor(
             if (faza != FazaPolaczenia.ODRZUCONA) faza = FazaPolaczenia.ZAKONCZONA
         }
 
+        /**
+         * Rozstrzyga, czy media idą wprost, czy przez przekaźnik.
+         *
+         * Typ kandydata „relay" znaczy TURN — wtedy nasz adres IP widzi
+         * przekaźnik zamiast rozmówcy. To jest różnica, o której ekran mówi
+         * wprost, więc nie wolno jej zgadywać: dopóki statystyki nie odpowiedzą,
+         * zostaje ostrożniejsze „przez przekaźnik".
+         *
+         * Ta sama reguła co w kliencie webowym (`ustalDroge` w `calls.ts`).
+         */
+        fun ustalDroge() {
+            pc.getStats { raport ->
+                val para = raport.statsMap.values.firstOrNull {
+                    it.type == "candidate-pair" && it.members["state"] == "succeeded"
+                } ?: return@getStats
+
+                val idLokalnego = para.members["localCandidateId"] as? String ?: return@getStats
+                val typ = raport.statsMap[idLokalnego]?.members?.get("candidateType") as? String
+
+                bezposrednio = typ != null && typ != "relay"
+                zglos()
+            }
+        }
+
         val obserwator = object : ProstyObserwator() {
             override fun onIceCandidate(kandydat: IceCandidate?) {
                 kandydat ?: return
@@ -373,6 +443,8 @@ class RozmowaAV private constructor(
             }
 
             override fun onConnectionChange(nowy: PeerConnection.PeerConnectionState?) {
+                if (nowy == PeerConnection.PeerConnectionState.CONNECTED) ustalDroge()
+
                 faza = when (nowy) {
                     PeerConnection.PeerConnectionState.CONNECTED -> FazaPolaczenia.POLACZONA
                     PeerConnection.PeerConnectionState.FAILED,

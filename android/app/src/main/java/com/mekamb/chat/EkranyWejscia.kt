@@ -1,6 +1,10 @@
 package com.mekamb.chat
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -94,23 +98,23 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(horizontal = Odstep.xl),
-        verticalArrangement = Arrangement.Center,
+            .imePadding(),
     ) {
-        OdznakaMarki()
-        Spacer(Modifier.size(Odstep.m))
-        NaglowekEkranu("Nowe konto", "Create account")
+        PasekZPowrotem("Nowe konto", "New account") { model.pokaz(Ekran.POWITANIE) }
 
-        Spacer(Modifier.size(Odstep.xl))
-        Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+        Column(
+            modifier = Modifier.padding(horizontal = Odstep.xl),
+            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+        ) {
             Pole("Nazwa użytkownika · Username", username, { username = it })
-            Pole("Hasło — min. 12 znaków · Password", haslo, { haslo = it }, haslo = true)
+            Pole("Hasło · Password", haslo, { haslo = it }, haslo = true)
+            SilaHasla(haslo)
         }
 
         Spacer(Modifier.size(Odstep.l))
+        Column(modifier = Modifier.padding(horizontal = Odstep.xl)) {
         Wskazowka(
-            "Hasło nie opuszcza tego urządzenia. Serwer nigdy go nie zobaczy — " +
+            "Hasło nie opuszcza tego urządzenia (OPAQUE). Serwer nigdy go nie zobaczy — " +
                 "ale też nie pomoże Ci go odzyskać.",
             Ikony.Klucz,
         )
@@ -118,15 +122,64 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         Spacer(Modifier.size(Odstep.l))
         PrzyciskGlowny(
             if (stan.pracuje) "Zakładam…" else "Załóż konto · Create account",
-            wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= 12,
+            wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= MINIMUM_HASLA,
         ) {
             model.zarejestruj(username.trim(), haslo)
         }
 
         Spacer(Modifier.size(Odstep.s))
         PrzyciskCichy("Mam już konto") { model.pokaz(Ekran.LOGOWANIE) }
+        }
     }
 }
+
+/**
+ * Wskaźnik długości hasła.
+ *
+ * Trzy odcinki i liczba znaków, a nie ocena „słabe / mocne": jedyny warunek,
+ * który naprawdę sprawdzamy, to dwanaście znaków, więc udawanie, że mierzymy
+ * coś więcej, byłoby wprowadzaniem w błąd. Widać, ile brakuje, zanim przycisk
+ * odmówi.
+ */
+@Composable
+private fun SilaHasla(haslo: String) {
+    val wypelnione = when {
+        haslo.length >= MINIMUM_HASLA -> 3
+        haslo.length >= MINIMUM_HASLA * 2 / 3 -> 2
+        haslo.isNotEmpty() -> 1
+        else -> 0
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+    ) {
+        repeat(3) { i ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .background(
+                        if (i < wypelnione) Akcent else Neutral800,
+                        RoundedCornerShape(2.dp),
+                    ),
+            )
+        }
+
+        Text(
+            text = if (haslo.length >= MINIMUM_HASLA) {
+                "wystarczy"
+            } else {
+                "min. $MINIMUM_HASLA znaków"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (haslo.length >= MINIMUM_HASLA) Accent300 else Neutral500,
+        )
+    }
+}
+
+/** Minimalna długość hasła — ta sama, na którą patrzy przycisk „Załóż konto". */
+private const val MINIMUM_HASLA = 12
 
 /**
  * Odbiór konta z innego urządzenia.

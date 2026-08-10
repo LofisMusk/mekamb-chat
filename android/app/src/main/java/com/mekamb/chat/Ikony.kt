@@ -131,6 +131,12 @@ object Ikony {
     /** Dodanie osoby do rozmowy. */
     val Dodaj = ikona("dodaj", "M12 5 V19 M5 12 H19")
 
+    /** Lupa — szukanie w liście rozmów. */
+    val Szukaj = ikona("szukaj", "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L20 20")
+
+    /** Suwaki — wejście do ustawień z nagłówka listy. */
+    val Suwaki = ikona("suwaki", "M4 7 H20 M4 12 H20 M4 17 H20 M9 5 V9 M15 10 V14 M7 15 V19")
+
     /** Kod bezpieczeństwa — odcisk. */
     val Odcisk = ikona(
         "odcisk",

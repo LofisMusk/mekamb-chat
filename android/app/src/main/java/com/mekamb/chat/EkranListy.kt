@@ -20,9 +20,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,24 +58,67 @@ fun EkranListy(
     onOtworzRozmowe: (PozycjaListy) -> Unit,
     onNowaRozmowa: () -> Unit,
     onGalaz: (Galaz) -> Unit,
+    onUstawienia: () -> Unit,
 ) {
     val stan = model.stan
+    var szukanie by remember { mutableStateOf<String?>(null) }
+
+    /*
+     * Szukanie filtruje to, co JUŻ jest na urządzeniu.
+     *
+     * Historia leży w skarbcu i nigdzie indziej, więc nie ma czego pytać
+     * serwera — a pytanie go o cokolwiek zdradziłoby, z kim rozmawiamy.
+     * Dopasowanie bez rozróżniania wielkości liter, bo nikt nie pamięta,
+     * czy zapisał kogoś z dużej.
+     */
+    val widoczne = szukanie?.trim().orEmpty().let { fraza ->
+        if (fraza.isEmpty()) stan.rozmowy
+        else stan.rozmowy.filter { it.rozmowca.contains(fraza, ignoreCase = true) }
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.l, vertical = Odstep.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text("Rozmowy", style = MaterialTheme.typography.titleLarge)
-                Text("Conversations", style = MaterialTheme.typography.labelSmall, color = Neutral500)
+            if (szukanie == null) {
+                Column(Modifier.weight(1f)) {
+                    Text("Rozmowy", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Conversations",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Neutral500,
+                    )
+                }
+                IconButton(
+                    onClick = { szukanie = "" },
+                    modifier = Modifier.size(Dotyk.ikonaWPasku),
+                ) {
+                    Icon(Ikony.Szukaj, contentDescription = "Szukaj", tint = Tekst)
+                }
+                IconButton(onClick = onUstawienia, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
+                    Icon(Ikony.Suwaki, contentDescription = "Ustawienia", tint = Tekst)
+                }
+            } else {
+                Pole(
+                    etykieta = "Szukaj w rozmowach · Search",
+                    wartosc = szukanie.orEmpty(),
+                    onZmiana = { szukanie = it },
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { szukanie = null },
+                    modifier = Modifier.size(Dotyk.ikonaWPasku),
+                ) {
+                    Icon(Ikony.Wstecz, contentDescription = "Zamknij szukanie", tint = Tekst)
+                }
             }
         }
 
         Column(Modifier.weight(1f).fillMaxWidth()) {
-            if (stan.rozmowy.isNotEmpty()) {
+            if (widoczne.isNotEmpty()) {
                 LazyColumn(Modifier.fillMaxWidth()) {
-                    items(stan.rozmowy, key = { Historia.klucz(it.groupId) }) { pozycja ->
+                    items(widoczne, key = { Historia.klucz(it.groupId) }) { pozycja ->
                         WierszRozmowy(
                             nazwa = pozycja.rozmowca,
                             ostatnia = pozycja.ostatnia?.let {
@@ -88,13 +136,24 @@ fun EkranListy(
                     modifier = Modifier.fillMaxWidth().padding(Odstep.xl),
                     verticalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
+                    // Pusto z powodu szukania to co innego niż brak rozmów.
+                    // Jedna wiadomość na oba stany kazałaby użytkownikowi
+                    // zgadywać, czy niczego nie ma, czy tylko nie znalazł.
                     Text(
-                        "Nie masz jeszcze żadnej rozmowy.",
+                        if (szukanie.isNullOrBlank()) {
+                            "Nie masz jeszcze żadnej rozmowy."
+                        } else {
+                            "Nic nie pasuje do tej nazwy."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = TekstPrzygaszony,
                     )
                     Text(
-                        "Zacznij od kontaktu — wystarczy nazwa użytkownika.",
+                        if (szukanie.isNullOrBlank()) {
+                            "Zacznij od kontaktu — wystarczy nazwa użytkownika."
+                        } else {
+                            "Szukamy tylko w rozmowach zapisanych na tym urządzeniu."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = Neutral600,
                     )

@@ -332,6 +332,7 @@ private fun Zawartosc(
                     },
                     onNowaRozmowa = { nowaRozmowa = true },
                     onGalaz = { galaz = it },
+                    onUstawienia = { wUstawieniach = true },
                 )
             stan.ekran == Ekran.REJESTRACJA -> EkranRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)

@@ -16,6 +16,7 @@ import {
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
 import transfer, { cleanupExpiredTransfers } from "./transfer";
 import { requireAuth } from "./middleware";
+import { verifyToken } from "./crypto";
 
 export { GroupRelay } from "./group";
 export { RateLimiter } from "./ratelimit";
@@ -158,42 +159,29 @@ app.post("/key-packages/:deviceId", requireAuth, async (c) => {
 });
 
 /**
- * Zgłasza commit do rozstrzygnięcia kolejności.
+ * Zajmuje kolejną epokę grupy.
  *
  * Odpowiedź 409 nie jest błędem klienta — znaczy „ktoś był pierwszy".
  * Klient ma porzucić swój commit, przetworzyć cudzy i spróbować ponownie.
+ *
+ * # Czego tu już nie ma
+ *
+ * Samego commitu i listy członków. Serwer rozstrzyga wyłącznie KOLEJNOŚĆ,
+ * a rozesłanie commitu do skrzynek robi nadawca — skład grupy zna z drzewa
+ * MLS, więc serwer nie ma powodu go poznawać. Wcześniej ta trasa była jedynym
+ * miejscem, w którym serwer dostawał gotową listę „kto z kim rozmawia".
  */
 app.post("/groups/:groupId/commit", requireAuth, async (c) => {
-  const body = await c.req.json<{ epoch: number; envelope: string; members: string[] }>();
+  const body = await c.req.json<{ epoch: number }>();
 
   if (typeof body.epoch !== "number" || !Number.isInteger(body.epoch) || body.epoch < 0) {
     return c.json({ error: "nieprawidłowy numer epoki" }, 400);
-  }
-  if (!Array.isArray(body.members) || body.members.length === 0) {
-    return c.json({ error: "oczekiwano niepustej listy członków" }, 400);
-  }
-
-  const envelope = fromBase64(body.envelope);
-  if (envelope.byteLength > MAX_ENVELOPE_BYTES) {
-    return c.json({ error: "commit przekracza limit rozmiaru" }, 413);
   }
 
   const groupId = c.req.param("groupId");
   const relay = c.env.GROUP_RELAY.get(c.env.GROUP_RELAY.idFromName(groupId));
 
-  // Nadawcę bierzemy z TOKENU. Gdyby pochodził z ciała żądania, dałoby się
-  // wykluczyć z rozsyłki dowolną osobę i po cichu odciąć ją od grupy.
-  //
-  // Token niesie wewnętrzny UUID, a relay adresuje skrzynki NAZWAMI — w tej
-  // samej przestrzeni co `body.members`. Bez przeliczenia nadawca nigdy nie
-  // zgadzałby się z żadnym członkiem i dostawałby z powrotem własny commit,
-  // którego MLS nie potrafi przetworzyć.
-  const nadawca = await usernameFor(c.env, c.get("userId"));
-  if (nadawca === null) {
-    return c.json({ error: "konto nie istnieje" }, 401);
-  }
-
-  const result = await relay.submitCommit(body.epoch, envelope, body.members, nadawca);
+  const result = await relay.claimEpoch(body.epoch);
 
   if (!result.accepted) {
     return c.json(
@@ -223,11 +211,65 @@ app.post("/inbox/:userId", async (c) => {
   return c.json(result);
 });
 
-/** Podłącza urządzenie do własnej skrzynki przez WebSocket. */
+/**
+ * Podłącza urządzenie do **własnej** skrzynki przez WebSocket.
+ *
+ * # Czemu to musiało powstać
+ *
+ * Ta trasa nie miała żadnego uwierzytelnienia. Jedynym globalnym middleware
+ * jest CORS, a CORS nie jest kontrolą dostępu — nie dotyczy `curl`-a ani
+ * klienta natywnego. Ktokolwiek znał nazwę użytkownika, mógł podłączyć się do
+ * cudzej skrzynki, odebrać zaległe koperty i wysłać `ack:<id>`, **kasując je
+ * z kolejki, zanim dotarły do właściciela**. Wiadomość przepadała bez śladu,
+ * a nadawca nie widział żadnego błędu.
+ *
+ * # Dlaczego token idzie podprotokołem, a nie nagłówkiem
+ *
+ * Bo przeglądarkowe `WebSocket` nie pozwala dodać nagłówka `Authorization`.
+ * Zostaje zapytanie w adresie albo `Sec-WebSocket-Protocol`. Wybieramy to
+ * drugie: adresy lądują w logach serwerów pośredniczących i w historii, a token
+ * w logu jest tokenem oddanym.
+ *
+ * # Dlaczego przeliczamy nazwę
+ *
+ * Skrzynka nazywa się NAZWĄ UŻYTKOWNIKA, a token niesie wewnętrzny UUID konta.
+ * Porównanie bez przeliczenia nigdy by się nie zgodziło i odcięłoby wszystkich
+ * od własnych skrzynek — ten sam rozjazd, który raz już zepsuł doręczanie.
+ */
 app.get("/inbox/:userId/connect", async (c) => {
-  const userId = c.req.param("userId");
-  const inbox = c.env.USER_INBOX.get(c.env.USER_INBOX.idFromName(userId));
-  return inbox.fetch(c.req.raw);
+  const token = c.req.header("Sec-WebSocket-Protocol");
+  if (!token) {
+    return c.json({ error: "brak tokenu dostępowego" }, 401);
+  }
+
+  const payload = await verifyToken(c.env.TOKEN_SIGNING_KEY, token);
+  if (!payload) {
+    return c.json({ error: "token jest nieważny" }, 401);
+  }
+
+  const wlasciciel = await usernameFor(c.env, payload.userId);
+  const skrzynka = c.req.param("userId");
+
+  if (wlasciciel === null || wlasciciel !== skrzynka) {
+    // Ten sam komunikat co przy braku konta: rozróżnienie „nie ma takiego
+    // konta" od „to nie Twoja skrzynka" mówiłoby pytającemu, kto istnieje.
+    return c.json({ error: "to nie jest Twoja skrzynka" }, 403);
+  }
+
+  const inbox = c.env.USER_INBOX.get(c.env.USER_INBOX.idFromName(skrzynka));
+  const odpowiedz = await inbox.fetch(c.req.raw);
+
+  // Przeglądarka zrywa połączenie, jeśli serwer nie potwierdzi wybranego
+  // podprotokołu. Odsyłamy dokładnie to, co przyszło.
+  const naglowki = new Headers(odpowiedz.headers);
+  naglowki.set("Sec-WebSocket-Protocol", token);
+
+  return new Response(odpowiedz.body, {
+    status: odpowiedz.status,
+    statusText: odpowiedz.statusText,
+    headers: naglowki,
+    webSocket: odpowiedz.webSocket,
+  });
 });
 
 /** Sprawdza limit prób — wołane przez ścieżkę logowania. */

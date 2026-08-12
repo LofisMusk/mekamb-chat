@@ -3,6 +3,7 @@ import init, {
   decodeEnvelope,
   canStripMetadata,
   encodeEnvelope,
+  relayId,
   maxAttachmentBytes,
   openAttachment,
   sealAttachment,
@@ -62,6 +63,60 @@ export interface ReceivedMessage {
   attachment?: ReceivedAttachment;
   /** Obecne, gdy wiadomość niesie sygnalizację rozmowy. */
   call?: ReceivedCallSignal;
+  /** Obecne, gdy wiadomość jest potwierdzeniem dostarczenia albo odczytu. */
+  receipt?: ReceivedReceipt;
+}
+
+/**
+ * Potwierdzenie odebrane kanałem MLS.
+ *
+ * Nie niesie chwili odczytu — ta informacja świadomie nie istnieje w protokole.
+ * Nasz zegar mówi tylko, kiedy potwierdzenie DOTARŁO, a to i tak jest o losowy
+ * czas późniejsze od odczytu (patrz `potwierdzenia.ts`).
+ */
+export interface ReceivedReceipt {
+  kind: "delivered" | "read";
+  /** Identyfikatory potwierdzanych wiadomości, szesnastkowo — jak w historii. */
+  messageIds: string[];
+}
+
+/** Długość identyfikatora wiadomości w bajtach. Musi zgadzać się z rdzeniem. */
+export const DLUGOSC_ID = 16;
+
+/**
+ * Identyfikator wiadomości jako tekst.
+ *
+ * `padStart` jest tu konieczny, a nie kosmetyczny: bez niego bajt 0x0A daje
+ * „a" zamiast „0a", więc zapisu nie da się jednoznacznie odczytać z powrotem
+ * na bajty. Dopóki identyfikator służył tylko za klucz Reacta, nikt tego nie
+ * zauważył — potwierdzenia muszą go odwrócić, więc musi być odwracalny.
+ */
+export function idWiadomosci(bajty: Uint8Array): string {
+  return Array.from(bajty, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Skleja identyfikatory w jedną tablicę bajtów — takiej oczekuje rdzeń. */
+export function sklejIdentyfikatory(identyfikatory: readonly string[]): Uint8Array {
+  const bajty = new Uint8Array(identyfikatory.length * DLUGOSC_ID);
+
+  identyfikatory.forEach((id, n) => {
+    for (let i = 0; i < DLUGOSC_ID; i++) {
+      bajty[n * DLUGOSC_ID + i] = parseInt(id.slice(i * 2, i * 2 + 2), 16) || 0;
+    }
+  });
+
+  return bajty;
+}
+
+/** Rozcina sklejone identyfikatory z powrotem na teksty. */
+export function rozetnijIdentyfikatory(bajty: Uint8Array): string[] {
+  const identyfikatory: string[] = [];
+
+  for (let n = 0; n + DLUGOSC_ID <= bajty.length; n += DLUGOSC_ID) {
+    identyfikatory.push(idWiadomosci(bajty.subarray(n, n + DLUGOSC_ID)));
+  }
+
+  return identyfikatory;
 }
 
 export class Messenger {
@@ -110,6 +165,31 @@ export class Messenger {
 
     const client = MekambClient.restore(account.userId, account.deviceId, seed, state);
     return new Messenger(client, account, token);
+  }
+
+  /**
+   * Otwiera rozmowy zapisane na dysku.
+   *
+   * # Czemu to musiało powstać
+   *
+   * Stan MLS przeżywał odświeżenie karty w magazynie, ale lista OTWARTYCH
+   * rozmów powstawała wyłącznie przy zakładaniu grupy albo przyjmowaniu
+   * zaproszenia. Po odświeżeniu klient miał pełny stan na dysku i pustą listę —
+   * każde wysłanie i odebranie kończyło się „nie ma takiej rozmowy w tym
+   * kliencie".
+   *
+   * Identyfikatory znamy z własnej historii, więc otwieramy je sami. Rozmowa
+   * bez stanu MLS (np. po przeniesieniu konta) po prostu się nie otworzy —
+   * zostaje w historii do czytania i tyle.
+   */
+  otworzZnaneRozmowy(groupIds: readonly Uint8Array[]): void {
+    for (const groupId of groupIds) {
+      try {
+        this.client.openConversation(groupId);
+      } catch {
+        // Uszkodzony wpis nie może zablokować pozostałych rozmów.
+      }
+    }
   }
 
   /**
@@ -185,18 +265,20 @@ export class Messenger {
 
     const pending = this.client.addMember(groupId, fromBase64(keyPackage));
 
-    // Skład PO commicie: nowa osoba musi znaleźć się na liście, do której
-    // relay rozsyła, inaczej nie dostanie kolejnych commitów.
-    const czlonkowie = [...this.memberUserIds(groupId), username];
-
+    /*
+     * Do serwera idzie sam numer epoki.
+     *
+     * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
+     * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
+     * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
+     */
     const epoch = this.client.epoch(groupId);
     const response = await api.post<{ accepted: boolean; epoch: number }>(
-      `/groups/${toHex(groupId)}/commit`,
-      {
-        epoch: Number(epoch),
-        envelope: toBase64(encodeEnvelope(groupId, "commit", pending.commit)),
-        members: czlonkowie,
-      },
+      // Adres relaya jest OSOBNO wyprowadzony, nie jest identyfikatorem
+      // rozmowy: serwer widzi go w adresie żądania, a z niego nie da się
+      // policzyć znaczników kopert.
+      `/groups/${relayId(groupId)}/commit`,
+      { epoch: Number(epoch) },
       this.token,
     );
 
@@ -210,6 +292,23 @@ export class Messenger {
 
     this.client.confirmCommit(groupId);
     await this.persist();
+
+    /*
+     * Rozsyłamy commit sami — po zajęciu epoki, nie przed.
+     *
+     * Kolejność ma znaczenie: rozesłanie przed potwierdzeniem oznaczałoby
+     * wysłanie commitu, który relay może odrzucić, a odbiorcy nie mają jak
+     * cofnąć tego, co już przetworzyli.
+     *
+     * Skład bierzemy PO scaleniu, bez nowej osoby: ona dostaje `welcome`,
+     * a commitu wprowadzającego ją do grupy nie potrafi przetworzyć.
+     */
+    const koperta = encodeEnvelope(groupId, "commit", pending.commit);
+    await Promise.all(
+      this.recipients(groupId)
+        .filter((osoba) => osoba !== username)
+        .map((osoba) => api.deposit(osoba, koperta)),
+    );
 
     if (pending.welcome) {
       await api.deposit(username, encodeEnvelope(groupId, "welcome", pending.welcome));
@@ -242,14 +341,19 @@ export class Messenger {
    * Odbiorców bierzemy z drzewa MLS, a nie z interfejsu: to jedyne miejsce,
    * które wie, kto **naprawdę** jest w grupie po wszystkich commitach.
    */
-  async sendText(groupId: Uint8Array, text: string): Promise<void> {
-    const ciphertext = this.client.sendText(groupId, text, Date.now());
+  async sendText(groupId: Uint8Array, text: string): Promise<string> {
+    const wyslana = this.client.sendText(groupId, text, Date.now());
 
     // Ratchet przesunął się już przy szyfrowaniu — zapis musi nastąpić nawet
     // wtedy, gdy wysyłka po nim zawiedzie.
     await this.persist();
 
-    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", wyslana.ciphertext));
+
+    // Identyfikator z rdzenia, nie własny UUID: potwierdzenia drugiej strony
+    // wskazują wiadomości właśnie po nim. Zapisanie własnego znaczyłoby, że
+    // ptaszek nigdy się nie zmieni, a nikt nie wiedziałby dlaczego.
+    return idWiadomosci(wyslana.message_id);
   }
 
   /** Rozsyła gotową kopertę do wszystkich uczestników poza nami. */
@@ -264,7 +368,10 @@ export class Messenger {
    * widzi zawartości — nawet przez chwilę. Klucz idzie osobną drogą i nigdy
    * nie przechodzi przez endpoint załączników.
    */
-  async sendFile(groupId: Uint8Array, file: File): Promise<{ stripped: boolean }> {
+  async sendFile(
+    groupId: Uint8Array,
+    file: File,
+  ): Promise<{ stripped: boolean; messageId: string }> {
     if (file.size > maxAttachmentBytes()) {
       throw new Error(
         `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
@@ -302,7 +409,7 @@ export class Messenger {
     const sealed = sealAttachment(plaintext, mimeType);
     const blobId = await api.uploadAttachment(this.token, sealed.ciphertext);
 
-    const ciphertext = this.client.sendAttachment(
+    const wyslana = this.client.sendAttachment(
       groupId,
       blobId,
       sealed.key,
@@ -316,9 +423,9 @@ export class Messenger {
     // Ratchet przesunął się przy szyfrowaniu wiadomości.
     await this.persist();
 
-    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", wyslana.ciphertext));
 
-    return { stripped };
+    return { stripped, messageId: idWiadomosci(wyslana.message_id) };
   }
 
   /**
@@ -358,21 +465,37 @@ export class Messenger {
       return null;
     }
 
+    /*
+     * Rozmowę rozpoznajemy po znaczniku, nie z koperty.
+     *
+     * Koperta nie niesie identyfikatora rozmowy — niosła go do wersji 2
+     * formatu i było to jedyne, czego serwer potrzebował, żeby zbudować graf
+     * rozmów z samego ruchu. Dopasowanie robi rdzeń: klucz routingu wyprowadza
+     * się z identyfikatora, a ten nie opuszcza rdzenia w postaci nadającej się
+     * do policzenia znacznika.
+     *
+     * Brak dopasowania jest SPODZIEWANY: koperta powtórzona, spreparowana albo
+     * dla rozmowy, której stanu jeszcze nie mamy. Wywołujący traktuje `null`
+     * jak każdą inną kopertę bez treści.
+     */
+    const groupId = this.client.matchEnvelope(bytes);
+    if (!groupId) return null;
+
     // Commit zmienia skład grupy i epokę. Przetwarzamy go tą samą ścieżką co
     // wiadomość — `receive` rozpoznaje rodzaj sam.
     if (envelope.kind === "commit") {
-      this.client.receive(envelope.group_id, envelope.payload);
+      this.client.receive(groupId, envelope.payload);
       await this.persist();
       return null;
     }
 
-    const incoming = this.client.receive(envelope.group_id, envelope.payload);
+    const incoming = this.client.receive(groupId, envelope.payload);
     await this.persist();
 
     if (incoming.kind !== "message") return null;
 
     return {
-      groupId: envelope.group_id,
+      groupId,
       senderUserId: incoming.sender_user_id,
       senderDeviceId: incoming.sender_device_id,
       text: incoming.text,
@@ -397,7 +520,42 @@ export class Messenger {
             fileName: incoming.attachment.file_name,
           }
         : undefined,
+      receipt:
+        incoming.receipt && incoming.receipt.kind !== "nieznany"
+          ? {
+              kind: incoming.receipt.kind as "delivered" | "read",
+              messageIds: rozetnijIdentyfikatory(incoming.receipt.message_ids),
+            }
+          : undefined,
     };
+  }
+
+  /**
+   * Wysyła paczkę potwierdzeń.
+   *
+   * Idzie tą samą drogą co wiadomość, więc serwer widzi wyłącznie szyfrogram.
+   * **Chwili** wysyłki to nie ukrywa — o to dba wołający, który zbiera
+   * potwierdzenia i opóźnia wysyłkę o losowy czas (`potwierdzenia.ts`).
+   */
+  async sendReceipt(
+    groupId: Uint8Array,
+    kind: "delivered" | "read",
+    messageIds: string[],
+  ): Promise<void> {
+    if (messageIds.length === 0) return;
+
+    const ciphertext = this.client.sendReceipt(
+      groupId,
+      kind,
+      sklejIdentyfikatory(messageIds),
+      Date.now(),
+    );
+
+    // Ratchet przesunął się już przy szyfrowaniu — zapis musi nastąpić nawet
+    // wtedy, gdy wysyłka po nim zawiedzie.
+    await this.persist();
+
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
   }
 
   /** Identyfikatory `user_id:device_id` członków rozmowy. */
@@ -473,6 +631,3 @@ function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}

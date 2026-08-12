@@ -110,11 +110,22 @@ export const api = {
   },
 
   /** Otwiera połączenie ze skrzynką. Zaległości przychodzą od razu po podłączeniu. */
-  connectInbox(userId: string): WebSocket {
+  /**
+   * Podłącza się do WŁASNEJ skrzynki.
+   *
+   * Token idzie podprotokołem, nie nagłówkiem: przeglądarkowe `WebSocket` nie
+   * pozwala dodać `Authorization`. Zostaje zapytanie w adresie albo
+   * `Sec-WebSocket-Protocol` — adresy lądują w logach serwerów pośredniczących
+   * i w historii, a token w logu jest tokenem oddanym.
+   *
+   * Bez tego serwer wpuszczał kogokolwiek do cudzej skrzynki: dało się odebrać
+   * zaległe koperty i skasować je potwierdzeniem, zanim dotarły do właściciela.
+   */
+  connectInbox(userId: string, token: string): WebSocket {
     const url = new URL(`${API_URL}/inbox/${encodeURIComponent(userId)}/connect`);
     url.protocol = url.protocol.replace("http", "ws");
 
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url, [token]);
     socket.binaryType = "arraybuffer";
     return socket;
   },

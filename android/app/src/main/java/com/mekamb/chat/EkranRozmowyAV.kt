@@ -50,7 +50,7 @@ fun EkranRozmowyAV(
     val stan = model.stan
 
     Column(
-        modifier = modifier.fillMaxSize().background(Neutral900),
+        modifier = modifier.fillMaxSize().background(Nocturne.kolory.wglebienie),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(
@@ -66,7 +66,7 @@ fun EkranRozmowyAV(
                 Text(
                     text = "mesh · ${stan.rozmowaAV.size} rozmówców",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Neutral500,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
@@ -76,7 +76,7 @@ fun EkranRozmowyAV(
             if (stan.rozmowaAV.any { it.faza == FazaPolaczenia.POLACZONA }) {
                 Row(
                     modifier = Modifier
-                        .border(1.dp, Akcent, RoundedCornerShape(6.dp))
+                        .border(1.dp, Nocturne.kolory.akcent, RoundedCornerShape(6.dp))
                         .padding(horizontal = Odstep.s, vertical = Odstep.xs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
@@ -84,13 +84,13 @@ fun EkranRozmowyAV(
                     Icon(
                         Ikony.Tarcza,
                         contentDescription = null,
-                        tint = Accent300,
+                        tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(12.dp),
                     )
                     Text(
                         "DTLS zweryfikowany",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Accent300,
+                        color = Nocturne.kolory.akcentTekst,
                     )
                 }
             }
@@ -134,7 +134,7 @@ fun EkranRozmowyAV(
             text = "\u201EBezpośrednio\u201D znaczy, że rozmówca zna Twój adres IP. " +
                 "\u201EPrzez przekaźnik\u201D — że zna go serwer TURN.",
             style = MaterialTheme.typography.labelSmall,
-            color = Neutral600,
+            color = Nocturne.kolory.tekstTrzeci,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.xl, vertical = Odstep.l),
         )
@@ -147,8 +147,8 @@ private fun KafelekUczestnika(uczestnik: UczestnikRozmowy) {
         modifier = Modifier
             .fillMaxWidth()
             .size(160.dp)
-            .background(Tlo, RoundedCornerShape(12.dp))
-            .border(1.dp, Linia, RoundedCornerShape(12.dp)),
+            .background(Nocturne.kolory.tlo, RoundedCornerShape(12.dp))
+            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(12.dp)),
     ) {
         Awatar(uczestnik.nazwa, rozmiar = 56.dp, modifier = Modifier.align(Alignment.Center))
 
@@ -173,7 +173,7 @@ private fun KafelekUczestnika(uczestnik: UczestnikRozmowy) {
                     FazaPolaczenia.ODRZUCONA -> "odcisk się nie zgadza"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (uczestnik.faza == FazaPolaczenia.ODRZUCONA) Alarm else Neutral500,
+                color = if (uczestnik.faza == FazaPolaczenia.ODRZUCONA) Nocturne.kolory.alarm else Nocturne.kolory.tekstDrugi,
             )
         }
     }
@@ -188,23 +188,23 @@ private fun PrzyciskRozmowy(
     onClick: () -> Unit,
 ) {
     val obrys = when {
-        alarmowy -> Accent400
-        wlaczony -> Linia
-        else -> Neutral700
+        alarmowy -> Nocturne.kolory.babelWlasnyMeta
+        wlaczony -> Nocturne.kolory.linia
+        else -> Nocturne.kolory.liniaMocna
     }
 
     Box(
         modifier = Modifier
             .size(56.dp)
             .border(1.dp, obrys, CircleShape)
-            .background(if (alarmowy) Accent800.copy(alpha = 0.4f) else Color.Transparent, CircleShape)
+            .background(if (alarmowy) Nocturne.kolory.babelWlasny.copy(alpha = 0.4f) else Color.Transparent, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             ikona,
             contentDescription = opis,
-            tint = if (alarmowy) Accent300 else if (wlaczony) Tekst else Neutral600,
+            tint = if (alarmowy) Nocturne.kolory.akcentTekst else if (wlaczony) Nocturne.kolory.tekst else Nocturne.kolory.tekstTrzeci,
             modifier = Modifier.size(22.dp),
         )
     }
@@ -238,7 +238,7 @@ fun EkranPrzychodzacejRozmowy(
         Text(
             "dzwoni · incoming call",
             style = MaterialTheme.typography.bodyMedium,
-            color = TekstPrzygaszony,
+            color = Nocturne.kolory.tekstDrugi,
         )
 
         Column(

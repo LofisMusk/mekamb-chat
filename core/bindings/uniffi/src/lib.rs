@@ -130,12 +130,63 @@ pub enum IncomingEvent {
         target: String,
         sent_at_ms: u64,
     },
+    /// Potwierdzenie dostarczenia albo odczytu naszych wiadomości.
+    ///
+    /// Nie niesie chwili odczytu — to dokładnie ta informacja, której nie
+    /// chcemy oddawać. Ukrycie **momentu** wysyłki jest zadaniem klienta,
+    /// który zbiera potwierdzenia i wysyła je paczką po losowym opóźnieniu.
+    Receipt {
+        group_id: Vec<u8>,
+        sender_user_id: String,
+        sender_device_id: String,
+        kind: ReceiptKind,
+        /// Identyfikatory potwierdzanych wiadomości, po 16 bajtów każdy.
+        message_ids: Vec<Vec<u8>>,
+    },
     /// Skład grupy uległ zmianie.
     MembershipChanged,
     /// Propozycja odłożona do czasu commitu.
     ProposalQueued,
     /// Dołączyliśmy do nowej rozmowy.
     JoinedConversation { group_id: Vec<u8> },
+}
+
+/// Zaszyfrowana wiadomość razem z jej identyfikatorem.
+///
+/// # Dlaczego identyfikator wraca do wołającego
+///
+/// Bo potwierdzenia wskazują wiadomości właśnie po nim. Wcześniej rdzeń losował
+/// go w środku i nie oddawał, a klient Androida w ogóle go nie zapisywał —
+/// potwierdzenie odczytu nie trafiłoby wtedy w żaden dymek, a nikt by nie
+/// zauważył dlaczego: ptaszek po prostu nigdy by się nie zmienił.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ZapakowanaWiadomosc {
+    /// Gotowa koperta do wysłania.
+    pub koperta: Vec<u8>,
+    /// Identyfikator wiadomości — 16 bajtów, do wiązania z potwierdzeniami.
+    pub message_id: Vec<u8>,
+}
+
+/// Rodzaj potwierdzenia.
+///
+/// Własny typ zamiast łańcucha znaków z tego samego powodu co przy sygnale
+/// rozmowy: literówka ma być błędem kompilacji Kotlina, a nie cichym brakiem
+/// ptaszka na dymku.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ReceiptKind {
+    /// Koperta dotarła i została przetworzona.
+    Delivered,
+    /// Rozmowa była otwarta na ekranie.
+    Read,
+}
+
+impl From<ReceiptKind> for mekamb_core::framing::ReceiptKind {
+    fn from(kind: ReceiptKind) -> Self {
+        match kind {
+            ReceiptKind::Delivered => Self::Delivered,
+            ReceiptKind::Read => Self::Read,
+        }
+    }
 }
 
 /// Rodzaj sygnału rozmowy A/V.
@@ -442,10 +493,9 @@ impl MekambClient {
         let pending = conversation.stage_add_member(provider, identity, &package)?;
 
         Ok(PendingCommit {
-            commit: Envelope::new(group_id.clone(), EnvelopeKind::Commit, pending.commit)
-                .encode_to_vec(),
+            commit: Envelope::new(&group_id, EnvelopeKind::Commit, pending.commit).encode_to_vec(),
             welcome: pending.welcome.map(|welcome| {
-                Envelope::new(group_id.clone(), EnvelopeKind::Welcome, welcome).encode_to_vec()
+                Envelope::new(&group_id, EnvelopeKind::Welcome, welcome).encode_to_vec()
             }),
         })
     }
@@ -473,6 +523,39 @@ impl MekambClient {
     }
 
     /// Numer epoki — wysyłany razem z commitem do `GroupRelay`.
+    /// Otwiera rozmowę zapisaną w magazynie.
+    ///
+    /// Zwraca `false`, gdy magazyn tej grupy nie zna — rozmowa jest w historii,
+    /// ale bez stanu MLS (np. po przeniesieniu konta).
+    ///
+    /// Wołający musi to zrobić dla każdej znanej rozmowy PO odtworzeniu klienta.
+    /// Bez tego klient ma pełny stan na dysku i pustą listę otwartych rozmów,
+    /// więc po restarcie aplikacji nie da się ani wysłać, ani odebrać niczego.
+    pub fn open_conversation(&self, group_id: Vec<u8>) -> Result<bool, MekambError> {
+        let mut state = self.lock();
+        if state.conversations.contains_key(&group_id) {
+            return Ok(true);
+        }
+
+        match Conversation::load(&state.provider, &group_id)? {
+            Some(conversation) => {
+                state.conversations.insert(group_id, conversation);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    /// Nazwa obiektu porządkującego epoki dla tej rozmowy.
+    ///
+    /// Osobno wyprowadzona, nie surowy identyfikator: serwer widzi tę wartość
+    /// w adresie żądania, a z niej nie da się wrócić do klucza routingu kopert.
+    /// Gdyby relay nazywał się identyfikatorem rozmowy, serwer policzyłby
+    /// znaczniki sam i ukrywanie ich w kopercie nie dawałoby nic.
+    pub fn relay_id(&self, group_id: Vec<u8>) -> String {
+        mekamb_core::identyfikator_relaya(&group_id)
+    }
+
     pub fn epoch(&self, group_id: Vec<u8>) -> Result<u64, MekambError> {
         let state = self.lock();
         let conversation =
@@ -528,7 +611,7 @@ impl MekambClient {
         group_id: Vec<u8>,
         text: String,
         sent_at_ms: u64,
-    ) -> Result<Vec<u8>, MekambError> {
+    ) -> Result<ZapakowanaWiadomosc, MekambError> {
         let mut state = self.lock();
         let ClientState {
             identity,
@@ -537,9 +620,14 @@ impl MekambClient {
         } = &mut *state;
 
         let message = ChatMessage::text(text, sent_at_ms);
+        let message_id = message.message_id.clone();
         let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
 
-        Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+        Ok(ZapakowanaWiadomosc {
+            koperta: Envelope::new(&group_id, EnvelopeKind::Application, ciphertext)
+                .encode_to_vec(),
+            message_id,
+        })
     }
 
     /// Pakuje załącznik: metadane i klucz jadą w wiadomości MLS.
@@ -557,7 +645,7 @@ impl MekambClient {
         size_bytes: u64,
         file_name: Option<String>,
         sent_at_ms: u64,
-    ) -> Result<Vec<u8>, MekambError> {
+    ) -> Result<ZapakowanaWiadomosc, MekambError> {
         let mut state = self.lock();
         let ClientState {
             identity,
@@ -576,9 +664,14 @@ impl MekambClient {
             },
             sent_at_ms,
         );
+        let message_id = message.message_id.clone();
         let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
 
-        Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+        Ok(ZapakowanaWiadomosc {
+            koperta: Envelope::new(&group_id, EnvelopeKind::Application, ciphertext)
+                .encode_to_vec(),
+            message_id,
+        })
     }
 
     /// Szyfruje sygnalizację rozmowy A/V i pakuje ją do wysłania.
@@ -617,7 +710,32 @@ impl MekambClient {
         );
         let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
 
-        Ok(Envelope::new(group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+        Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+    }
+
+    /// Szyfruje i pakuje paczkę potwierdzeń.
+    ///
+    /// Potwierdzenie jest zwykłą wiadomością aplikacyjną MLS, więc serwer widzi
+    /// wyłącznie szyfrogram. **Nie ukrywa to chwili**, w której koperta poszła
+    /// — o to dba wołający, opóźniając wysyłkę (patrz `Potwierdzenia.kt`).
+    pub fn send_receipt(
+        &self,
+        group_id: Vec<u8>,
+        kind: ReceiptKind,
+        message_ids: Vec<Vec<u8>>,
+        sent_at_ms: u64,
+    ) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let message = ChatMessage::receipt(kind.into(), message_ids, sent_at_ms);
+        let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
+
+        Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
     }
 
     /// Przetwarza kopertę odebraną z sieci.
@@ -640,10 +758,22 @@ impl MekambClient {
             conversations,
             ..
         } = &mut *state;
-        let incoming =
-            pobierz(conversations, &envelope.group_id)?.receive(provider, &envelope.payload)?;
 
-        let group_id = envelope.group_id.clone();
+        /*
+         * Rozmowę rozpoznajemy po znaczniku, nie z koperty.
+         *
+         * Koperta nie niesie identyfikatora rozmowy — niosła go do wersji 2
+         * formatu i było to jedyne, czego serwer potrzebował, żeby zbudować
+         * graf rozmów z samego ruchu. Teraz każda koperta ma inny znacznik,
+         * a dopasowanie kosztuje jedno HKDF na rozmowę.
+         */
+        let group_id = conversations
+            .keys()
+            .find(|group_id| envelope.pasuje_do(group_id))
+            .cloned()
+            .ok_or(MekambError::MessageRejected)?;
+
+        let incoming = pobierz(conversations, &group_id)?.receive(provider, &envelope.payload)?;
 
         Ok(match incoming {
             Incoming::Message {
@@ -667,6 +797,21 @@ impl MekambClient {
                         file_name: zalacznik.file_name.clone(),
                         sent_at_ms: message.sent_at_ms,
                         message_id: message.message_id.clone(),
+                    }
+                } else if let Some(potwierdzenie) = message.as_receipt() {
+                    IncomingEvent::Receipt {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        // Nierozpoznany rodzaj z sieci traktujemy jak dostarczenie:
+                        // to słabsze z dwóch twierdzeń, więc pomyłka w tę stronę
+                        // nie pokaże „przeczytane" tam, gdzie nikt nie czytał.
+                        kind: match mekamb_core::framing::ReceiptKind::try_from(potwierdzenie.kind)
+                        {
+                            Ok(mekamb_core::framing::ReceiptKind::Read) => ReceiptKind::Read,
+                            _ => ReceiptKind::Delivered,
+                        },
+                        message_ids: potwierdzenie.message_ids.clone(),
                     }
                 } else if let Some(sygnal) = message.as_call_signal() {
                     IncomingEvent::CallSignal {

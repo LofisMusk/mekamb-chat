@@ -65,7 +65,7 @@ fun EkranKonta(
         ) {
             Column {
                 Text("Konto", style = MaterialTheme.typography.titleLarge)
-                Text("Account", style = MaterialTheme.typography.labelSmall, color = Neutral500)
+                Text("Account", style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
             }
 
             Row(
@@ -81,7 +81,7 @@ fun EkranKonta(
                     Text(
                         konto?.deviceId ?: "",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
             }
@@ -100,14 +100,14 @@ fun EkranKonta(
                     opis = "Kod QR, ważny 15 minut",
                     onClick = onPrzeniesienie,
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Linia))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
                 WierszMenu(
                     ikona = Ikony.Odcisk,
                     tytul = "Kody bezpieczeństwa",
                     opis = "Safety numbers — do porównania poza aplikacją",
                     onClick = onUczestnicy,
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Linia))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
                 WierszMenu(
                     ikona = Ikony.Dzwonek,
                     tytul = "Powiadomienia i połączenie",
@@ -121,14 +121,14 @@ fun EkranKonta(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
-                    Icon(Ikony.Klucz, null, tint = Akcent, modifier = Modifier.size(16.dp))
+                    Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
                     Text("Klucze na tym urządzeniu", style = MaterialTheme.typography.labelLarge)
                 }
                 Text(
                     "Magazyn w Android Keystore. Serwer nie ma czego wydać ani zgubić — " +
                         "ale też nie odtworzy niczego, gdy stracisz wszystkie urządzenia.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Neutral500,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
@@ -137,7 +137,7 @@ fun EkranKonta(
             Text(
                 "Historia rozmów jest tylko tutaj. Po usunięciu nie da się jej odzyskać.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Neutral600,
+                color = Nocturne.kolory.tekstTrzeci,
             )
 
             Spacer(Modifier.height(Odstep.l))
@@ -189,7 +189,7 @@ fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWs
                 Text(
                     if (model.stan.pracuje) "Przygotowuję…" else "Nie udało się przygotować kodu.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TekstPrzygaszony,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             } else if (zostalo <= 0) {
                 Ostrzezenie("Kod wygasł. Wróć i zacznij od nowa.")
@@ -197,7 +197,7 @@ fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWs
                 Text(
                     "Zeskanuj ten kod na nowym urządzeniu.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TekstPrzygaszony,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
 
                 KodQr(
@@ -223,12 +223,12 @@ fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWs
                     Text(
                         "Nowe urządzenie nie ma aparatu?",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                     Text(
                         kod.tresc,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Neutral400,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
             }
@@ -237,7 +237,7 @@ fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWs
                 "Przenoszona jest tożsamość, możliwość kontynuowania rozmów oraz zapisana " +
                     "historia. Kod działa raz i wygasa po kwadransie.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Neutral500,
+                color = Nocturne.kolory.tekstDrugi,
             )
 
             PrzyciskNiszczacy("Odebrane — usuń konto z tego telefonu") { model.usunKonto() }
@@ -246,7 +246,7 @@ fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWs
                 "Trzeba to zrobić. Dwa urządzenia z tym samym kontem rozsypią szyfrowanie " +
                     "rozmowy i żadna ze stron nie odczyta już wiadomości.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Neutral600,
+                color = Nocturne.kolory.tekstTrzeci,
             )
 
             Spacer(Modifier.height(Odstep.l))
@@ -260,10 +260,10 @@ private fun Znacznik(tekst: String, akcent: Boolean = false) {
     Text(
         tekst,
         style = MaterialTheme.typography.labelSmall,
-        color = if (akcent) Accent200 else Neutral400,
+        color = if (akcent) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
         modifier = Modifier
             .background(
-                if (akcent) Accent900 else Neutral900,
+                if (akcent) Nocturne.kolory.akcentTlo else Nocturne.kolory.wglebienie,
                 RoundedCornerShape(4.dp),
             )
             .padding(horizontal = Odstep.m, vertical = Odstep.xs),
@@ -287,10 +287,10 @@ private fun WierszMenu(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
-        Icon(ikona, null, tint = Akcent, modifier = Modifier.size(20.dp))
+        Icon(ikona, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f)) {
             Text(tytul, style = MaterialTheme.typography.bodyLarge)
-            Text(opis, style = MaterialTheme.typography.labelSmall, color = Neutral500)
+            Text(opis, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
         }
     }
 }

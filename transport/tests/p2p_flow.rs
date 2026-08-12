@@ -28,12 +28,12 @@ impl SkrzynkaTestowa {
     }
 }
 
+/// Rozmowa używana w testach. Koperta nie niesie już identyfikatora jawnie,
+/// więc dopasowanie sprawdzamy przez `pasuje_do`.
+const GRUPA: &[u8] = b"grupa-testowa";
+
 fn koperta(tresc: &[u8]) -> Envelope {
-    Envelope::new(
-        b"grupa-testowa".to_vec(),
-        EnvelopeKind::Application,
-        tresc.to_vec(),
-    )
+    Envelope::new(GRUPA, EnvelopeKind::Application, tresc.to_vec())
 }
 
 async fn wezel(seed: u8) -> Transport {
@@ -75,7 +75,8 @@ async fn wiadomosc_dochodzi_bezposrednio() {
         .expect("koperta powinna być poprawna");
 
     assert_eq!(odebrane.envelope.payload, b"prosto do boba");
-    assert_eq!(odebrane.envelope.group_id, b"grupa-testowa");
+    // Identyfikatora rozmowy nie ma w kopercie — sprawdzamy znacznikiem.
+    assert!(odebrane.envelope.pasuje_do(GRUPA));
 }
 
 /// Nadawcę potwierdza handshake, a nie deklaracja w pakiecie.
@@ -267,7 +268,7 @@ async fn za_duza_koperta_jest_odrzucana() {
     let bob = wezel(2).await;
 
     let ogromna = Envelope::new(
-        b"grupa".to_vec(),
+        GRUPA,
         EnvelopeKind::Application,
         vec![0u8; mekamb_transport::MAX_PAYLOAD + 1],
     );

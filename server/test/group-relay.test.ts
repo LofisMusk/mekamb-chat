@@ -15,16 +15,9 @@ function relay(groupId: string) {
   return env.GROUP_RELAY.get(env.GROUP_RELAY.idFromName(groupId));
 }
 
-const COMMIT = new TextEncoder().encode("udawana koperta z commitem").buffer as ArrayBuffer;
-// Nazwy są unikalne per test: skrzynki Durable Objects zachowują stan
-// w obrębie pliku, więc współdzielony odbiorca zliczałby koperty ze wszystkich
-// wcześniejszych przypadków.
-const CZLONKOWIE = ["nadawca-wspolny", "odbiorca-wspolny"];
-const NADAWCA = "nadawca-wspolny";
-
-/** Skraca wywołania w testach — sygnatura relaya ma cztery argumenty. */
+/** Skraca wywołania w testach. */
 function zglos(grupa: ReturnType<typeof relay>, epoka: number) {
-  return grupa.submitCommit(epoka, COMMIT, CZLONKOWIE, NADAWCA);
+  return grupa.claimEpoch(epoka);
 }
 
 describe("GroupRelay", () => {
@@ -109,48 +102,64 @@ describe("GroupRelay", () => {
     expect(await grupa.epoch()).toBe(5);
   });
 
-  it("commit trafia do pozostałych członków, z pominięciem nadawcy", async () => {
-    const grupa = relay("rozsylanie");
+  /**
+   * Sedno: relay nie wie, kto jest w grupie.
+   *
+   * Trzymał kiedyś listę członków, bo sam rozsyłał commity — i była to jedyna
+   * w systemie struktura mówiąca serwerowi wprost, kto z kim rozmawia. Dziś
+   * rozsyła nadawca, a ten obiekt widzi wyłącznie rosnący licznik przy
+   * nieprzezroczystym identyfikatorze. Gdyby lista wróciła, wróciłby też wyciek.
+   */
+  it("nie wystawia składu grupy", async () => {
+    const grupa = relay("bez-skladu");
+    await zglos(grupa, 0);
 
-    await grupa.submitCommit(0, COMMIT, ["fan-a", "fan-b", "fan-c"], "fan-a");
+    /*
+     * `in` ani odczyt właściwości nie zadziałają: uchwyt Durable Object jest
+     * proxy i oddaje funkcję dla każdej nazwy. Prawdę mówi dopiero WYWOŁANIE.
+     */
+    const istnieje = async (nazwa: string) => {
+      try {
+        // Odczyt właściwości też musi być w środku: dla nieznanej nazwy rzuca
+        // już on, a nie dopiero wywołanie.
+        await (grupa as unknown as Record<string, () => Promise<unknown>>)[nazwa]?.();
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
-    // Nadawca scalił commit u siebie, a przetworzenie własnego commitu w MLS
-    // kończy się błędem — dostarczanie mu go byłoby szkodliwe.
-    const nadawca = env.USER_INBOX.get(env.USER_INBOX.idFromName("fan-a"));
-    expect(await nadawca.pendingCount()).toBe(0);
-
-    for (const userId of ["fan-b", "fan-c"]) {
-      const skrzynka = env.USER_INBOX.get(env.USER_INBOX.idFromName(userId));
-      expect(await skrzynka.pendingCount()).toBe(1);
-    }
+    expect(await istnieje("members")).toBe(false);
+    expect(await istnieje("setMembers")).toBe(false);
   });
 
-  it("odrzucony commit nie zmienia składu grupy", async () => {
-    const grupa = relay("sklad-po-odrzuceniu");
-    await grupa.submitCommit(0, COMMIT, ["sklad-a", "sklad-b"], "sklad-a");
+  /** Kontrola dla testu wyżej: metoda, która istnieje, wywołuje się bez błędu. */
+  it("wystawia zajmowanie epoki", async () => {
+    expect(await relay("kontrola-epoki").claimEpoch(0)).toMatchObject({ accepted: true });
+  });
 
-    // Druga próba na nieaktualnej epoce, z zupełnie innym składem.
-    const odrzucony = await grupa.submitCommit(0, COMMIT, ["mallory"], "mallory");
+  /** Zajęcie epoki nie może niczego dostarczać — commit idzie osobną drogą. */
+  it("zajęcie epoki nie wkłada niczego do skrzynek", async () => {
+    const grupa = relay("bez-rozsylania");
+    await zglos(grupa, 0);
 
-    expect(odrzucony.accepted).toBe(false);
-    expect(await grupa.members()).toEqual(["sklad-a", "sklad-b"]);
+    const skrzynka = env.USER_INBOX.get(env.USER_INBOX.idFromName("nikt-nie-dostaje"));
+    expect(await skrzynka.pendingCount()).toBe(0);
   });
 });
 
 /**
- * Trasa `POST /groups/:groupId/commit` — styk tokenu z routingiem.
+ * Trasa `POST /groups/:groupId/commit`.
  *
- * Sedno: relay rozpoznaje nadawcę, porównując go z listą członków, a ta jest
- * listą NAZW użytkowników. Token niesie wewnętrzny UUID konta, więc trasa musi
- * go przetłumaczyć. Bez tego nadawca nie zgadza się z żadnym członkiem
- * i dostaje z powrotem własny commit — a własnego commitu MLS nie potrafi
- * przetworzyć, więc koperta krąży po kolejce aż do odrzucenia.
+ * Sedno: przez tę trasę nie przechodzi ani commit, ani skład grupy. Serwer
+ * zajmuje kolejną epokę i tyle — rozesłanie robi nadawca, który skład i tak
+ * zna z drzewa MLS. Wcześniej to było jedyne miejsce, w którym serwer
+ * dostawał gotową listę „kto z kim rozmawia".
  */
-describe("trasa commitu a tożsamość nadawcy", () => {
-  it("nie odsyła nadawcy jego własnego commitu", async () => {
+describe("trasa zajęcia epoki", () => {
+  async function zalogowany() {
     const userId = crypto.randomUUID();
     const username = `nadawca-${userId.slice(0, 8)}`;
-    const odbiorca = `odbiorca-${userId.slice(0, 8)}`;
 
     await env.DB.prepare(
       "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
@@ -158,29 +167,50 @@ describe("trasa commitu a tożsamość nadawcy", () => {
       .bind(userId, username, Date.now())
       .run();
 
-    // Token niesie UUID — dokładnie tak, jak po prawdziwym zalogowaniu.
     const bearer = await issueToken(env.TOKEN_SIGNING_KEY, {
       userId,
       deviceId: "test",
       expiresAt: Date.now() + 60_000,
     });
 
+    return { userId, username, bearer };
+  }
+
+  it("zajmuje epokę i nie dostarcza niczego do skrzynek", async () => {
+    const { userId, username, bearer } = await zalogowany();
+    const odbiorca = `odbiorca-${userId.slice(0, 8)}`;
+
     const odpowiedz = await SELF.fetch(`https://mekamb/groups/${userId.slice(0, 8)}/commit`, {
       method: "POST",
       headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        epoch: 0,
-        envelope: btoa("udawana koperta z commitem"),
-        members: [username, odbiorca],
-      }),
+      body: JSON.stringify({ epoch: 0 }),
     });
 
     expect(odpowiedz.status).toBe(200);
+    await expect(odpowiedz.json()).resolves.toMatchObject({ accepted: true, epoch: 1 });
 
-    const wlasna = env.USER_INBOX.get(env.USER_INBOX.idFromName(username));
-    const cudza = env.USER_INBOX.get(env.USER_INBOX.idFromName(odbiorca));
+    // Nikt niczego nie dostał — commit rozsyła nadawca osobnym żądaniem.
+    for (const kto of [username, odbiorca]) {
+      const skrzynka = env.USER_INBOX.get(env.USER_INBOX.idFromName(kto));
+      expect(await skrzynka.pendingCount()).toBe(0);
+    }
+  });
 
-    expect(await wlasna.pendingCount()).toBe(0);
-    expect(await cudza.pendingCount()).toBe(1);
+  it("nieaktualna epoka daje 409 z epoką bieżącą", async () => {
+    const { userId, bearer } = await zalogowany();
+    const grupa = `konflikt-${userId.slice(0, 8)}`;
+
+    const zajmij = () =>
+      SELF.fetch(`https://mekamb/groups/${grupa}/commit`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ epoch: 0 }),
+      });
+
+    expect((await zajmij()).status).toBe(200);
+
+    const drugi = await zajmij();
+    expect(drugi.status).toBe(409);
+    await expect(drugi.json()).resolves.toMatchObject({ accepted: false, epoch: 1 });
   });
 });

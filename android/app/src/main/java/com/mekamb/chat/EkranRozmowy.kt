@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -99,10 +100,24 @@ fun EkranRozmowy(
         uri?.let(model::wyslijZalacznik)
     }
 
+    /*
+     * Układ liczony raz, nad listą.
+     *
+     * Rozdzielacze dni i sklejanie w bloki są decyzjami o sąsiedztwie, więc
+     * mieszkają w `ulozWatek` — tam też są sprawdzone testem i trzymane
+     * w zgodzie z webem.
+     *
+     * Musi stać TUTAJ, a nie w środku `LazyColumn`: przewijanie do najnowszej
+     * wiadomości potrzebuje liczby POZYCJI, a nie liczby wiadomości. Rozdzielacz
+     * dnia też zajmuje pozycję, więc liczenie po samych wiadomościach zatrzymuje
+     * listę kilka dymków przed końcem — i to tym bardziej, im dłuższa rozmowa.
+     */
+    val uklad = ulozWatek(stan.wiadomosci, System.currentTimeMillis())
+
     // Nowa wiadomość ma być widoczna bez przewijania. Bez tego rozmowa
     // „stoi" na starej treści i wygląda, jakby nic nie przyszło.
-    LaunchedEffect(stan.wiadomosci.size, stan.wLocie.size) {
-        val ile = stan.wiadomosci.size + stan.wLocie.size
+    LaunchedEffect(uklad.size, stan.wLocie.size) {
+        val ile = uklad.size + stan.wLocie.size
         if (ile > 0) lista.animateScrollToItem(ile - 1)
     }
 
@@ -127,7 +142,12 @@ fun EkranRozmowy(
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Odstep.l),
         ) {
-            items(stan.wiadomosci) { wiadomosc -> Babel(wiadomosc) }
+            items(uklad, key = { it.klucz }) { pozycja ->
+                when (pozycja) {
+                    is PozycjaWatku.Dzien -> RozdzielaczDnia(pozycja.etykieta)
+                    is PozycjaWatku.Dymek -> Babel(pozycja.wiadomosc, pozycja.ciag)
+                }
+            }
 
             // Wiadomości w locie zawsze na końcu — są najświeższe z definicji.
             items(stan.wLocie) { w -> BabelWLocie(w) }
@@ -165,14 +185,14 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
     Box(
         Modifier
             .fillMaxSize()
-            .background(Zaslona)
+            .background(Nocturne.kolory.zaslona)
             .clickable(onClick = onZamknij),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Powierzchnia, RoundedCornerShape(14.dp, 14.dp, 0.dp, 0.dp))
+                .background(Nocturne.kolory.karta, RoundedCornerShape(14.dp, 14.dp, 0.dp, 0.dp))
                 // Kliknięcie w sam arkusz nie może go zamykać — zamyka je
                 // dopiero kliknięcie w zasłonę obok.
                 .clickable(enabled = false) {}
@@ -183,7 +203,7 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
                 Modifier
                     .align(Alignment.CenterHorizontally)
                     .size(width = 36.dp, height = 4.dp)
-                    .background(Neutral700, RoundedCornerShape(2.dp)),
+                    .background(Nocturne.kolory.liniaMocna, RoundedCornerShape(2.dp)),
             )
 
             Text("Załącz · Attach", style = MaterialTheme.typography.titleMedium)
@@ -223,13 +243,13 @@ private fun KafelekZalacznika(
 ) {
     Column(
         modifier = modifier
-            .border(1.dp, Linia, RoundedCornerShape(10.dp))
+            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(vertical = Odstep.l),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {
-        Icon(ikona, contentDescription = null, tint = Tekst, modifier = Modifier.size(24.dp))
+        Icon(ikona, contentDescription = null, tint = Nocturne.kolory.tekst, modifier = Modifier.size(24.dp))
         Text(etykieta, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -249,7 +269,7 @@ private fun PasekRozmowy(
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             IconButton(onClick = onWstecz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Wstecz, contentDescription = "Wróć", tint = Tekst)
+                Icon(Ikony.Wstecz, contentDescription = "Wróć", tint = Nocturne.kolory.tekst)
             }
 
             Awatar(nazwa, rozmiar = 36.dp)
@@ -272,7 +292,7 @@ private fun PasekRozmowy(
                             null -> Ikony.BrakSieci
                         },
                         contentDescription = null,
-                        tint = Neutral500,
+                        tint = Nocturne.kolory.tekstDrugi,
                         modifier = Modifier.size(12.dp),
                     )
                     Text(
@@ -282,23 +302,23 @@ private fun PasekRozmowy(
                             null -> "brak połączenia"
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
             }
 
             IconButton(onClick = { onRozmowa(false) }, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Sluchawka, contentDescription = "Zadzwoń", tint = Tekst)
+                Icon(Ikony.Sluchawka, contentDescription = "Zadzwoń", tint = Nocturne.kolory.tekst)
             }
             IconButton(onClick = { onRozmowa(true) }, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Kamera, contentDescription = "Wideo", tint = Tekst)
+                Icon(Ikony.Kamera, contentDescription = "Wideo", tint = Nocturne.kolory.tekst)
             }
             IconButton(onClick = onUczestnicy, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Odcisk, contentDescription = "Uczestnicy", tint = Tekst)
+                Icon(Ikony.Odcisk, contentDescription = "Uczestnicy", tint = Nocturne.kolory.tekst)
             }
         }
 
-        Box(Modifier.fillMaxWidth().size(1.dp).background(Linia))
+        Box(Modifier.fillMaxWidth().size(1.dp).background(Nocturne.kolory.linia))
     }
 }
 
@@ -310,8 +330,22 @@ private fun PasekRozmowy(
  * pozostała widoczna także przy długiej treści.
  */
 @Composable
-private fun Babel(wiadomosc: Wiadomosc) {
+private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
     val wlasna = wiadomosc.wlasna
+
+    /*
+     * Sąsiadujące wiadomości tej samej strony sklejają się w blok.
+     *
+     * Każdy dymek z pełnym promieniem u góry daje listę osobnych kartek;
+     * ścięcie górnego rogu po stronie nadawcy mówi „to dalej ta sama osoba"
+     * bez żadnej etykiety.
+     */
+    val gora = if (ciag) 4.dp else 14.dp
+    val ksztalt = if (wlasna) {
+        RoundedCornerShape(14.dp, gora, 4.dp, 14.dp)
+    } else {
+        RoundedCornerShape(gora, 14.dp, 14.dp, 4.dp)
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -321,21 +355,19 @@ private fun Babel(wiadomosc: Wiadomosc) {
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .background(
-                    color = if (wlasna) Accent800 else Powierzchnia,
-                    shape = if (wlasna) {
-                        RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp)
-                    } else {
-                        RoundedCornerShape(14.dp, 14.dp, 14.dp, 4.dp)
-                    },
+                    color = if (wlasna) Nocturne.kolory.babelWlasny else Nocturne.kolory.karta,
+                    shape = ksztalt,
                 )
                 .padding(horizontal = Odstep.l, vertical = Odstep.m),
             verticalArrangement = Arrangement.spacedBy(Odstep.xs),
         ) {
-            if (!wlasna) {
+            // Autor tylko na początku bloku i tylko przy cudzych — przy własnych
+            // mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem.
+            if (!wlasna && !ciag) {
                 Text(
                     wiadomosc.autor,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Accent400,
+                    color = Nocturne.kolory.babelWlasnyMeta,
                 )
             }
 
@@ -346,16 +378,76 @@ private fun Babel(wiadomosc: Wiadomosc) {
             Text(
                 wiadomosc.tresc,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (wlasna) Accent100 else Tekst,
+                color = if (wlasna) Nocturne.kolory.babelWlasnyTekst else Nocturne.kolory.tekst,
             )
 
-            Text(
-                GODZINA.format(Date(wiadomosc.czas)),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (wlasna) Accent300 else Neutral600,
+            Row(
                 modifier = Modifier.align(Alignment.End),
-            )
+                horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    GODZINA.format(Date(wiadomosc.czas)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (wlasna) Nocturne.kolory.babelWlasnyMeta else Nocturne.kolory.tekstTrzeci,
+                )
+
+                /*
+                 * Ptaszek tylko przy własnych: mówi, dokąd doszła wiadomość.
+                 * Przy cudzych nie znaczyłby nic — te już tu są.
+                 *
+                 * „Przeczytane" różni się od „dostarczone" KOLOREM, nie
+                 * kształtem: ten sam podwójny ptaszek w dwóch odcieniach czyta
+                 * się jednym spojrzeniem, dwa różne kształty trzeba by za
+                 * każdym razem rozpoznawać.
+                 */
+                if (wlasna) {
+                    val stan = wiadomosc.stan ?: StanWiadomosci.WYSLANE
+
+                    Icon(
+                        imageVector = if (stan == StanWiadomosci.WYSLANE) {
+                            Ikony.Wyslane
+                        } else {
+                            Ikony.Dostarczone
+                        },
+                        contentDescription = when (stan) {
+                            StanWiadomosci.WYSLANE -> "wysłano"
+                            StanWiadomosci.DOSTARCZONE -> "dostarczono"
+                            StanWiadomosci.PRZECZYTANE -> "przeczytano"
+                        },
+                        tint = if (stan == StanWiadomosci.PRZECZYTANE) {
+                            Nocturne.kolory.akcentTekst
+                        } else {
+                            Nocturne.kolory.babelWlasnyMeta
+                        },
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
+            }
         }
+    }
+}
+
+/**
+ * Rozdzielacz dni — data w linii, nie nad wiadomością.
+ *
+ * Linia po obu stronach zamiast plamy tła: data nie jest wiadomością i nie ma
+ * wyglądać jak dymek wysłany przez nikogo.
+ */
+@Composable
+private fun RozdzielaczDnia(etykieta: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = Odstep.s),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+    ) {
+        Box(Modifier.weight(1f).height(1.dp).background(Nocturne.kolory.linia))
+        Text(
+            etykieta,
+            style = MaterialTheme.typography.labelSmall,
+            color = Nocturne.kolory.tekstTrzeci,
+        )
+        Box(Modifier.weight(1f).height(1.dp).background(Nocturne.kolory.linia))
     }
 }
 
@@ -407,7 +499,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
 
         else -> Row(
             modifier = Modifier
-                .background(Tlo, RoundedCornerShape(8.dp))
+                .background(Nocturne.kolory.tlo, RoundedCornerShape(8.dp))
                 .padding(Odstep.m),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
@@ -415,7 +507,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
             Icon(
                 imageVector = Ikony.Spinacz,
                 contentDescription = null,
-                tint = if (wlasna) Accent300 else Neutral500,
+                tint = if (wlasna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
                 modifier = Modifier.size(18.dp),
             )
             Text(
@@ -425,7 +517,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
                     else -> "${opisTypu(zalacznik.mimeType)} · ${rozmiarTekstem(zalacznik.rozmiar)}"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (wlasna) Accent200 else Neutral500,
+                color = if (wlasna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
             )
         }
     }
@@ -452,7 +544,7 @@ private fun BabelWLocie(w: WLocie) {
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .alpha(if (w.blad) 1f else 0.6f)
-                .background(Accent800, RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                .background(Nocturne.kolory.babelWlasny, RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
                 .then(
                     if (w.blad) {
                         Modifier.border(
@@ -467,13 +559,25 @@ private fun BabelWLocie(w: WLocie) {
                 .padding(horizontal = Odstep.l, vertical = Odstep.m),
             verticalArrangement = Arrangement.spacedBy(Odstep.xs),
         ) {
-            Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = Accent100)
-            Text(
-                if (w.blad) "nie wysłano" else "wysyłam…",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (w.blad) MaterialTheme.colorScheme.error else Accent300,
+            Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = Nocturne.kolory.babelWlasnyTekst)
+
+            Row(
                 modifier = Modifier.align(Alignment.End),
-            )
+                horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (w.blad) Ikony.Niepowodzenie else Ikony.Zegar,
+                    contentDescription = null,
+                    tint = if (w.blad) Nocturne.kolory.alarm else Nocturne.kolory.babelWlasnyMeta,
+                    modifier = Modifier.size(13.dp),
+                )
+                Text(
+                    if (w.blad) "nie wysłano" else "wysyłam…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (w.blad) Nocturne.kolory.alarm else Nocturne.kolory.babelWlasnyMeta,
+                )
+            }
         }
     }
 }
@@ -486,13 +590,13 @@ internal fun Awatar(
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier.size(rozmiar).background(Accent800, CircleShape),
+        modifier = modifier.size(rozmiar).background(Nocturne.kolory.babelWlasny, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             inicjaly(nazwa),
             style = MaterialTheme.typography.labelMedium,
-            color = Accent100,
+            color = Nocturne.kolory.babelWlasnyTekst,
         )
     }
 }
@@ -506,7 +610,7 @@ private fun PoleWysylki(
     onZalacz: () -> Unit,
 ) {
     Column {
-        Box(Modifier.fillMaxWidth().size(1.dp).background(Linia))
+        Box(Modifier.fillMaxWidth().size(1.dp).background(Nocturne.kolory.linia))
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(Odstep.m),
@@ -514,21 +618,21 @@ private fun PoleWysylki(
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             IconButton(onClick = onZalacz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Spinacz, contentDescription = "Załącz", tint = Tekst)
+                Icon(Ikony.Spinacz, contentDescription = "Załącz", tint = Nocturne.kolory.tekst)
             }
 
             OutlinedTextField(
                 value = tresc,
                 onValueChange = onZmiana,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Napisz wiadomość · Message", color = Neutral600) },
+                placeholder = { Text("Napisz wiadomość · Message", color = Nocturne.kolory.tekstTrzeci) },
                 shape = RoundedCornerShape(14.dp),
                 maxLines = 4,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Akcent,
-                    unfocusedBorderColor = Linia,
-                    focusedContainerColor = Powierzchnia,
-                    unfocusedContainerColor = Powierzchnia,
+                    focusedBorderColor = Nocturne.kolory.akcent,
+                    unfocusedBorderColor = Nocturne.kolory.linia,
+                    focusedContainerColor = Nocturne.kolory.karta,
+                    unfocusedContainerColor = Nocturne.kolory.karta,
                 ),
             )
 
@@ -540,7 +644,7 @@ private fun PoleWysylki(
                 Icon(
                     Ikony.Wyslij,
                     contentDescription = "Wyślij",
-                    tint = if (tresc.isNotBlank()) Akcent else Neutral700,
+                    tint = if (tresc.isNotBlank()) Nocturne.kolory.akcent else Nocturne.kolory.liniaMocna,
                 )
             }
         }

@@ -57,7 +57,7 @@ fun EkranKontaktow(
         ) {
             Column {
                 Text("Kontakty", style = MaterialTheme.typography.titleLarge)
-                Text("Directory", style = MaterialTheme.typography.labelSmall, color = Neutral500)
+                Text("Directory", style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
             }
 
             Pole("Nazwa użytkownika · Username", nazwa, { nazwa = it })
@@ -151,7 +151,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                     ) {
-                        Icon(Ikony.Odcisk, null, tint = Akcent, modifier = Modifier.size(16.dp))
+                        Icon(Ikony.Odcisk, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
                         Text("Kod bezpieczeństwa", style = MaterialTheme.typography.labelLarge)
                     }
 
@@ -160,10 +160,10 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     Text(
                         kod.split(" ").chunked(6).joinToString("\n") { it.joinToString(" ") },
                         style = MaterialTheme.typography.bodyLarge,
-                        color = Accent200,
+                        color = Nocturne.kolory.akcentTekst,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Neutral900, MaterialTheme.shapes.small)
+                            .background(Nocturne.kolory.wglebienie, MaterialTheme.shapes.small)
                             .padding(Odstep.m),
                     )
 
@@ -171,7 +171,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                         "Porównaj innym kanałem — na żywo albo telefonicznie. Porównanie " +
                             "przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
 

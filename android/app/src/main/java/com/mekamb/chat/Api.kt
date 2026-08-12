@@ -236,30 +236,31 @@ class Api(private val baseUrl: String) {
     }
 
     /**
-     * Zgłasza commit do rozstrzygnięcia kolejności.
+     * Zajmuje kolejną epokę grupy.
      *
      * Wymaga tokenu — inaczej serwer odrzuca żądanie i **żadna rozmowa nie
      * daje się rozpocząć**. Relay porządkuje epoki grupy, więc dopuszczenie tu
      * kogokolwiek pozwalałoby obcemu wywracać kolejność commitów.
+     *
+     * # Czego tu nie ma
+     *
+     * Ani commitu, ani składu grupy. Serwer rozstrzyga wyłącznie KOLEJNOŚĆ,
+     * a rozesłanie commitu do skrzynek robi nadawca — skład zna z drzewa MLS,
+     * więc serwer nie ma powodu go poznawać.
+     *
+     * `relayId` jest OSOBNO wyprowadzony, a nie identyfikatorem rozmowy: serwer
+     * widzi go w adresie żądania, a z niego nie da się policzyć znaczników
+     * kopert. Gdyby stał tu surowy identyfikator, ukrywanie ich nie dawałoby nic.
      */
-    suspend fun submitCommit(
+    suspend fun zajmijEpoke(
         token: String,
-        groupId: ByteArray,
+        relayId: String,
         epoch: ULong,
-        envelope: ByteArray,
-        members: List<String>,
     ): Boolean {
-        // Pola muszą nazywać się tak, jak czyta je serwer. Wcześniej szło stąd
-        // `commit` bez listy członków, więc serwer odrzucał każdy commit
-        // i ROZPOCZĘCIE ROZMOWY NA ANDROIDZIE BYŁO NIEMOŻLIWE.
-        val body = buildJsonObject {
-            put("epoch", epoch.toLong())
-            put("envelope", base64(envelope))
-            put("members", buildJsonArray { members.forEach { add(it) } })
-        }
+        val body = buildJsonObject { put("epoch", epoch.toLong()) }
 
         return try {
-            postJson("/groups/${hex(groupId)}/commit", body, token)
+            postJson("/groups/$relayId/commit", body, token)
             true
         } catch (e: ApiException) {
             // 409 nie jest błędem klienta — znaczy „ktoś był pierwszy".
@@ -385,11 +386,13 @@ class Api(private val baseUrl: String) {
      */
     fun polaczZeSkrzynka(
         userId: String,
+        token: String,
         naRamke: (ByteArray, (Long) -> Unit) -> Unit,
         naStan: (StanPolaczenia) -> Unit = {},
     ): PolaczenieZeSkrzynka = PolaczenieZeSkrzynka(
         http = httpSkrzynki,
         adres = "$baseUrl/inbox/$userId/connect",
+        token = token,
         naRamke = naRamke,
         naStan = naStan,
     ).also { it.polacz() }

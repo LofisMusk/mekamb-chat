@@ -45,6 +45,27 @@ pub struct IncomingMessage {
 
     /// Wypełnione, gdy wiadomość niesie sygnalizację rozmowy.
     pub call: Option<CallSignalInfo>,
+
+    /// Wypełnione, gdy wiadomość jest potwierdzeniem dostarczenia albo odczytu.
+    pub receipt: Option<ReceiptInfo>,
+}
+
+/// Potwierdzenie odebrane kanałem MLS.
+///
+/// Nie niesie chwili odczytu — to dokładnie ta informacja, której nie chcemy
+/// oddawać. Ukrycie **momentu** wysyłki jest zadaniem klienta, który zbiera
+/// potwierdzenia i wysyła je paczką po losowym opóźnieniu.
+#[derive(Clone)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct ReceiptInfo {
+    /// `"delivered"` albo `"read"`.
+    pub kind: String,
+    /// Identyfikatory potwierdzanych wiadomości, sklejone po 16 bajtów.
+    ///
+    /// Jedna płaska tablica, bo `Vec<Vec<u8>>` nie przechodzi przez
+    /// `wasm-bindgen` bez ręcznego opakowania. Rozcina je `rozetnijIdentyfikatory`
+    /// po stronie JS.
+    pub message_ids: Vec<u8>,
 }
 
 /// Sygnalizacja rozmowy odebrana kanałem MLS.
@@ -76,6 +97,21 @@ pub struct AttachmentInfo {
     pub mime_type: String,
     pub size_bytes: f64,
     pub file_name: Option<String>,
+}
+
+/// Zaszyfrowana wiadomość razem z jej identyfikatorem.
+///
+/// # Dlaczego identyfikator wraca do wołającego
+///
+/// Bo potwierdzenia wskazują wiadomości właśnie po nim. Wcześniej rdzeń losował
+/// go w środku i nie oddawał, a klient webowy zapisywał własne wiadomości pod
+/// własnym UUID-em — czyli pod czymś, czego druga strona nigdy nie widziała.
+/// Potwierdzenie odczytu nie trafiłoby wtedy w żaden dymek, a nikt by nie
+/// zauważył dlaczego: ptaszek po prostu nigdy by się nie zmienił.
+#[wasm_bindgen(getter_with_clone)]
+pub struct SentMessage {
+    pub ciphertext: Vec<u8>,
+    pub message_id: Vec<u8>,
 }
 
 /// Commit oczekujący na potwierdzenie przez `GroupRelay`.
@@ -180,6 +216,29 @@ impl MekambClient {
         Ok(group_id)
     }
 
+    /// Otwiera rozmowę zapisaną w magazynie.
+    ///
+    /// Zwraca `false`, gdy magazyn tej grupy nie zna — rozmowa jest w historii,
+    /// ale bez stanu MLS (np. po przeniesieniu konta).
+    ///
+    /// Wołający musi to zrobić dla każdej znanej rozmowy PO odtworzeniu klienta.
+    /// Bez tego klient ma pełny stan na dysku i pustą listę otwartych rozmów,
+    /// więc po odświeżeniu karty nie da się ani wysłać, ani odebrać niczego.
+    #[wasm_bindgen(js_name = openConversation)]
+    pub fn open_conversation(&mut self, group_id: &[u8]) -> Result<bool, JsError> {
+        if self.conversations.contains_key(group_id) {
+            return Ok(true);
+        }
+
+        match Conversation::load(&self.provider, group_id).map_err(to_js)? {
+            Some(conversation) => {
+                self.conversations.insert(group_id.to_vec(), conversation);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Przygotowuje dodanie członka na podstawie jego key package.
     ///
     /// Zwrócony commit trzeba wysłać do `GroupRelay` i dopiero po jego
@@ -257,8 +316,66 @@ impl MekambClient {
         group_id: &[u8],
         text: &str,
         sent_at_ms: f64,
-    ) -> Result<Vec<u8>, JsError> {
+    ) -> Result<SentMessage, JsError> {
         let message = ChatMessage::text(text, sent_at_ms as u64);
+        let message_id = message.message_id.clone();
+
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let ciphertext = pobierz_mut(conversations, group_id)?
+            .send(provider, identity, &message)
+            .map_err(to_js)?;
+
+        Ok(SentMessage {
+            ciphertext,
+            message_id,
+        })
+    }
+
+    /// Szyfruje i pakuje paczkę potwierdzeń.
+    ///
+    /// `message_ids` to sklejone identyfikatory po 16 bajtów — jedna płaska
+    /// tablica, bo `Vec<Vec<u8>>` nie przechodzi przez `wasm-bindgen` bez
+    /// ręcznego opakowania.
+    ///
+    /// Potwierdzenie jest zwykłą wiadomością aplikacyjną MLS, więc serwer widzi
+    /// wyłącznie szyfrogram. **Nie ukrywa to chwili**, w której koperta poszła
+    /// — o to dba wołający, opóźniając wysyłkę (patrz `lib/potwierdzenia.ts`).
+    #[wasm_bindgen(js_name = sendReceipt)]
+    pub fn send_receipt(
+        &mut self,
+        group_id: &[u8],
+        kind: &str,
+        message_ids: &[u8],
+        sent_at_ms: f64,
+    ) -> Result<Vec<u8>, JsError> {
+        let rodzaj = match kind {
+            "delivered" => mekamb_core::framing::ReceiptKind::Delivered,
+            "read" => mekamb_core::framing::ReceiptKind::Read,
+            inne => {
+                return Err(JsError::new(&format!(
+                    "nieznany rodzaj potwierdzenia: {inne}"
+                )));
+            }
+        };
+
+        if message_ids.is_empty() || message_ids.len() % mekamb_core::framing::MESSAGE_ID_LEN != 0 {
+            return Err(JsError::new(
+                "identyfikatory potwierdzeń muszą być wielokrotnością 16 bajtów i nie mogą być puste",
+            ));
+        }
+
+        let identyfikatory = message_ids
+            .chunks(mekamb_core::framing::MESSAGE_ID_LEN)
+            .map(<[u8]>::to_vec)
+            .collect();
+
+        let message = ChatMessage::receipt(rodzaj, identyfikatory, sent_at_ms as u64);
+
         let Self {
             identity,
             provider,
@@ -287,7 +404,7 @@ impl MekambClient {
         size_bytes: f64,
         file_name: Option<String>,
         sent_at_ms: f64,
-    ) -> Result<Vec<u8>, JsError> {
+    ) -> Result<SentMessage, JsError> {
         let message = mekamb_core::framing::ChatMessage::attachment(
             mekamb_core::framing::AttachmentBody {
                 blob_id: blob_id.to_string(),
@@ -299,6 +416,7 @@ impl MekambClient {
             },
             sent_at_ms as u64,
         );
+        let message_id = message.message_id.clone();
 
         let Self {
             identity,
@@ -306,9 +424,14 @@ impl MekambClient {
             conversations,
         } = self;
 
-        pobierz_mut(conversations, group_id)?
+        let ciphertext = pobierz_mut(conversations, group_id)?
             .send(provider, identity, &message)
-            .map_err(to_js)
+            .map_err(to_js)?;
+
+        Ok(SentMessage {
+            ciphertext,
+            message_id,
+        })
     }
 
     /// Szyfruje sygnalizację rozmowy i pakuje ją do wysłania.
@@ -410,10 +533,41 @@ impl MekambClient {
                     size_bytes: a.size_bytes as f64,
                     file_name: a.file_name.clone(),
                 }),
+                receipt: message.as_receipt().map(|r| ReceiptInfo {
+                    kind: match mekamb_core::framing::ReceiptKind::try_from(r.kind) {
+                        Ok(mekamb_core::framing::ReceiptKind::Delivered) => "delivered",
+                        Ok(mekamb_core::framing::ReceiptKind::Read) => "read",
+                        // Nierozpoznany rodzaj z sieci — interfejs ma go zignorować,
+                        // a nie zgadywać, co nadawca miał na myśli.
+                        _ => "nieznany",
+                    }
+                    .into(),
+                    message_ids: r.message_ids.concat(),
+                }),
             },
             Incoming::MembershipChanged => zdarzenie("membership-changed"),
             Incoming::ProposalQueued => zdarzenie("proposal-queued"),
         })
+    }
+
+    /// Do której rozmowy należy koperta.
+    ///
+    /// Zwraca `None`, gdy do żadnej znanej — dla `welcome` zawsze, bo tej
+    /// rozmowy jeszcze nie mamy, a także dla koperty spreparowanej albo
+    /// przeznaczonej dla innego urządzenia.
+    ///
+    /// Dopasowanie musi być tutaj, a nie w JavaScripcie: klucz routingu
+    /// wyprowadza się z identyfikatora rozmowy, a ten nie opuszcza rdzenia
+    /// w postaci nadającej się do policzenia znacznika.
+    #[wasm_bindgen(js_name = matchEnvelope)]
+    pub fn match_envelope(&self, bytes: &[u8]) -> Result<Option<Vec<u8>>, JsError> {
+        let envelope = mekamb_core::Envelope::decode(bytes).map_err(to_js)?;
+
+        Ok(self
+            .conversations
+            .keys()
+            .find(|group_id| envelope.pasuje_do(group_id))
+            .cloned())
     }
 
     /// Identyfikatory `user_id:device_id` członków rozmowy.
@@ -474,6 +628,7 @@ fn zdarzenie(kind: &str) -> IncomingMessage {
         message_id: Vec::new(),
         attachment: None,
         call: None,
+        receipt: None,
     }
 }
 
@@ -487,10 +642,13 @@ fn to_js(error: mekamb_core::Error) -> JsError {
 
 /// Buduje kopertę transportową wokół wiadomości MLS.
 ///
-/// Koperta jest **jawna** — niesie identyfikator grupy i rodzaj ładunku, żeby
-/// odbiorca wiedział, gdzie skierować bajty, zanim cokolwiek odszyfruje.
+/// Koperta **nie niesie identyfikatora rozmowy** — zamiast niego jedzie losowa
+/// sól i znacznik z niej wyprowadzony, inny dla każdej koperty. Uzasadnienie
+/// w `core/src/envelope.rs`.
+///
 /// Kodowanie robi Rust, a nie JavaScript: drugi enkoder protobufa po stronie
-/// interfejsu prędzej czy później rozjechałby się z pierwszym.
+/// interfejsu prędzej czy później rozjechałby się z pierwszym, a tutaj rozjazd
+/// znaczyłby kopertę, której nikt nie umie skierować.
 #[wasm_bindgen(js_name = encodeEnvelope)]
 pub fn encode_envelope(group_id: &[u8], kind: &str, payload: &[u8]) -> Result<Vec<u8>, JsError> {
     let kind = match kind {
@@ -500,19 +658,30 @@ pub fn encode_envelope(group_id: &[u8], kind: &str, payload: &[u8]) -> Result<Ve
         inne => return Err(JsError::new(&format!("nieznany rodzaj koperty: {inne}"))),
     };
 
-    Ok(mekamb_core::Envelope::new(group_id.to_vec(), kind, payload.to_vec()).encode_to_vec())
+    Ok(mekamb_core::Envelope::new(group_id, kind, payload.to_vec()).encode_to_vec())
+}
+
+/// Nazwa obiektu porządkującego epoki dla tej rozmowy.
+///
+/// Osobno wyprowadzona, nie surowy identyfikator: serwer widzi tę wartość
+/// w adresie żądania, a z niej nie da się wrócić do klucza routingu kopert.
+#[wasm_bindgen(js_name = relayId)]
+pub fn relay_id(group_id: &[u8]) -> String {
+    mekamb_core::identyfikator_relaya(group_id)
 }
 
 /// Koperta odebrana z sieci, rozłożona na części dla JavaScriptu.
 #[wasm_bindgen(getter_with_clone)]
 pub struct DecodedEnvelope {
-    pub group_id: Vec<u8>,
     /// `"application"`, `"commit"` albo `"welcome"`.
     pub kind: String,
     pub payload: Vec<u8>,
 }
 
 /// Rozkłada kopertę odebraną z sieci.
+///
+/// **Nie mówi, do której rozmowy należy** — tego nie da się odczytać bez klucza
+/// rozmowy. Od dopasowania jest [`MekambClient::match_envelope`].
 ///
 /// Dane wejściowe są wrogie z założenia — błąd zamiast paniki.
 #[wasm_bindgen(js_name = decodeEnvelope)]
@@ -529,7 +698,6 @@ pub fn decode_envelope(bytes: &[u8]) -> Result<DecodedEnvelope, JsError> {
     };
 
     Ok(DecodedEnvelope {
-        group_id: envelope.group_id,
         kind: kind.into(),
         payload: envelope.payload,
     })

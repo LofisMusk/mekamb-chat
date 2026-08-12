@@ -341,7 +341,7 @@ bytes so callers cannot forget to wrap them.
 | Traffic | Path |
 |---|---|
 | Messages, media | Directly between devices; mailbox as fallback |
-| MLS commits | `GroupRelay` Durable Object — the only ordering point |
+| MLS commits | `GroupRelay` Durable Object — the only ordering point. It assigns epochs and **nothing else**: the commit itself and the member list never reach it; the sender fans out to member inboxes |
 | Offline delivery | `UserInbox` Durable Object |
 | Directory, key packages | Worker + D1 |
 | Attachments, transfer dumps | R2 (ciphertext only) |
@@ -408,9 +408,38 @@ Its defining rule: **the accent is a line, never a fill.** Primary actions are
 outlined. A filled accent button immediately reads as belonging to a different
 system.
 
-Icons on Android are hand-drawn SVG paths in `Ikony.kt` — Phosphor is not
-available and `material-icons-extended` weighs several MB against a 5.4 MB
-release APK.
+**Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`,
+`--babel-wlasny` — never `--neutral-600`. With two themes a ramp step has no
+stable meaning: "600" is lighter than the background in dark and must be darker
+in light, so every such use would need a conditional, and one missed conditional
+is a dark patch on a light screen. A rule written once works in both themes.
+Android mirrors this with `KoloryNocturne` behind a `CompositionLocal`
+(`Nocturne.kolory.…`).
+
+**The theme choice is stored, not its result.** `auto`/`ZA_SYSTEMEM` is resolved
+at render time. Storing the resolved value leaves the app light forever for
+someone whose phone switched to dark that evening — the user asked to follow the
+system, not to be light.
+
+The light palette is written **twice** in `styles.css` (once under
+`prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP
+forbids inline scripts, so nothing can set the theme before first paint. The
+copies are kept in sync by `web/src/lib/motyw.test.ts`, not by discipline.
+
+### Icons
+
+`design/ikony.mjs` is the **single source** of icon paths. `node design/generuj.mjs`
+writes `web/src/Ikony.tsx` and `android/.../Ikony.kt`; both are committed, and
+`web/src/lib/ikony.test.ts` fails CI if either drifts from the source. Editing a
+generated file by hand is a mistake the test catches immediately.
+
+Paths are drawn in place — Phosphor is not available on Android without a font
+file, and `material-icons-extended` weighs several MB against a 5.4 MB release
+APK. Canvas 24×24, stroke 1.8, round caps, never filled.
+
+Every icon must **mean** something — the `opis` field says what, and a test
+enforces it is filled in. In an app where the network icon says "your peer knows
+your IP address", decorative pictograms are expensive noise.
 
 ## Testing conventions
 
@@ -424,9 +453,66 @@ the QR encoder is checked module-by-module against 40 fixtures produced by the
 TypeScript implementation (`core/testy/qr-wzorce.tsv`), because a decoder is
 lenient enough to accept genuinely broken codes — error correction repairs them.
 
+**Open stored conversations after restoring the client.** `MekambClient::restore`
+brings back the full MLS state but an **empty** map of open conversations — that
+map was only ever filled by creating a group or accepting a Welcome. Without the
+`otworzZnaneRozmowy` call on both clients, a restarted client has everything on
+disk and can neither send nor receive: every call fails with "nie ma takiej
+rozmowy w tym kliencie", and incoming envelopes match nothing and are dropped in
+silence. Conversation ids come from local history; `Conversation::load` returns
+`None` for a group with no MLS state (e.g. after an account transfer), which
+stays readable but inert.
+
+**The envelope carries no conversation id.** Version 2 replaced `group_id` with
+a random salt and a tag derived from it, different for every envelope, so the
+server cannot link two envelopes into a conversation. The routing key is
+`HKDF(group_id, …)`, which means **`group_id` must never reach the server by any
+route** — that is why `GroupRelay` is named by a separately derived
+`identyfikator_relaya`, not by the group id. Welcome envelopes carry no tag (the
+recipient does not know the group yet); any other kind without one is rejected.
+
+**Depositing into a mailbox is deliberately unauthenticated; reading it is not.**
+The server must not learn who writes to whom, so `POST /inbox/:userId` takes no
+token — sender identity is authenticated inside MLS. `GET /inbox/:userId/connect`
+had no authentication either, which was a hole, not a design: anyone knowing a
+username could drain someone's mailbox and `ack:<id>` the envelopes away before
+they arrived. It now requires the owner's token, passed as
+`Sec-WebSocket-Protocol` because browsers cannot set `Authorization` on a
+WebSocket.
+
+## Delivery and read receipts
+
+`ReceiptBody` in `proto/chat.proto` — an MLS application message like any other,
+so the server sees ciphertext only. It carries **no timestamp**, and a test in
+`core/src/framing.rs` enforces that: the moment of reading is exactly what we do
+not want to hand over.
+
+Encrypting the payload does not hide **when** an envelope moved. A receipt sent
+the instant something is read is readable from traffic alone. So clients batch
+receipts and send them after a **random** delay of up to 30 s
+(`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`) — random, not
+fixed, because a fixed delay only shifts the correlation instead of breaking it.
+Both platforms must keep the same bounds, or one leaks more than the other under
+the same promise in the UI.
+
+The tick's own message id comes from the core: `sendText` returns
+`{ciphertext, message_id}`. Before that the web client stored its own UUID for
+outgoing messages — an id the other side never saw — so a receipt could never
+match a bubble, and the tick would silently never change.
+
+Turning read receipts off is symmetric and local: you stop sending, and you stop
+seeing others'. The protocol does not enforce it and cannot.
+
 ## Not implemented
 
-A/V calling on Android (no WebRTC dependency; the core does not export call
-signalling to UniFFI — only WASM has `sendCallSignal`). Push notifications
-(needs `google-services.json`). Camera-based QR scanning on Android. Search in
-the conversation list.
+Push notifications (needs `google-services.json`). Camera-based QR scanning on
+Android — the code scanned by the system camera arrives through the `mekamb://`
+intent instead.
+
+Delivery receipts: the tick on an own bubble means "left this device", not
+"delivered" and not "read". The double-tick icon (`dostarczone`) exists in the
+set but nothing sets it yet — the mailbox would have to report the ack back to
+the sender.
+
+Previously listed here and since built: A/V calling on Android, search in the
+conversation list (both clients).

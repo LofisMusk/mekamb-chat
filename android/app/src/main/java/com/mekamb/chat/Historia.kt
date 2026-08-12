@@ -39,18 +39,19 @@ private const val LIMIT_WIADOMOSCI = 500
  * dałoby wtedy historię nie do odczytania. Każda zmiana układu idzie teraz po
  * obu stronach naraz.
  */
-private const val WERSJA = 4
+private const val WERSJA = 5
 
 /**
  * Wersje, które umiemy wczytać.
  *
- * 3 różni się od 4 wyłącznie brakiem załącznika — kształt pozostałych pól jest
- * ten sam, więc odczyt jest bezstratny. Odrzucenie starszego zapisu byłoby
+ * 3 różni się od 4 wyłącznie brakiem załącznika, a 4 od 5 brakiem identyfikatora
+ * wiadomości i stanu wysyłki — oba pola są opcjonalne i mają sensowne wartości
+ * domyślne, więc odczyt jest bezstratny. Odrzucenie starszego zapisu byłoby
  * **skasowaniem historii użytkownika**, której serwer nie ma w kopii. Reguła
  * „numer odróżnia układy" zostaje; od odrzucania jest niezgodny układ, a nie
  * każdy inny numer.
  */
-private val CZYTANE_WERSJE = setOf(3, WERSJA)
+private val CZYTANE_WERSJE = setOf(3, 4, WERSJA)
 
 /**
  * Załącznik zapisany obok wiadomości.
@@ -123,6 +124,17 @@ private data class ZapisanaWiadomosc(
     val wlasna: Boolean,
     val czas: Long,
     val zalacznik: ZapisanyZalacznik? = null,
+    /**
+     * Identyfikator z protokołu, szesnastkowo.
+     *
+     * Potwierdzenia wskazują wiadomości właśnie po nim, więc musi przeżyć
+     * zapis. Pusty w zapisach sprzed wersji 5 — takiej wiadomości żadne
+     * potwierdzenie już nie dosięgnie i to jest w porządku: dotyczyłoby
+     * rozmowy sprzed aktualizacji.
+     */
+    val id: String = "",
+    /** Dokąd doszła własna wiadomość. Brak znaczy „wysłana". */
+    val stan: StanWiadomosci? = null,
 )
 
 /**
@@ -187,7 +199,15 @@ class Historia(private val vault: Vault) {
         wczytajWszystko().rozmowy[klucz(groupId)]
             ?.wiadomosci
             ?.map {
-                Wiadomosc(it.autor, it.tresc, it.wlasna, it.czas, it.zalacznik?.doModelu())
+                Wiadomosc(
+                    autor = it.autor,
+                    tresc = it.tresc,
+                    wlasna = it.wlasna,
+                    czas = it.czas,
+                    zalacznik = it.zalacznik?.doModelu(),
+                    id = it.id.zHex(),
+                    stan = it.stan,
+                )
             }
             ?: emptyList()
 
@@ -207,7 +227,15 @@ class Historia(private val vault: Vault) {
         // Obcinamy od początku — najstarsze idą pierwsze.
         val przyciete = wiadomosci.takeLast(LIMIT_WIADOMOSCI)
             .map {
-                ZapisanaWiadomosc(it.autor, it.tresc, it.wlasna, it.czas, it.zalacznik?.doZapisu())
+                ZapisanaWiadomosc(
+                    autor = it.autor,
+                    tresc = it.tresc,
+                    wlasna = it.wlasna,
+                    czas = it.czas,
+                    zalacznik = it.zalacznik?.doZapisu(),
+                    id = it.id.hex(),
+                    stan = it.stan,
+                )
             }
 
         val klucz = klucz(groupId)

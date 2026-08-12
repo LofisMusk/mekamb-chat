@@ -1,4 +1,5 @@
 import type { ReceivedAttachment } from "./messenger";
+import type { StanWiadomosci } from "./potwierdzenia";
 import { loadHistory, saveHistory } from "./vault";
 
 /**
@@ -27,6 +28,15 @@ export interface Wiadomosc {
   czas: number;
   wlasna: boolean;
   zalacznik?: ReceivedAttachment;
+
+  /**
+   * Dokąd doszła własna wiadomość.
+   *
+   * Brak znaczy „wysłana" — tak wyglądają wszystkie zapisy sprzed wersji 5
+   * i tak samo wygląda wiadomość, na którą potwierdzenie jeszcze nie wróciło.
+   * Przy cudzych wiadomościach pole nie ma sensu i zostaje puste.
+   */
+  stan?: StanWiadomosci;
 }
 
 /**
@@ -42,26 +52,27 @@ const LIMIT_WIADOMOSCI = 500;
  * Wersja formatu.
  *
  * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania, 4 załącznik po stronie
- * Androida. Każda podnoszona po obu stronach naraz: przy wersji 2 klient
- * Androida dostał nowe pole, ale ZOSTAWIŁ numer 1 — przez chwilę oba klienty
- * deklarowały ten sam numer przy niezgodnych kształtach, więc przeniesienie
- * konta między nimi dałoby historię nie do odczytania. Numer wersji ma
- * odróżniać układy, nie datę zmiany.
+ * Androida, 5 stan wysyłki własnej wiadomości. Każda podnoszona po obu stronach
+ * naraz: przy wersji 2 klient Androida dostał nowe pole, ale ZOSTAWIŁ numer 1 —
+ * przez chwilę oba klienty deklarowały ten sam numer przy niezgodnych
+ * kształtach, więc przeniesienie konta między nimi dałoby historię nie do
+ * odczytania. Numer wersji ma odróżniać układy, nie datę zmiany.
  */
-const WERSJA = 4;
+const WERSJA = 5;
 
 /**
  * Wersje, które umiemy wczytać.
  *
- * 3 różni się od 4 wyłącznie tym, że Android nie zapisywał wtedy załączników —
- * kształt pozostałych pól jest ten sam, więc odczyt jest bezstratny.
+ * 3 różni się od 4 wyłącznie tym, że Android nie zapisywał wtedy załączników,
+ * a 4 od 5 brakiem stanu wysyłki — pole jest opcjonalne, a jego brak znaczy
+ * „wysłana". Kształt pozostałych pól jest ten sam, więc odczyt jest bezstratny.
  *
  * Odrzucenie starszego zapisu byłoby tu **skasowaniem historii użytkownika**:
  * `wczytajWszystko` zwraca przy niezgodnym numerze pustkę, a serwer nie ma
  * kopii. Reguła „numer odróżnia układy" zostaje, ale od odrzucania jest
  * niezgodny układ, nie każdy inny numer.
  */
-const CZYTANE_WERSJE = new Set([3, WERSJA]);
+const CZYTANE_WERSJE = new Set([3, 4, WERSJA]);
 
 /**
  * Zapisana rozmowa.

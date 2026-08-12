@@ -98,14 +98,16 @@ describe("historia rozmów", () => {
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toEqual([]);
   });
 
-  /// Sedno: podniesienie numeru wersji nie może skasować historii, której
-  /// nikt nie ma w kopii. Wersja 3 różni się od 4 wyłącznie polem, którego
-  /// Android wtedy nie zapisywał — pozostałe pola mają ten sam kształt.
-  it("historia z poprzedniej wersji formatu czyta się bez straty", async () => {
+  /// Sedno: podniesienie numeru wersji nie może skasować historii, której nikt
+  /// nie ma w kopii. Kolejne wersje różnią się polami DOKŁADANYMI — 3 nie miała
+  /// załącznika po stronie Androida, 4 nie miała stanu wysyłki — więc odczyt
+  /// starszego zapisu jest bezstratny, a brakujące pole ma sensowną wartość
+  /// domyślną.
+  it.each([3, 4])("historia z wersji %i czyta się bez straty", async (wersja) => {
     const klucz = Array.from(GRUPA_A, (b) => b.toString(16).padStart(2, "0")).join("");
     dysk = new TextEncoder().encode(
       JSON.stringify({
-        wersja: 3,
+        wersja,
         rozmowy: {
           [klucz]: {
             rozmowca: "bartek",
@@ -121,10 +123,25 @@ describe("historia rozmów", () => {
 
     expect(odczytane).toHaveLength(1);
     expect(odczytane[0]!.tresc).toBe("sprzed migracji");
+    // Brak stanu wysyłki znaczy „wysłana" — interfejs nie ma czego zgadywać.
+    expect(odczytane[0]!.stan).toBeUndefined();
 
     // …i po pierwszym zapisie leży już w bieżącej wersji.
     await zapiszRozmowe(GRUPA_A, "bartek", odczytane);
-    expect(JSON.parse(new TextDecoder().decode(dysk!)).wersja).toBe(4);
+    expect(JSON.parse(new TextDecoder().decode(dysk!)).wersja).toBe(5);
+  });
+
+  /// Sedno: stan wysyłki musi przeżyć zapis.
+  ///
+  /// Ptaszek „przeczytane" liczy się z potwierdzenia, które przychodzi raz.
+  /// Gdyby nie trafił na dysk, po odświeżeniu strony wszystkie własne
+  /// wiadomości wróciłyby do „wysłano" — a drugie potwierdzenie nie przyjdzie.
+  it("stan wysyłki przeżywa zapis i odczyt", async () => {
+    await zapiszRozmowe(GRUPA_A, "bartek", [
+      { id: "1", autor: "Ty", tresc: "hej", czas: 1, wlasna: true, stan: "przeczytane" },
+    ]);
+
+    expect((await wczytajRozmowe(GRUPA_A))[0]!.stan).toBe("przeczytane");
   });
 
   /// Numer wersji ma odróżniać UKŁADY, nie tylko datę zmiany. Przez chwilę

@@ -32,7 +32,7 @@ pub struct ChatMessage {
     #[prost(uint64, tag = "3")]
     pub sent_at_ms: u64,
 
-    #[prost(oneof = "Body", tags = "4, 5, 6")]
+    #[prost(oneof = "Body", tags = "4, 5, 6, 8")]
     pub body: Option<Body>,
 
     #[prost(bytes = "vec", optional, tag = "7")]
@@ -47,6 +47,41 @@ pub enum Body {
     Attachment(AttachmentBody),
     #[prost(message, tag = "6")]
     CallSignal(CallSignalBody),
+    #[prost(message, tag = "8")]
+    Receipt(ReceiptBody),
+}
+
+/// Potwierdzenie dostarczenia albo odczytu.
+///
+/// # Dlaczego nie ma tu czasu
+///
+/// Bo chwila odczytu jest dokładnie tą informacją, której nie chcemy oddawać.
+/// Nadawcy wystarczy „przeczytane"; moment wpisany przez odbiorcę i tak byłby
+/// deklaracją, nie faktem — dokładnie jak `sent_at_ms`.
+///
+/// # Dlaczego paczka, a nie pojedyncze potwierdzenie
+///
+/// Jedna koperta na wiele wiadomości ujawnia mniej niż koperta na każdą
+/// z osobna: obserwator serwera nie policzy z ruchu, ile wiadomości odczytano.
+/// Klienty dodatkowo opóźniają wysyłkę o losowy czas — samo zaszyfrowanie
+/// treści nie ukrywa **chwili**, w której coś poszło.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct ReceiptBody {
+    #[prost(enumeration = "ReceiptKind", tag = "1")]
+    pub kind: i32,
+
+    #[prost(bytes = "vec", repeated, tag = "2")]
+    pub message_ids: Vec<Vec<u8>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+#[repr(i32)]
+pub enum ReceiptKind {
+    Unspecified = 0,
+    /// Koperta dotarła i została przetworzona.
+    Delivered = 1,
+    /// Rozmowa była otwarta na ekranie.
+    Read = 2,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -148,6 +183,33 @@ impl ChatMessage {
         }
     }
 
+    /// Buduje paczkę potwierdzeń.
+    ///
+    /// `sent_at_ms` dotyczy samego potwierdzenia, nie potwierdzanych wiadomości
+    /// — i tak nie trafia do interfejsu. Chwila odczytu nie jedzie w ładunku
+    /// (patrz [`ReceiptBody`]); ukrycie jej w ruchu jest zadaniem klienta,
+    /// który opóźnia wysyłkę.
+    pub fn receipt(kind: ReceiptKind, message_ids: Vec<Vec<u8>>, sent_at_ms: u64) -> Self {
+        Self {
+            protocol_version: PAYLOAD_VERSION,
+            message_id: new_message_id().to_vec(),
+            sent_at_ms,
+            body: Some(Body::Receipt(ReceiptBody {
+                kind: kind as i32,
+                message_ids,
+            })),
+            reply_to: None,
+        }
+    }
+
+    /// Zwraca potwierdzenie, jeśli wiadomość je niesie.
+    pub fn as_receipt(&self) -> Option<&ReceiptBody> {
+        match &self.body {
+            Some(Body::Receipt(r)) => Some(r),
+            _ => None,
+        }
+    }
+
     /// Zwraca sygnalizację rozmowy, jeśli wiadomość ją niesie.
     pub fn as_call_signal(&self) -> Option<&CallSignalBody> {
         match &self.body {
@@ -204,6 +266,29 @@ impl ChatMessage {
                 "message_id ma {} bajtów, oczekiwano {MESSAGE_ID_LEN}",
                 message.message_id.len()
             )));
+        }
+
+        // Potwierdzenie o pustej liście nie potwierdza niczego, a identyfikator
+        // złej długości nie trafi w żadną wiadomość. Jedno i drugie znaczy błąd
+        // po drugiej stronie — lepiej powiedzieć to wprost, niż po cichu
+        // zaznaczyć losowe dymki jako przeczytane.
+        if let Some(Body::Receipt(receipt)) = &message.body {
+            if receipt.message_ids.is_empty() {
+                return Err(Error::Framing(
+                    "potwierdzenie bez identyfikatorów wiadomości".into(),
+                ));
+            }
+
+            if let Some(zly) = receipt
+                .message_ids
+                .iter()
+                .find(|id| id.len() != MESSAGE_ID_LEN)
+            {
+                return Err(Error::Framing(format!(
+                    "potwierdzany message_id ma {} bajtów, oczekiwano {MESSAGE_ID_LEN}",
+                    zly.len()
+                )));
+            }
         }
 
         Ok(message)
@@ -267,6 +352,56 @@ mod tests {
         let mut wiadomosc = ChatMessage::text("x", 0);
         wiadomosc.message_id = vec![1, 2, 3];
         assert!(ChatMessage::decode(&wiadomosc.encode_to_vec()).is_err());
+    }
+
+    /// Potwierdzenia jadą tym samym kanałem co tekst — inaczej serwer wiedziałby,
+    /// kto co odebrał i kiedy przeczytał.
+    #[test]
+    fn potwierdzenie_robi_pelne_kolo() {
+        let a = new_message_id().to_vec();
+        let b = new_message_id().to_vec();
+
+        let oryginal = ChatMessage::receipt(ReceiptKind::Read, vec![a.clone(), b.clone()], 1);
+        let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
+
+        let potwierdzenie = odtworzony.as_receipt().unwrap();
+        assert_eq!(potwierdzenie.kind, ReceiptKind::Read as i32);
+        assert_eq!(potwierdzenie.message_ids, vec![a, b]);
+    }
+
+    /// Sedno: potwierdzenie nie niesie chwili odczytu.
+    ///
+    /// Moment przeczytania jest dokładnie tą informacją, której nie chcemy
+    /// oddawać. Gdyby ktoś dopisał tu pole z czasem, ta asercja ma go
+    /// zatrzymać, zanim trafi do sieci — ukrywanie chwili przez opóźnianie
+    /// wysyłki nie miałoby wtedy żadnego sensu.
+    #[test]
+    fn potwierdzenie_nie_niesie_czasu_odczytu() {
+        let odczyt = 1_700_000_000_000u64;
+        let potwierdzenie =
+            ChatMessage::receipt(ReceiptKind::Read, vec![new_message_id().to_vec()], 0);
+
+        let bajty = potwierdzenie.encode_to_vec();
+        assert!(
+            !bajty.windows(8).any(|okno| okno == odczyt.to_le_bytes()),
+            "w ładunku potwierdzenia nie może być znacznika czasu odczytu",
+        );
+    }
+
+    #[test]
+    fn puste_potwierdzenie_jest_odrzucane() {
+        // Potwierdzenie bez identyfikatorów nie potwierdza niczego, więc znaczy
+        // błąd po drugiej stronie — nie wolno go po cichu przemilczeć.
+        let puste = ChatMessage::receipt(ReceiptKind::Delivered, vec![], 0);
+        assert!(ChatMessage::decode(&puste.encode_to_vec()).is_err());
+    }
+
+    #[test]
+    fn potwierdzenie_zlego_identyfikatora_jest_odrzucane() {
+        // Identyfikator złej długości nie trafi w żadną wiadomość — cichy
+        // przelot oznaczałby zaznaczanie losowych dymków jako przeczytane.
+        let zle = ChatMessage::receipt(ReceiptKind::Read, vec![vec![1, 2, 3]], 0);
+        assert!(ChatMessage::decode(&zle.encode_to_vec()).is_err());
     }
 
     #[test]

@@ -1,46 +1,138 @@
 /*
  * System wizualny Nocturne.
  *
- * Wartości pochodzą z tokenów projektu „Mekamb Android UI Design", tych samych,
- * które ma klient Androida (`android/.../Nocturne.kt`). Zmiana projektu ma być
+ * Charakter: prawie neutralne tło i JEDEN akcent używany jako linia, nie jako
+ * wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia. Akcja
+ * główna jest obrysowana — plama akcentu łamie podstawową zasadę systemu
+ * i natychmiast zdradza, że ekran jest z innej bajki.
+ *
+ * # Tokeny są rolami, nie odcieniami
+ *
+ * Wcześniej arkusz sięgał wprost po stopnie rampy (`--neutral-600`,
+ * `--akcent-800`). Przy jednym motywie to działało; przy dwóch nie ma sensu,
+ * bo „600" w ciemnym jest jaśniejsze od tła, a w jasnym musi być ciemniejsze.
+ * Dlatego każdy token mówi, DO CZEGO służy — `--tekst-drugi`, `--linia`,
+ * `--babel-wlasny` — a motyw podstawia pod niego odcień. Reguła napisana raz
+ * działa w obu motywach i nie wymaga ani jednego warunku.
+ *
+ * Ten sam podział ma Android (`android/.../Nocturne.kt`). Zmiana projektu jest
  * przepisaniem tokenów po obu stronach, a nie dobieraniem odcieni od nowa.
  *
- * Charakter: ciemne, prawie neutralne tło i JEDEN akcent używany jako linia,
- * nie jako wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia.
- * Akcja główna jest obrysowana — plama akcentu łamie podstawową zasadę systemu.
+ * # Dlaczego paleta jasna jest wpisana dwa razy
+ *
+ * Bo polityka bezpieczeństwa treści nie dopuszcza skryptów inline (patrz
+ * `index.html`), więc nie ma jak ustawić motywu przed pierwszym malowaniem.
+ * Skrypt startuje po sparsowaniu dokumentu — a do tego czasu użytkownik
+ * z jasnym systemem zobaczyłby ciemny błysk.
+ *
+ * Dlatego paleta jasna obowiązuje w dwóch sytuacjach: gdy wybrano ją jawnie
+ * (`[data-motyw="jasny"]`) i — zanim skrypt cokolwiek ustawi — gdy prosi o nią
+ * system. Reguły z warunkiem `@media` nie da się scalić z regułą po atrybucie,
+ * więc deklaracje są powtórzone. Rozjazdu między kopiami pilnuje test
+ * `src/lib/motyw.test.ts`, bo różnicy jednego odcienia nikt nie zauważy okiem.
  */
+
+/* --- Motyw ciemny: domyślny ---------------------------------------------- */
+
 :root {
   color-scheme: dark;
 
-  /* Role */
+  /* Powierzchnie */
   --tlo: #161826;
   --karta: #232532;
+  --karta-hover: #2a2c3b;
+  --wglebienie: #1c1e2b;
+
+  /* Tekst */
   --tekst: #e9e9ed;
+  --tekst-drugi: #9397ab;
+  --tekst-trzeci: #75798c;
+
+  /* Linie */
+  --linia: color-mix(in srgb, #e9e9ed 14%, transparent);
+  --linia-mocna: color-mix(in srgb, #e9e9ed 26%, transparent);
+
+  /* Akcent — zawsze linia albo tekst, nigdy plama pod akcją */
   --akcent: #9184d9;
-  --przygaszony: #9397ab;
-  --linia: color-mix(in srgb, #e9e9ed 16%, transparent);
+  --akcent-tekst: #d2cefd;
+  --akcent-tlo: #2b2741;
 
-  /* Rampa neutralna */
-  --neutral-100: #f3f5fe;
-  --neutral-400: #b2b6ca;
-  --neutral-500: #9397ab;
-  --neutral-600: #75798c;
-  --neutral-700: #595d6c;
-  --neutral-800: #3f424d;
-  --neutral-900: #292b31;
+  /* Dymki rozmowy */
+  --babel: #232532;
+  --babel-wlasny: #423a6a;
+  --babel-wlasny-tekst: #f1f0ff;
+  --babel-wlasny-meta: #b5abfc;
 
-  /* Rampa akcentu */
-  --akcent-100: #f5f4ff;
-  --akcent-200: #e7e5fe;
-  --akcent-300: #d2cefd;
-  --akcent-400: #b5abfc;
-  --akcent-700: #5d5294;
-  --akcent-800: #423a6a;
-  --akcent-900: #2b2741;
-
+  /* Stany wymagające reakcji */
   --alarm: #f2b8b5;
-  --ostrzezenie: var(--akcent);
+  --alarm-tekst: #f9dedc;
+  --alarm-tlo: #4a2330;
 
+  /* Cień. W ciemnym motywie prawie niewidoczny — głębię niesie linia. */
+  --cien: 0 1px 2px rgb(0 0 0 / .35);
+  --cien-panelu: 0 8px 28px rgb(0 0 0 / .45);
+}
+
+/*
+ * Paleta jasna — kopia 1 z 2: zanim skrypt ustawi wybór, idziemy za systemem.
+ * Zmieniasz tu cokolwiek — zmień identycznie w `[data-motyw="jasny"]` niżej.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-motyw]) {
+    color-scheme: light;
+    --tlo: #f1f1f7;
+    --karta: #ffffff;
+    --karta-hover: #f6f6fb;
+    --wglebienie: #ececf4;
+    --tekst: #1a1b26;
+    --tekst-drugi: #5c5f73;
+    --tekst-trzeci: #7e8296;
+    --linia: color-mix(in srgb, #1a1b26 13%, transparent);
+    --linia-mocna: color-mix(in srgb, #1a1b26 26%, transparent);
+    --akcent: #5b4fa8;
+    --akcent-tekst: #463d86;
+    --akcent-tlo: #edebfa;
+    --babel: #ffffff;
+    --babel-wlasny: #e7e4fb;
+    --babel-wlasny-tekst: #241f52;
+    --babel-wlasny-meta: #5b4fa8;
+    --alarm: #b3261e;
+    --alarm-tekst: #601410;
+    --alarm-tlo: #fdecea;
+    --cien: 0 1px 2px rgb(26 27 38 / .08);
+    --cien-panelu: 0 8px 28px rgb(26 27 38 / .16);
+  }
+}
+
+/* Paleta jasna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
+:root[data-motyw="jasny"] {
+  color-scheme: light;
+  --tlo: #f1f1f7;
+  --karta: #ffffff;
+  --karta-hover: #f6f6fb;
+  --wglebienie: #ececf4;
+  --tekst: #1a1b26;
+  --tekst-drugi: #5c5f73;
+  --tekst-trzeci: #7e8296;
+  --linia: color-mix(in srgb, #1a1b26 13%, transparent);
+  --linia-mocna: color-mix(in srgb, #1a1b26 26%, transparent);
+  --akcent: #5b4fa8;
+  --akcent-tekst: #463d86;
+  --akcent-tlo: #edebfa;
+  --babel: #ffffff;
+  --babel-wlasny: #e7e4fb;
+  --babel-wlasny-tekst: #241f52;
+  --babel-wlasny-meta: #5b4fa8;
+  --alarm: #b3261e;
+  --alarm-tekst: #601410;
+  --alarm-tlo: #fdecea;
+  --cien: 0 1px 2px rgb(26 27 38 / .08);
+  --cien-panelu: 0 8px 28px rgb(26 27 38 / .16);
+}
+
+/* --- Miary --------------------------------------------------------------- */
+
+:root {
   /* Skala odstępów, gęstość 0,70× — ten system jest ciasny celowo. */
   --odstep-1: .175rem;
   --odstep-2: .35rem;
@@ -49,13 +141,24 @@
   --odstep-6: 1.05rem;
   --odstep-8: 1.4rem;
 
-  /* Promienie */
   --promien-s: 4px;
   --promien-m: 8px;
   --promien-l: 14px;
+
+  /* Cele dotyku z projektu — powyżej minimum systemowego. */
+  --dotyk: 3rem;
+  --dotyk-ikona: 2.75rem;
+
+  /* Jeden czas dla wszystkiego, co reaguje na kursor. */
+  --szybko: .12s;
+  --wolno: .22s;
 }
 
+/* --- Podstawa ------------------------------------------------------------ */
+
 * { box-sizing: border-box; }
+
+html, body { height: 100%; }
 
 body {
   margin: 0;
@@ -64,173 +167,71 @@ body {
   /* Inter, jeśli system go ma — projekt go zakłada, ale pliku z krojem nie
      dokładamy: kilkaset kilobajtów na wagę wizualnej różnicy bliskiej zeru. */
   font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
   /* Wcięcia bezpieczne dla iPhone'ów z wcięciem w ekranie. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
+  transition: background-color var(--wolno), color var(--wolno);
 }
-
-.aplikacja { max-width: 34rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-h1 { font-size: 1.4rem; margin: 0; }
-h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
-.podtytul { color: var(--przygaszony); font-size: .875rem; margin: .25rem 0 1.5rem; }
-
-.karta {
-  background: var(--karta);
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
-  padding: var(--odstep-6);
-  display: flex;
-  flex-direction: column;
-  gap: .75rem;
-  margin-bottom: 1rem;
-}
-
-label { display: flex; flex-direction: column; gap: .3rem; font-size: .875rem; color: var(--przygaszony); }
-
-input {
-  background: var(--karta);
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
-  color: var(--tekst);
-  padding: .7rem .8rem;
-  font-size: 1rem;
-  /* 48 px z projektu — powyżej minimum dotykowego. */
-  min-height: 3rem;
-}
-input:focus-visible { outline: 2px solid var(--akcent); outline-offset: 2px; }
-input::placeholder { color: var(--neutral-600); }
 
 /*
- * Przyciski są OBRYSOWANE, nie zalane kolorem.
+ * Przełączenie motywu nie ma być pokazem.
  *
- * To najbardziej widoczna zasada tego systemu: akcent jest linią i poświatą,
- * nigdy plamą. Wypełniony przycisk od razu zdradza, że ekran jest z innej bajki.
+ * Płynne przejście tła jest miłe, ale gdyby animować wszystko, przy zmianie
+ * motywu ruszałaby cała strona naraz — a to wygląda jak usterka renderowania.
+ * Animujemy więc tylko tło i tekst korzenia; reszta zmienia się natychmiast.
  */
-button {
-  background: transparent;
-  border: 1px solid var(--neutral-700);
-  border-radius: var(--promien-m);
-  color: var(--tekst);
-  padding: .7rem 1rem;
-  font-size: .95rem;
-  font-family: inherit;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+::selection { background: color-mix(in srgb, var(--akcent) 32%, transparent); }
+
+/* --- Typografia ---------------------------------------------------------- */
+
+h1, h2, h3 {
+  /* Hierarchię niesie rozmiar i odstęp, nie grubość — waga zatrzymuje się na 500. */
   font-weight: 500;
-  min-height: 3rem;
-  cursor: pointer;
-  transition: background-color .12s, border-color .12s;
+  letter-spacing: -.01em;
+  margin: 0;
 }
-button:hover { background: color-mix(in srgb, var(--tekst) 5%, transparent); }
-button:active { background: color-mix(in srgb, var(--akcent) 12%, transparent); }
-button:focus-visible { outline: 2px solid var(--akcent); outline-offset: 2px; }
 
-button.glowny { border-color: var(--akcent); color: var(--akcent-300); }
-button.glowny:hover { background: color-mix(in srgb, var(--akcent) 10%, transparent); }
+h1 { font-size: 1.375rem; }
+h2 { font-size: 1.0625rem; }
+h3 { font-size: .9375rem; }
 
-button:disabled { opacity: .45; cursor: default; border-color: var(--neutral-800); }
-button:disabled:hover { background: transparent; }
-
-.wskazowka { color: var(--przygaszony); font-size: .8rem; margin: 0; }
-.wskazowka a { color: var(--akcent); }
-
-.blad {
-  background: color-mix(in srgb, var(--alarm) 12%, transparent);
-  border-left: 3px solid var(--alarm);
-  padding: var(--odstep-4) var(--odstep-6);
-  border-radius: var(--promien-m);
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.blad button { background: none; border: none; min-height: 0; padding: 0 .3rem; }
-
-.ostrzezenie {
-  background: var(--akcent-900);
-  border-left: 3px solid var(--akcent);
-  padding: var(--odstep-6);
-  border-radius: var(--promien-m);
-  color: var(--akcent-200);
-  margin-bottom: 1rem;
+.podtytul {
+  color: var(--tekst-drugi);
   font-size: .875rem;
-}
-.ostrzezenie p { margin: .5rem 0; color: var(--przygaszony); }
-
-.sekret {
-  display: block;
-  background: var(--neutral-900);
-  padding: var(--odstep-4);
-  border-radius: var(--promien-s);
-  word-break: break-all;
-  font-family: ui-monospace, monospace;
-  letter-spacing: .05em;
+  margin: var(--odstep-1) 0 0;
 }
 
-.pasek { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.tryb {
-  font-size: .75rem;
-  color: var(--neutral-500);
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-s);
-  padding: .15rem .6rem;
+.wskazowka {
+  color: var(--tekst-drugi);
+  font-size: .8125rem;
+  line-height: 1.45;
+  margin: 0;
 }
-.wyloguj { font-size: .8rem; background: none; border: none; min-height: 0; color: var(--neutral-500); }
+.wskazowka a { color: var(--akcent-tekst); }
 
-.wiadomosci { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
-/* Własne po prawej, cudze po lewej, róg przy własnej stronie ścięty — układ,
-   który czyta się bez etykiet. */
-.wiadomosci li {
-  background: var(--karta);
-  border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
-  padding: var(--odstep-3) var(--odstep-4);
-  max-width: 78%;
-  align-self: flex-start;
+/* Wskazówka z ikoną — dla zdań o tym, co dzieje się z kluczami i danymi. */
+.wskazowka-ikona {
+  display: flex;
+  gap: var(--odstep-3);
+  align-items: flex-start;
+  color: var(--tekst-drugi);
+  font-size: .8125rem;
+  line-height: 1.45;
+  margin: 0;
 }
-.wiadomosci li.wlasna {
-  background: var(--akcent-800);
-  color: var(--akcent-100);
-  border-radius: var(--promien-l) var(--promien-l) var(--promien-s) var(--promien-l);
-  align-self: flex-end;
-}
-.autor { display: block; font-size: .7rem; color: var(--przygaszony); }
+.wskazowka-ikona .ikona { flex: none; margin-top: .12rem; color: var(--tekst-trzeci); }
 
-/*
- * Godzina w dymku.
- *
- * Przy własnej krawędzi i przygaszona: rozmowę czyta się po treści, a godzina
- * jest odpowiedzią na pytanie zadawane rzadko — ale wtedy zadawane wprost.
- */
-.czas-wiadomosci {
-  display: block;
-  font-size: .62rem;
-  text-align: right;
-  margin-top: .15rem;
-  color: var(--neutral-600);
-}
-.wlasna .czas-wiadomosci { color: color-mix(in srgb, var(--akcent-100) 60%, transparent); }
-
-.pisanie { display: flex; gap: .5rem; }
-.pisanie input { flex: 1; }
-
-/*
- * Załącznik jako spinacz przy polu, nie prostokąt nad nim.
- *
- * Pole na całą szerokość zajmowało tyle miejsca co dwie wiadomości
- * i podpowiadało, że załącznik jest głównym sposobem pisania.
- */
-.dolacz-plik {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 2.75rem;
-  min-height: 2.75rem;
-  border: 1px solid var(--neutral-700);
-  border-radius: var(--promien-m);
-  cursor: pointer;
-  font-size: 1.05rem;
-}
-.dolacz-plik:hover { background: color-mix(in srgb, var(--tekst) 5%, transparent); }
-.dolacz-plik input { display: none; }
-
-/* Treść wyłącznie dla czytników ekranu — ikona sama nie mówi nic. */
+/* Treść wyłącznie dla czytników ekranu — sama ikona nie mówi nic. */
 .tylko-dla-czytnika {
   position: absolute;
   width: 1px;
@@ -240,499 +241,218 @@ button:disabled:hover { background: transparent; }
   white-space: nowrap;
 }
 
-.zalacznik {
-  max-width: 100%;
-  border-radius: var(--promien-m);
-  display: block;
-  margin-top: var(--odstep-2);
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-ligatures: none;
 }
-.zalacznik-pobierz {
+
+/* --- Ikony --------------------------------------------------------------- */
+
+/*
+ * Ikona bierze kolor z tekstu obok (`currentColor` w komponencie).
+ *
+ * Dzięki temu stan niesie JEDNA decyzja — kolor rodzica — a nie dwie, które
+ * mogą się rozjechać. Ikona pomalowana osobno zawsze w końcu zostaje w starym
+ * kolorze po zmianie stanu przycisku.
+ */
+.ikona { flex: none; display: block; }
+
+/* Chevron sekcji: obrócony znaczy „rozłożona". Jeden kształt, dwa stany. */
+.ikona.obrocona { transform: rotate(180deg); transition: transform var(--szybko); }
+
+/* Ikona w linii tekstu — wyrównana do wysokości liter, nie do kratki wiersza. */
+:where(strong, .stopka-dymka, .naglowek-sekcji) > .ikona {
   display: inline-block;
-  margin-top: var(--odstep-2);
-  font-size: .85rem;
-  border: 1px solid var(--linia);
-  color: var(--tekst);
-  text-decoration: none;
-  padding: .4rem .7rem;
-  border-radius: var(--promien-s);
-  min-height: 0;
+  vertical-align: -.12em;
 }
 
-.wskazowka-plik {
-  display: block;
-  font-size: .72rem;
-  color: var(--przygaszony);
-  margin-top: .2rem;
-}
+/* --- Pola ---------------------------------------------------------------- */
 
-.uczestnicy { margin-bottom: .75rem; }
-.uczestnicy-naglowek {
-  background: none;
-  border: none;
-  min-height: 0;
-  padding: .3rem 0;
-  font-size: .85rem;
-  color: var(--przygaszony);
-}
-.lista-osob {
-  list-style: none;
-  margin: .4rem 0;
-  padding: 0;
+label {
   display: flex;
-  flex-wrap: wrap;
-  gap: .35rem;
-}
-.lista-osob li {
-  background: var(--neutral-900);
-  border-radius: var(--promien-s);
-  padding: .2rem .7rem;
-  font-size: .8rem;
-  color: var(--neutral-400);
-}
-.dodaj-osobe { display: flex; gap: .4rem; margin: .5rem 0; }
-.dodaj-osobe input { flex: 1; font-size: .9rem; padding: .45rem .6rem; }
-
-.safety { margin-top: .6rem; }
-.safety-przelacz {
-  background: none;
-  border: none;
-  min-height: 0;
-  padding: .3rem 0;
-  font-size: .8rem;
-  color: var(--akcent);
-}
-.safety-kod {
-  display: block;
-  background: var(--neutral-900);
-  color: var(--akcent-200);
-  padding: .7rem;
-  border-radius: var(--promien-s);
-  margin: .4rem 0;
-  font-family: ui-monospace, monospace;
-  font-size: .95rem;
-  letter-spacing: .04em;
-  line-height: 1.7;
-  word-spacing: .35em;
+  flex-direction: column;
+  gap: var(--odstep-2);
+  font-size: .8125rem;
+  color: var(--tekst-drugi);
 }
 
-.rozmowa { margin-bottom: .75rem; }
-.rozmowa-przyciski { display: flex; gap: .5rem; }
-.rozmowa-przyciski button { flex: 1; font-size: .9rem; }
-.rozmowa-pasek {
-  display: flex;
-  align-items: center;
-  gap: .6rem;
-  justify-content: space-between;
+input, textarea {
   background: var(--karta);
-  border-radius: .5rem;
-  padding: .5rem .75rem;
-  font-size: .875rem;
-}
-.rozlacz { background: #4a2330; color: #ffb0b0; }
-.rozmowa-wideo {
-  width: 100%;
-  border-radius: .5rem;
-  margin-top: .5rem;
-  background: #000;
-}
-
-.rozmowa-lista { list-style: none; margin: .5rem 0; padding: 0; }
-.rozmowa-lista li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: .35rem 0;
-  font-size: .875rem;
-}
-
-/* --- Kody QR i przeniesienie konta --------------------------------------- */
-
-.kod-qr {
-  /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu
-     drugiego urządzenia bez przewijania. */
-  width: 100%;
-  max-width: 15rem;
-  height: auto;
-  align-self: center;
-  border-radius: 4px;
-}
-
-.sekret-recznie summary {
-  color: var(--przygaszony);
-  font-size: .8rem;
-  cursor: pointer;
-}
-
-.przenies {
-  font-size: .8rem;
-}
-
-.podglad-aparatu {
-  width: 100%;
-  max-width: 20rem;
-  align-self: center;
-  border-radius: 4px;
-  background: #000;
-}
-
-/* --- Układ z panelem bocznym ---------------------------------------------- */
-
-/*
- * Panel boczny zamiast dolnego paska.
- *
- * Pasek na dole to wzorzec telefonowy — na szerokim ekranie zostawia pustą
- * połowę i każe wodzić wzrokiem od góry do dołu. Panel z boku wykorzystuje
- * szerokość, którą przeglądarka i tak ma.
- *
- * Poniżej 46rem wraca na dół, bo tam palec sięga kciukiem, nie okiem.
- */
-/*
- * Widok z panelem musi być szerszy niż ekrany wejścia.
- *
- * Wspólny kontener ma 34rem, bo formularz logowania czyta się źle, gdy jest
- * rozciągnięty. Po zalogowaniu wchodzi panel i lista, więc te same 34rem
- * zostawiłyby treści połowę szerokości.
- */
-/*
- * Widok zalogowany bierze całą szerokość okna.
- *
- * Wspólny kontener ma 34rem, bo formularz logowania czyta się źle rozciągnięty.
- * Po zalogowaniu są trzy panele, więc ograniczanie ich do 34rem albo nawet
- * 64rem marnowałoby dokładnie tę szerokość, dla której ten układ powstał.
- */
-.aplikacja:has(.uklad) { max-width: none; padding-inline: var(--odstep-6); }
-
-/*
- * Trzy panele: nawigacja, lista rozmów, wątek.
- *
- * Poprzedni układ chował listę w momencie otwarcia rozmowy — wracało się do
- * niej przyciskiem, mimo że na ekranie było miejsce na oba. Teraz lista i wątek
- * stoją obok siebie.
- */
-.uklad {
-  display: grid;
-  grid-template-columns: 14rem 20.75rem 1fr;
-  gap: var(--odstep-6);
-  align-items: start;
-  height: calc(100dvh - 3rem);
-}
-
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-2);
-  position: sticky;
-  top: var(--odstep-6);
-}
-
-.marka {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-  font-weight: 500;
-  margin-bottom: var(--odstep-4);
-}
-.marka-znak {
-  width: 1.6rem;
-  height: 1.6rem;
-  border: 1px solid var(--akcent);
+  border: 1px solid var(--linia);
   border-radius: var(--promien-m);
+  color: var(--tekst);
+  padding: .7rem .8rem;
+  font: inherit;
+  font-size: .9375rem;
+  min-height: var(--dotyk);
+  transition: border-color var(--szybko), background-color var(--szybko);
 }
+input:hover, textarea:hover { border-color: var(--linia-mocna); }
+input::placeholder, textarea::placeholder { color: var(--tekst-trzeci); }
 
-.galaz {
-  justify-content: flex-start;
-  text-align: left;
-  border-color: transparent;
-  color: var(--neutral-500);
-}
-.galaz.aktywna {
-  border-color: var(--akcent);
-  color: var(--akcent-300);
-}
-
-.sidebar .tryb { margin-top: var(--odstep-4); text-align: center; }
-
-.ekran {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-4);
-  min-width: 0;
-  overflow-y: auto;
-  height: 100%;
-}
-
-/* Panel listy — własna kolumna, własne przewijanie. */
-.panel-listy {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-3);
-  min-width: 0;
-  overflow-y: auto;
-  height: 100%;
-  border-right: 1px solid var(--linia);
-  padding-right: var(--odstep-6);
+/*
+ * Obrys skupienia tylko dla klawiatury.
+ *
+ * `:focus-visible`, nie `:focus` — obrys pojawiający się po kliknięciu myszą
+ * czyta się jak usterka, a bez obrysu w ogóle nie da się przejść aplikacji
+ * z klawiatury.
+ */
+:where(input, textarea, button, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--akcent);
+  outline-offset: 2px;
 }
 
 /*
- * Inspektor: uczestnicy i kod bezpieczeństwa.
+ * Siła hasła: trzy kreski i zdanie, ile brakuje.
  *
- * Po prawej, a nie pod wątkiem. Kod bezpieczeństwa porównuje się patrząc
- * jednocześnie na rozmowę — schowany pod wiadomościami wymagał przewinięcia
- * na sam dół, czyli odejścia od tego, co się właśnie sprawdza.
+ * Świadomie nie udaje pomiaru entropii — jedyne, co naprawdę sprawdzamy, to
+ * dwanaście znaków. Pasek mówiący „średnie" przy haśle „aaaaaaaaaaaa" byłby
+ * wprowadzaniem w błąd. Ta sama postać co na Androidzie.
  */
-.inspektor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-4);
-  min-width: 0;
-  overflow-y: auto;
-  height: 100%;
-  border-left: 1px solid var(--linia);
-  padding-left: var(--odstep-6);
-}
-
-/* Wątek: wiadomości rosną, pole pisania zostaje na dole. */
-.watek {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  height: 100%;
-}
-.watek .wiadomosci { flex: 1; overflow-y: auto; margin-bottom: var(--odstep-4); }
-
-.pusty-watek {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  color: var(--neutral-600);
-  font-size: .9rem;
-}
-
-.lista-rozmow { list-style: none; margin: 0; padding: 0; }
-
-.wiersz-rozmowy {
-  width: 100%;
+.sila-hasla {
   display: flex;
   align-items: center;
-  gap: var(--odstep-4);
-  /* 64 px z projektu — powyżej minimum dotykowego. */
-  min-height: 4rem;
-  border-color: transparent;
-  text-align: left;
-}
-.wiersz-rozmowy:hover { border-color: var(--linia); }
-
-.awatar {
-  flex: none;
-  width: 2.6rem;
-  height: 2.6rem;
-  border-radius: 50%;
-  background: var(--akcent-800);
-  color: var(--akcent-100);
-  display: grid;
-  place-items: center;
-  font-size: .9rem;
-}
-
-.wiersz-tresc { display: flex; flex-direction: column; min-width: 0; gap: .1rem; }
-.wiersz-nazwa { font-weight: 500; }
-.wiersz-ostatnia {
-  font-size: .8rem;
-  color: var(--neutral-500);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.wroc { background: none; border: none; min-height: 0; color: var(--neutral-500); padding: 0; }
-
-/*
- * Poniżej 64rem inspektor nie ma gdzie stanąć — schodzi pod wątek. Ściskanie
- * trzech kolumn na wąskim ekranie daje trzy nieczytelne paski.
- */
-@media (max-width: 64rem) {
-  .uklad { grid-template-columns: 14rem 1fr; height: auto; }
-  .panel-listy, .ekran, .inspektor, .watek { height: auto; overflow: visible; }
-  .inspektor { border-left: none; padding-left: 0; border-top: 1px solid var(--linia); padding-top: var(--odstep-6); }
-  .panel-listy { border-right: none; padding-right: 0; }
-}
-
-/*
- * Wąski ekran: jeden panel naraz.
- *
- * Poniżej 46rem trzy kolumny stają się jedną, więc lista i wątek układały się
- * jeden POD drugim — kliknięcie rozmowy wyglądało, jakby pozycja listy się
- * rozwinęła, i nie było jak wrócić. Telefon ma na to jedno rozwiązanie: ekran
- * pokazuje albo listę, albo rozmowę, a między nimi chodzi się „wstecz".
- *
- * Robi to arkusz stylów, a nie warunek w kodzie: szerokość okna zmienia się
- * bez udziału Reacta (obrót telefonu, podzielony ekran), a stan komponentu
- * musiałby za nią nadążać i gubiłby się przy każdej takiej zmianie.
- */
-@media (max-width: 46rem) {
-  .uklad.rozmowa-otwarta .panel-listy { display: none; }
-  .uklad:not(.rozmowa-otwarta) .pusty-watek { display: none; }
-
-  /*
-   * Inspektor na telefonie pojawia się na żądanie.
-   *
-   * Doklejony pod wiadomościami wyglądał jak przypadkowy dodatek do rozmowy
-   * i spychał pole pisania poza ekran. Na szerokim stoi obok wątku i nie ma
-   * powodu go chować — dlatego reguła jest tylko tutaj.
-   */
-  .inspektor:not(.otwarty) { display: none; }
-}
-
-/* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
-@media (min-width: 46.01rem) {
-  .pasek-watku .wstecz { display: none; }
-}
-
-/*
- * Nagłówek wątku: kto, jaką drogą i co można z tym zrobić.
- *
- * Wysokość 60 px z projektu. Droga dostarczania stoi przy nazwie, a nie
- * w ustawieniach — „przez serwer" to zdanie o tym, kto widzi metadane
- * rozmowy, więc ma być tam, gdzie się na tę rozmowę patrzy.
- */
-.pasek-watku {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-  min-height: 3.75rem;
-  padding-bottom: var(--odstep-3);
-  border-bottom: 1px solid var(--linia);
-}
-
-.pasek-tozsamosc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.pasek-meta {
-  font-size: .7rem;
-  color: var(--neutral-500);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.akcje-watku { display: flex; gap: var(--odstep-2); flex: none; }
-.akcje-watku button {
-  min-height: 2.4rem;
-  padding: 0 var(--odstep-4);
-  font-size: .78rem;
-  border-color: transparent;
-  color: var(--neutral-400);
-}
-.akcje-watku button.aktywna { border-color: var(--akcent); color: var(--akcent-300); }
-
-/* Na wąskim ekranie zostają same ikony — trzy etykiety nie mieszczą się
-   obok nazwy, a nazwa jest ważniejsza. */
-@media (max-width: 30rem) {
-  .akcje-watku button { padding: 0 var(--odstep-3); font-size: 0; min-width: 2.4rem; }
-  .akcje-watku button::before { font-size: .95rem; }
-  .akcje-watku button:nth-child(1)::before { content: "☎"; }
-  .akcje-watku button:nth-child(2)::before { content: "▢"; }
-  .akcje-watku button:nth-child(3)::before { content: "☰"; }
-}
-
-/* Cel dotyku 44 px z projektu — poniżej tego trafia się w niego przypadkiem. */
-.pasek-watku .wstecz {
-  flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
-  padding: 0;
-  border-color: transparent;
-  font-size: 1.1rem;
-  line-height: 1;
-}
-
-/*
- * Panel konta: siatka, nie stos.
- *
- * Ekran po zalogowaniu ma całą szerokość okna, a karty konta są krótkie —
- * ustawione jedna pod drugą zostawiały pustą prawą połowę i kazały przewijać
- * po rzeczy, które mieszczą się obok siebie. Kolumny mają górny limit, bo
- * karta rozciągnięta na 900 px czyta się gorzej niż wąska.
- */
-.naglowek-konta { display: flex; flex-direction: column; gap: var(--odstep-1); }
-.naglowek-konta h2 { margin: 0; }
-
-.siatka-konta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 23.75rem));
-  gap: var(--odstep-6);
-  align-items: start;
-}
-
-.tozsamosc {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-}
-.tozsamosc > span { display: flex; flex-direction: column; min-width: 0; }
-
-/* Stan urządzenia: etykieta po lewej, wartość po prawej — czyta się rzutem oka. */
-.stan-konta { margin: 0; display: flex; flex-direction: column; gap: .45rem; }
-.stan-konta > div { display: flex; justify-content: space-between; gap: var(--odstep-3); }
-.stan-konta dt { color: var(--neutral-500); font-size: .8rem; }
-.stan-konta dd { margin: 0; color: var(--akcent-300); font-size: .8rem; }
-
-/*
- * Strefa kasowania.
- *
- * Za linią i na dole, osobno od reszty. Nieodwracalne obok odwracalnego jest
- * zaproszeniem do pomyłki — a tej pomyłki nie da się cofnąć, bo historii nie
- * ma nigdzie indziej.
- */
-.strefa-kasowania {
-  display: flex;
-  flex-direction: column;
   gap: var(--odstep-2);
-  margin-top: var(--odstep-6);
-  padding-top: var(--odstep-6);
-  border-top: 1px solid var(--linia);
 }
-.strefa-kasowania .rozlacz { align-self: flex-start; }
+.sila-hasla .kreska {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--linia);
+  transition: background-color var(--szybko);
+}
+.sila-hasla .kreska.pelna { background: var(--akcent); }
+.sila-hasla .opis {
+  flex: none;
+  font-size: .6875rem;
+  color: var(--tekst-drugi);
+}
+.sila-hasla .opis.wystarczy { color: var(--akcent-tekst); }
 
-/* Ten sam pasek przed zalogowaniem — rejestracja, logowanie, odbiór konta. */
-.pasek-ekranu {
-  display: flex;
+/* --- Przyciski ----------------------------------------------------------- */
+
+/*
+ * Przyciski są OBRYSOWANE, nie zalane kolorem.
+ *
+ * To najbardziej widoczna zasada tego systemu: akcent jest linią i poświatą,
+ * nigdy plamą. Wypełniony przycisk od razu zdradza, że ekran jest z innej bajki.
+ */
+button {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: var(--odstep-3);
+  justify-content: center;
+  gap: var(--odstep-3);
+  background: transparent;
+  border: 1px solid var(--linia-mocna);
+  border-radius: var(--promien-m);
+  color: var(--tekst);
+  padding: .6rem 1rem;
+  font: inherit;
+  font-size: .9375rem;
+  font-weight: 500;
+  min-height: var(--dotyk);
+  cursor: pointer;
+  transition: background-color var(--szybko), border-color var(--szybko), color var(--szybko);
 }
-.pasek-ekranu .wstecz {
-  width: 2.75rem;
-  height: 2.75rem;
+button:hover { background: color-mix(in srgb, var(--tekst) 6%, transparent); }
+button:active { background: color-mix(in srgb, var(--akcent) 14%, transparent); }
+
+button.glowny { border-color: var(--akcent); color: var(--akcent-tekst); }
+button.glowny:hover { background: color-mix(in srgb, var(--akcent) 12%, transparent); }
+
+button.cichy {
+  border-color: transparent;
+  color: var(--tekst-drugi);
+  min-height: var(--dotyk-ikona);
+}
+button.cichy:hover { color: var(--tekst); }
+
+button.niszczacy { border-color: var(--alarm); color: var(--alarm); }
+button.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 12%, transparent); }
+
+button:disabled { opacity: .45; cursor: default; border-color: var(--linia); }
+button:disabled:hover { background: transparent; }
+
+/* Przycisk będący samą ikoną — kwadratowe pole dotyku, bez etykiety. */
+button.ikonowy {
+  flex: none;
+  width: var(--dotyk-ikona);
+  height: var(--dotyk-ikona);
+  min-height: 0;
   padding: 0;
   border-color: transparent;
-  font-size: 1.1rem;
-  line-height: 1;
+  color: var(--tekst-drugi);
+}
+button.ikonowy:hover { color: var(--tekst); }
+button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst); }
+
+.rzad-przyciskow { display: flex; gap: var(--odstep-3); flex-wrap: wrap; }
+.rzad-przyciskow button { flex: 1; min-width: 8rem; }
+
+/* --- Karty i komunikaty -------------------------------------------------- */
+
+.karta {
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  box-shadow: var(--cien);
 }
 
-.pasek-nazwa {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.karta + .karta { margin-top: var(--odstep-4); }
+.karta strong { font-weight: 500; }
+
+.blad {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--odstep-3);
+  background: var(--alarm-tlo);
+  border: 1px solid color-mix(in srgb, var(--alarm) 45%, transparent);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-4) var(--odstep-6);
+  color: var(--alarm-tekst);
+  font-size: .875rem;
+  margin: 0 0 var(--odstep-4);
 }
+.blad .ikona { flex: none; margin-top: .15rem; color: var(--alarm); }
+.blad p { margin: 0; flex: 1; }
+.blad button { border: none; min-height: 0; padding: 0 .3rem; color: inherit; }
+.blad button:hover { background: transparent; opacity: .7; }
 
-@media (max-width: 46rem) {
-  .uklad { grid-template-columns: 1fr; }
+/*
+ * Ostrzeżenie: linia akcentu z boku, nie plama koloru.
+ *
+ * Plama jest w tym systemie zarezerwowana i tak czy inaczej nie zwiększa
+ * szansy, że ktoś to przeczyta.
+ */
+.ostrzezenie {
+  background: var(--akcent-tlo);
+  border-left: 2px solid var(--akcent);
+  border-radius: 0 var(--promien-m) var(--promien-m) 0;
+  padding: var(--odstep-6);
+  margin: 0 0 var(--odstep-4);
+  font-size: .875rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+}
+.ostrzezenie strong { font-weight: 500; }
+.ostrzezenie p { margin: 0; color: var(--tekst-drugi); font-size: .8125rem; }
+.ostrzezenie button { align-self: flex-start; }
 
-  .sidebar {
-    position: fixed;
-    inset: auto 0 0 0;
-    flex-direction: row;
-    justify-content: space-around;
-    background: var(--tlo);
-    border-top: 1px solid var(--linia);
-    padding: var(--odstep-2);
-    gap: 0;
-  }
-  .sidebar .marka, .sidebar .tryb { display: none; }
-  .galaz { justify-content: center; text-align: center; }
-
-  /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości. */
-  .ekran, .watek { padding-bottom: 4.5rem; }
-  .uklad { grid-template-columns: 1fr; }
+.sekret {
+  display: block;
+  background: var(--wglebienie);
+  border: 1px solid var(--linia);
+  padding: var(--odstep-4);
+  border-radius: var(--promien-s);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .875rem;
+  letter-spacing: .05em;
 }
 
 /*
@@ -748,35 +468,928 @@ button:disabled:hover { background: transparent; }
   padding: 0 .35rem;
   border: 1px solid var(--akcent);
   border-radius: var(--promien-s);
-  color: var(--akcent-300);
+  color: var(--akcent-tekst);
   font-size: .75rem;
   line-height: 1.3rem;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
-.galaz .znacznik { margin-left: auto; }
+
+/* Etykieta stanu — mała, obrysowana, bez koloru dopóki nic się nie dzieje. */
+.tryb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .75rem;
+  color: var(--tekst-drugi);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-s);
+  padding: .2rem .5rem;
+}
+.tryb.uwaga { border-color: color-mix(in srgb, var(--alarm) 45%, transparent); color: var(--alarm); }
+
+.awatar {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--akcent-tlo);
+  border: 1px solid color-mix(in srgb, var(--akcent) 40%, transparent);
+  color: var(--akcent-tekst);
+  display: grid;
+  place-items: center;
+  font-size: .875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.awatar.maly { width: 1.75rem; height: 1.75rem; font-size: .7rem; }
+
+/* --- Powłoka aplikacji --------------------------------------------------- */
 
 /*
- * Wiadomość w locie.
+ * Ekrany wejścia są wąskie, widok zalogowany bierze całą szerokość.
  *
- * Przygaszona, dopóki nie ma potwierdzenia — widać, że jest, i widać, że
- * jeszcze nie doszła. Nieudana dostaje obrys w kolorze błędu, bo to stan,
- * z którym trzeba coś zrobić, a nie chwilowy.
+ * Formularz logowania rozciągnięty na 1400 px czyta się źle; trzy panele
+ * ściśnięte do 34rem marnują dokładnie tę szerokość, dla której powstały.
  */
-.wiadomosci li.w-locie { opacity: .6; }
-.wiadomosci li.nieudana { border: 1px solid var(--alarm); }
-
-.stan-wysylki {
-  display: block;
-  font-size: .7rem;
-  margin-top: .2rem;
-  color: var(--akcent-300);
+.aplikacja {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: var(--odstep-8) var(--odstep-6) var(--odstep-8);
 }
-.nieudana .stan-wysylki { color: var(--alarm); }
+.aplikacja:has(.uklad) {
+  max-width: none;
+  padding: var(--odstep-6);
+}
+
+.naglowek-wejscia {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-4);
+  margin-bottom: var(--odstep-8);
+}
+.naglowek-wejscia .tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+/* Znak firmowy: obrys akcentu z tarczą w środku. Nigdy wypełniony. */
+.marka-znak {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--akcent);
+  border-radius: var(--promien-m);
+  color: var(--akcent);
+}
+
+/* Pasek nad ekranem, do którego się wchodzi: strzałka wstecz i tytuł. */
+.pasek-ekranu {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  margin-bottom: var(--odstep-4);
+}
+.pasek-ekranu h2 { flex: 1; min-width: 0; }
+
+/*
+ * Nagłówek dwujęzyczny: polski wiodący, angielski drugą linią.
+ *
+ * Konwencja z projektu, ta sama co `NaglowekEkranu` na Androidzie. Angielski
+ * jest wyraźnie drugorzędny — mniejszy i przygaszony — bo ma pomagać, a nie
+ * konkurować z polskim o uwagę.
+ */
+.tytul-ekranu { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.podtytul-en {
+  font-size: .6875rem;
+  color: var(--tekst-trzeci);
+  letter-spacing: .02em;
+}
+
+/* --- Układ trzech paneli ------------------------------------------------- */
+
+/*
+ * Nawigacja, lista rozmów, wątek — obok siebie.
+ *
+ * Poprzedni układ chował listę w momencie otwarcia rozmowy, mimo że na ekranie
+ * było miejsce na oba. Panel z boku wykorzystuje szerokość, którą przeglądarka
+ * i tak ma; poniżej 46rem wraca na dół, bo tam sięga kciuk, nie wzrok.
+ */
+/*
+ * Kolumn jest tyle, ile paneli.
+ *
+ * Inspektor jest CZWARTYM dzieckiem siatki. Przy trzech zadeklarowanych
+ * kolumnach nie mieścił się w pierwszym wierszu i lądował w drugim — pod
+ * panelem bocznym, na jego szerokość. Wyglądało to jak rozsypany układ,
+ * bo nim było. Kolumna dokłada się więc dokładnie wtedy, gdy inspektor jest
+ * na ekranie.
+ */
+.uklad {
+  display: grid;
+  grid-template-columns: 14rem 21rem minmax(0, 1fr);
+  gap: var(--odstep-6);
+  align-items: stretch;
+  height: calc(100dvh - 2 * var(--odstep-6));
+}
+.uklad:has(.inspektor) { grid-template-columns: 14rem 21rem minmax(0, 1fr) 19rem; }
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-1);
+  min-width: 0;
+}
+
+.marka {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  font-weight: 500;
+  padding: 0 var(--odstep-2);
+  margin-bottom: var(--odstep-6);
+}
+
+.galaz {
+  justify-content: flex-start;
+  text-align: left;
+  border-color: transparent;
+  color: var(--tekst-drugi);
+  padding-inline: var(--odstep-4);
+}
+.galaz .znacznik { margin-left: auto; }
+.galaz.aktywna { border-color: var(--akcent); color: var(--akcent-tekst); }
+
+/* Stopka panelu: stan sieci i motyw. Na dole, bo to nie są gałęzie nawigacji. */
+.stopka-sidebara {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  padding-top: var(--odstep-4);
+  border-top: 1px solid var(--linia);
+}
+
+.ekran {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Panel listy — własna kolumna, własne przewijanie. */
+.panel-listy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--linia);
+  padding-right: var(--odstep-6);
+}
+.panel-listy-naglowek {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  min-height: var(--dotyk-ikona);
+}
+.panel-listy-naglowek h2 { flex: 1; }
+
+/*
+ * Inspektor: uczestnicy i kod bezpieczeństwa.
+ *
+ * Po prawej, a nie pod wątkiem. Kod bezpieczeństwa porównuje się patrząc
+ * jednocześnie na rozmowę — schowany pod wiadomościami wymagał przewinięcia
+ * na sam dół, czyli odejścia od tego, co się właśnie sprawdza.
+ */
+.inspektor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--linia);
+  padding-left: var(--odstep-6);
+}
+
+/* --- Lista rozmów -------------------------------------------------------- */
+
+.szukanie {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.szukanie .ikona {
+  position: absolute;
+  left: .65rem;
+  color: var(--tekst-trzeci);
+  pointer-events: none;
+}
+.szukanie input {
+  flex: 1;
+  min-width: 0;
+  padding-left: 2.3rem;
+  min-height: var(--dotyk-ikona);
+  font-size: .875rem;
+}
+
+.lista-rozmow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.wiersz-rozmowy {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-4);
+  /* 64 px z projektu — powyżej minimum dotykowego. */
+  min-height: 4rem;
+  border-color: transparent;
+  text-align: left;
+  padding-inline: var(--odstep-3);
+}
+.wiersz-rozmowy:hover { background: var(--karta-hover); }
+.wiersz-rozmowy.otwarta {
+  background: var(--karta);
+  border-color: var(--linia);
+}
+
+.wiersz-tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: .1rem; }
+.wiersz-gora { display: flex; align-items: baseline; gap: var(--odstep-3); }
+.wiersz-nazwa {
+  font-weight: 500;
+  font-size: .9375rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiersz-czas { flex: none; font-size: .6875rem; color: var(--tekst-trzeci); }
+.wiersz-ostatnia {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .8125rem;
+  color: var(--tekst-drugi);
+}
+.wiersz-ostatnia .tekst {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pusto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-3);
+  text-align: center;
+  color: var(--tekst-drugi);
+  padding: var(--odstep-8) var(--odstep-6);
+  font-size: .875rem;
+}
+.pusto .ikona { color: var(--tekst-trzeci); }
+
+/* --- Wątek --------------------------------------------------------------- */
+
+.watek {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * Nagłówek wątku: kto, jaką drogą i co można z tym zrobić.
+ *
+ * Droga dostarczania stoi przy nazwie, a nie w ustawieniach — „przez serwer"
+ * to zdanie o tym, kto widzi metadane rozmowy, więc ma być tam, gdzie się na
+ * tę rozmowę patrzy.
+ */
+.pasek-watku {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  min-height: 3.75rem;
+  padding-bottom: var(--odstep-3);
+  border-bottom: 1px solid var(--linia);
+}
+
+.pasek-tozsamosc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pasek-nazwa {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pasek-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  color: var(--tekst-drugi);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.pasek-meta .ikona { color: var(--tekst-trzeci); }
+.pasek-meta.uwaga, .pasek-meta.uwaga .ikona { color: var(--alarm); }
+
+.akcje-watku { display: flex; gap: var(--odstep-1); flex: none; }
+
+.wiadomosci {
+  list-style: none;
+  margin: 0;
+  padding: var(--odstep-6) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-2);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+/*
+ * Własne po prawej, cudze po lewej, róg przy własnej stronie ścięty — układ,
+ * który czyta się bez etykiet.
+ */
+/*
+ * `:not(.dzien)`, bo rozdzielacz dnia jest tym samym elementem listy.
+ *
+ * Bez tego dziedziczy tło, obrys i promienie dymka — i data wygląda jak
+ * wiadomość wysłana przez nikogo.
+ */
+.wiadomosci li:not(.dzien) {
+  background: var(--babel);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
+  padding: var(--odstep-3) var(--odstep-4);
+  max-width: min(78%, 34rem);
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+.wiadomosci li.wlasna {
+  background: var(--babel-wlasny);
+  border-color: transparent;
+  color: var(--babel-wlasny-tekst);
+  border-radius: var(--promien-l) var(--promien-l) var(--promien-s) var(--promien-l);
+  align-self: flex-end;
+}
+
+/*
+ * Sąsiadujące wiadomości tej samej strony sklejają się w blok.
+ *
+ * Każdy dymek z pełnym promieniem po obu stronach daje listę osobnych kartek;
+ * ścięcie rogu między nimi mówi „to dalej ta sama osoba" bez żadnej etykiety.
+ */
+.wiadomosci li.ciag:not(.wlasna) { border-top-left-radius: var(--promien-s); }
+.wiadomosci li.ciag.wlasna { border-top-right-radius: var(--promien-s); }
+
+.autor {
+  font-size: .6875rem;
+  color: var(--tekst-drugi);
+  font-weight: 500;
+}
+.tresc { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9375rem; }
+
+/*
+ * Stopka dymka: godzina i stan wysyłki.
+ *
+ * Przy własnej krawędzi i przygaszona — rozmowę czyta się po treści, a godzina
+ * jest odpowiedzią na pytanie zadawane rzadko, ale wtedy zadawane wprost.
+ */
+.stopka-dymka {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--odstep-2);
+  margin-top: .1rem;
+  font-size: .625rem;
+  color: var(--tekst-trzeci);
+  font-variant-numeric: tabular-nums;
+}
+.wlasna .stopka-dymka { color: var(--babel-wlasny-meta); }
+.stopka-dymka .ikona { width: 13px; height: 13px; }
+
+/*
+ * Przeczytane różni się od dostarczonego KOLOREM, nie kształtem.
+ *
+ * Ten sam podwójny ptaszek w dwóch odcieniach czyta się jednym spojrzeniem;
+ * dwa różne kształty trzeba by za każdym razem rozpoznawać. Akcent jest tu
+ * linią ikony, więc zasada systemu zostaje nietknięta.
+ */
+.wlasna .stopka-dymka.przeczytana { color: var(--akcent-tekst); }
+.stopka-dymka.przeczytana { color: var(--akcent); }
+
+/* Wiadomość w locie: przygaszona, dopóki nie ma potwierdzenia. */
+.wiadomosci li.w-locie { opacity: .62; }
+/* Nieudana dostaje obrys błędu — to stan, z którym trzeba coś zrobić. */
+.wiadomosci li.nieudana { border-color: var(--alarm); }
+.nieudana .stopka-dymka { color: var(--alarm); }
+
+/* Pusty wątek zajmuje całą wysokość listy, żeby stanąć w jej środku. */
+.wiadomosci li.pusto-watku { flex: 1; align-self: stretch; }
+
+/* Rozdzielacz dni — data w linii, nie nad wiadomością. */
+.dzien {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  width: 100%;
+  margin: var(--odstep-4) 0 var(--odstep-2);
+  color: var(--tekst-trzeci);
+  font-size: .6875rem;
+}
+.dzien::before, .dzien::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--linia);
+}
+
+/* --- Pisanie ------------------------------------------------------------- */
+
+.pisanie {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--odstep-3);
+  padding-top: var(--odstep-3);
+  border-top: 1px solid var(--linia);
+}
+
+/*
+ * Załącznik jako spinacz przy polu, nie prostokąt nad nim.
+ *
+ * Pole na całą szerokość zajmowało tyle miejsca co dwie wiadomości
+ * i podpowiadało, że załącznik jest głównym sposobem pisania.
+ */
+.dolacz-plik {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--dotyk-ikona);
+  height: var(--dotyk-ikona);
+  border: 1px solid transparent;
+  border-radius: var(--promien-m);
+  color: var(--tekst-drugi);
+  cursor: pointer;
+  transition: color var(--szybko), background-color var(--szybko);
+}
+.dolacz-plik:hover { color: var(--tekst); background: color-mix(in srgb, var(--tekst) 6%, transparent); }
+.dolacz-plik:focus-within { outline: 2px solid var(--akcent); outline-offset: 2px; }
+.dolacz-plik input { display: none; }
+
+/*
+ * Pole pisania rośnie z treścią, ale nie w nieskończoność.
+ *
+ * Jednowierszowe pole przy dłuższej wiadomości pokazuje ostatnie kilka słów
+ * i nie da się przeczytać tego, co się właśnie napisało.
+ */
+.pisanie textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  min-height: var(--dotyk-ikona);
+  max-height: 8rem;
+  padding: .6rem .8rem;
+  line-height: 1.4;
+}
+
+.pisanie button.wyslij {
+  flex: none;
+  width: var(--dotyk-ikona);
+  height: var(--dotyk-ikona);
+  min-height: 0;
+  padding: 0;
+  border-color: var(--akcent);
+  color: var(--akcent-tekst);
+}
+.pisanie button.wyslij:disabled { border-color: var(--linia); color: var(--tekst-trzeci); }
+
+/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */
+.wskazowka-plik {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  color: var(--tekst-trzeci);
+  margin: var(--odstep-2) 0 0;
+}
+
+/* --- Załączniki ---------------------------------------------------------- */
+
+.zalacznik {
+  max-width: 100%;
+  max-height: 18rem;
+  border-radius: var(--promien-m);
+  display: block;
+  margin-top: var(--odstep-2);
+  background: var(--wglebienie);
+}
+
+.zalacznik-pobierz {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  margin-top: var(--odstep-2);
+  font-size: .8125rem;
+  border: 1px solid var(--linia-mocna);
+  color: inherit;
+  text-decoration: none;
+  padding: .35rem .6rem;
+  border-radius: var(--promien-s);
+}
+.zalacznik-pobierz:hover { background: color-mix(in srgb, var(--tekst) 8%, transparent); }
 
 /* Placeholder na czas odszyfrowywania zdjęcia albo nagrania. */
 .zalacznik-czeka {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  padding: var(--odstep-4) 0;
+  font-size: .8125rem;
+  color: var(--tekst-trzeci);
+}
+
+/* --- Uczestnicy i kod bezpieczeństwa ------------------------------------- */
+
+.sekcja-inspektora { display: flex; flex-direction: column; gap: var(--odstep-3); }
+.naglowek-sekcji {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--tekst-trzeci);
+}
+
+.lista-osob { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.lista-osob li {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  font-size: .875rem;
+  padding: var(--odstep-2) 0;
+}
+.lista-osob .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dodaj-osobe { display: flex; gap: var(--odstep-2); }
+.dodaj-osobe input { flex: 1; min-width: 0; font-size: .875rem; min-height: var(--dotyk-ikona); }
+.dodaj-osobe button { flex: none; width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }
+
+.safety-kod {
   display: block;
+  background: var(--wglebienie);
+  border: 1px solid var(--linia);
+  color: var(--akcent-tekst);
   padding: var(--odstep-4);
-  font-size: .8rem;
-  color: var(--neutral-600);
+  border-radius: var(--promien-s);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .9375rem;
+  letter-spacing: .04em;
+  line-height: 1.7;
+  word-spacing: .35em;
+  text-align: center;
+}
+
+/* --- Rozmowa A/V --------------------------------------------------------- */
+
+/*
+ * Trwająca rozmowa jest najważniejszą rzeczą na ekranie.
+ *
+ * Dlatego stoi NAD wiadomościami i ma własny obrys akcentu — nie da się jej
+ * przewinąć poza widok tak, jak przewija się wiadomości.
+ */
+.rozmowa-pasek {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  border: 1px solid var(--akcent);
+  background: var(--akcent-tlo);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-3) var(--odstep-4);
+  margin-top: var(--odstep-3);
+  font-size: .875rem;
+}
+.rozmowa-stan { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rozmowa-stan .czas { font-size: .6875rem; color: var(--tekst-drugi); font-variant-numeric: tabular-nums; }
+
+.rozmowa-akcje { display: flex; gap: var(--odstep-2); flex: none; }
+.rozmowa-akcje button { width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }
+.rozmowa-akcje button.rozlacz { border-color: var(--alarm); color: var(--alarm); }
+.rozmowa-akcje button.rozlacz:hover { background: color-mix(in srgb, var(--alarm) 14%, transparent); }
+
+/* Siatka obrazu: jeden rozmówca na całą szerokość, kilku — po dwóch w rzędzie. */
+.siatka-wideo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  gap: var(--odstep-2);
+  margin-top: var(--odstep-2);
+}
+.rozmowa-wideo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--promien-m);
+  background: #000;
+}
+
+.przychodzaca {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  border: 1px solid var(--akcent);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-6);
+  background: var(--akcent-tlo);
+}
+
+/* --- Konto --------------------------------------------------------------- */
+
+/*
+ * Panel konta: siatka, nie stos.
+ *
+ * Karty konta są krótkie — ustawione jedna pod drugą zostawiały pustą prawą
+ * połowę i kazały przewijać po rzeczy, które mieszczą się obok siebie.
+ */
+.naglowek-konta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-1);
+  margin-bottom: var(--odstep-2);
+}
+
+.siatka-konta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 24rem));
+  gap: var(--odstep-6);
+  align-items: start;
+}
+
+.tozsamosc { display: flex; align-items: center; gap: var(--odstep-4); }
+.tozsamosc > span { display: flex; flex-direction: column; min-width: 0; }
+
+/* Stan urządzenia: etykieta po lewej, wartość po prawej — czyta się rzutem oka. */
+.stan-konta { margin: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.stan-konta > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--odstep-3);
+}
+.stan-konta dt { color: var(--tekst-drugi); font-size: .8125rem; }
+.stan-konta dd {
+  margin: 0;
+  color: var(--tekst);
+  font-size: .8125rem;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+}
+.stan-konta dd.uwaga, .stan-konta dd.uwaga .ikona { color: var(--alarm); }
+.stan-konta dd .ikona { color: var(--akcent); }
+
+/*
+ * Strefa kasowania: za linią i na dole, osobno od reszty.
+ *
+ * Nieodwracalne obok odwracalnego to zaproszenie do pomyłki — a tej pomyłki nie
+ * da się cofnąć, bo historii nie ma nigdzie indziej.
+ */
+.strefa-kasowania {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  margin-top: var(--odstep-8);
+  padding-top: var(--odstep-6);
+  border-top: 1px solid var(--linia);
+}
+.strefa-kasowania button { align-self: flex-start; }
+
+/*
+ * Przełącznik.
+ *
+ * Pole wyboru systemowe, przemalowane akcentem — nie własny suwak z dwóch
+ * `div`-ów. Systemowe niesie za darmo obsługę klawiatury, czytnika ekranu
+ * i stan „nieokreślony"; własne trzeba by dorabiać, żeby dorównać.
+ */
+.przelacznik {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--odstep-3);
+  color: var(--tekst);
+  font-size: .9375rem;
+  cursor: pointer;
+  min-height: var(--dotyk-ikona);
+}
+.przelacznik input {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--akcent);
+  cursor: pointer;
+}
+
+/* --- Wybór motywu -------------------------------------------------------- */
+
+/*
+ * Trzy stany w jednym pasku, nie przełącznik dwustanowy.
+ *
+ * „Jasny / ciemny" bez trzeciej opcji znaczy, że wybór raz podjęty przestaje
+ * słuchać systemu — telefon przełączony wieczorem na ciemny zostawia aplikację
+ * jasną. „Za systemem" musi więc być osobnym, widocznym stanem.
+ */
+.wybor-motywu {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  padding: 2px;
+}
+.wybor-motywu button {
+  flex: 1;
+  /* Bez dolnej granicy przełącznik postawiony obok rosnącego tytułu ściska się
+     do trzech kresek — w nagłówku wejścia dokładnie tak się działo. */
+  min-width: 2.5rem;
+  min-height: 2rem;
+  padding: 0;
+  border-color: transparent;
+  border-radius: var(--promien-s);
+  color: var(--tekst-drugi);
+}
+.wybor-motywu button.aktywny {
+  border-color: var(--akcent);
+  color: var(--akcent-tekst);
+}
+
+/* --- Kody QR i przeniesienie konta --------------------------------------- */
+
+.kod-qr {
+  /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu
+     drugiego urządzenia bez przewijania. */
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  align-self: center;
+  border-radius: var(--promien-s);
+  /* Kod musi mieć białe tło niezależnie od motywu — czytniki opierają się na
+     kontraście modułów, a nie na tym, co uznaliśmy za tło aplikacji. */
+  background: #fff;
+  padding: var(--odstep-3);
+}
+
+.sekret-recznie summary {
+  color: var(--tekst-drugi);
+  font-size: .8125rem;
+  cursor: pointer;
+}
+
+.podglad-aparatu {
+  width: 100%;
+  max-width: 20rem;
+  align-self: center;
+  border-radius: var(--promien-m);
+  background: #000;
+}
+
+/* --- Szerokości ---------------------------------------------------------- */
+
+/*
+ * Poniżej 78rem inspektor nie ma gdzie stanąć — otwiera się jako panel nad
+ * wątkiem. Cztery kolumny wymagają 14 + 21 + 24 + 19 rem; ściśnięte niżej dają
+ * cztery nieczytelne paski zamiast czterech paneli.
+ */
+@media (max-width: 78rem) {
+  .uklad:has(.inspektor) { grid-template-columns: 14rem 21rem minmax(0, 1fr); }
+
+  .inspektor {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(22rem, 100%);
+    background: var(--tlo);
+    border-left: 1px solid var(--linia);
+    box-shadow: var(--cien-panelu);
+    padding: var(--odstep-6);
+    z-index: 20;
+  }
+  .inspektor:not(.otwarty) { display: none; }
+}
+
+/*
+ * Poniżej 60rem lista i wątek nie mieszczą się obok siebie.
+ *
+ * Zostaje pasek nawigacji i JEDEN panel: lista albo rozmowa. Ściśnięcie obu do
+ * 23rem daje listę, w której nie widać ostatniej wiadomości, i wątek, w którym
+ * dymek łamie się co trzy słowa.
+ *
+ * Który panel widać, decyduje klasa na układzie — a nie warunek w kodzie:
+ * szerokość okna zmienia się bez udziału Reacta (obrót telefonu, podzielony
+ * ekran), a stan komponentu musiałby za nią nadążać.
+ */
+@media (max-width: 60rem) {
+  .uklad, .uklad:has(.inspektor) { grid-template-columns: 14rem minmax(0, 1fr); }
+
+  .uklad.rozmowa-otwarta .panel-listy { display: none; }
+  .panel-listy { border-right: none; padding-right: 0; }
+
+  /*
+   * Bez otwartej rozmowy ekran wątku schodzi — ale tylko wtedy, gdy jest lista,
+   * którą można w zamian pokazać. W gałęzi Kontakty i Konto listy nie ma
+   * i ukrycie ekranu zostawiłoby sam pasek nawigacji.
+   */
+  .uklad:has(.panel-listy):not(.rozmowa-otwarta) .ekran { display: none; }
+}
+
+/*
+ * Wąski ekran: jeden panel naraz.
+ *
+ * Poniżej 46rem lista i wątek układałyby się jeden POD drugim — kliknięcie
+ * rozmowy wyglądało, jakby pozycja listy się rozwinęła, i nie było jak wrócić.
+ * Telefon ma na to jedno rozwiązanie: ekran pokazuje albo listę, albo rozmowę,
+ * a między nimi chodzi się „wstecz".
+ *
+ * Robi to arkusz stylów, a nie warunek w kodzie: szerokość okna zmienia się bez
+ * udziału Reacta (obrót telefonu, podzielony ekran), a stan komponentu musiałby
+ * za nią nadążać i gubiłby się przy każdej takiej zmianie.
+ */
+@media (max-width: 46rem) {
+  .aplikacja:has(.uklad) { padding: var(--odstep-4) var(--odstep-4) 0; }
+
+  .uklad, .uklad:has(.inspektor) {
+    grid-template-columns: minmax(0, 1fr);
+    height: calc(100dvh - var(--odstep-4));
+  }
+
+  /* Nawigacja schodzi na dół, gdzie sięga kciuk. */
+  .sidebar {
+    position: fixed;
+    inset: auto 0 0 0;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+    background: color-mix(in srgb, var(--tlo) 92%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--linia);
+    padding: var(--odstep-2) var(--odstep-2) calc(var(--odstep-2) + env(safe-area-inset-bottom));
+    z-index: 10;
+  }
+  .marka, .stopka-sidebara { display: none; }
+
+  /* Etykieta pod ikoną — pasek dolny czyta się pionowo, nie poziomo. */
+  .galaz {
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+    font-size: .6875rem;
+    min-height: 3.25rem;
+    padding-inline: var(--odstep-2);
+  }
+  .galaz.aktywna { border-color: transparent; }
+  .galaz .znacznik { position: absolute; margin: 0; transform: translate(1.1rem, -.9rem); }
+
+  /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości ani pola. */
+  .panel-listy, .ekran { padding-bottom: 4rem; }
+
+  .wiadomosci li { max-width: 86%; }
+  .siatka-konta { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
+@media (min-width: 46.01rem) {
+  .pasek-watku .wstecz { display: none; }
+}
+
+/* --- Paski przewijania --------------------------------------------------- */
+
+/*
+ * Cienkie i bez tła.
+ *
+ * Domyślny pasek w motywie ciemnym jest jasną kreską przez cały ekran i przy
+ * trzech przewijanych panelach naraz rysuje trzy pionowe linie, których nikt
+ * nie zamawiał.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--linia-mocna) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--linia-mocna);
+  border-radius: 4px;
 }

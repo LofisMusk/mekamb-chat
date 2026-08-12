@@ -16,6 +16,7 @@ obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
 | Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS i weryfikowany przed zestawieniem połączenia |
 | Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
 | Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
+| Kto co odebrał i przeczytał | Potwierdzenia idą jako wiadomości MLS — serwer widzi szyfrogram. Nie niosą znacznika czasu odczytu, bo ten w ogóle nie istnieje w protokole |
 | Hasło | OPAQUE — serwer nie widzi go nawet w pamięci |
 | Wsteczna poufność | Ratchet MLS: przejęcie klucza nie odsłania wcześniejszych wiadomości |
 | Przyszła poufność | Aktualizacje epok odcinają atakującego po usunięciu z grupy |
@@ -30,9 +31,30 @@ Serwer widzi i może logować:
 
 - kto ma konto i kiedy się loguje,
 - które urządzenia należą do którego użytkownika,
-- kto jest członkiem której grupy (przez commity),
+- **do czyjej** skrzynki trafia koperta — skrzynka nazywa się nazwą
+  użytkownika i inaczej nie dałoby się jej doręczyć,
+- adres IP nadawcy: `POST /inbox/:userId` jest celowo **nieuwierzytelniony**,
+  więc serwer nie poznaje tożsamości nadającego, ale widzi połączenie,
 - kiedy i ile bajtów trafia do skrzynki offline,
 - **rozmiar każdego załącznika**.
+
+Serwer **przestał** widzieć identyfikator rozmowy. Koperta niosła go jawnie do
+wersji 2 formatu — wystarczało to, żeby powiązać koperty w rozmowy i zbudować
+graf bez odszyfrowania choćby bajtu. Dziś koperta niesie losową sól i znacznik
+z niej wyprowadzony, inny dla każdej koperty (`core/src/envelope.rs`). Obiekt
+porządkujący epoki nazywa się osobno wyprowadzoną wartością, więc identyfikator
+rozmowy nie dociera do serwera żadną drogą.
+
+Zostaje `kind` koperty: serwer widzi, że ktoś kogoś właśnie dodaje do grupy,
+choć nie wie do której. Odbiorca musi to wiedzieć, zanim będzie miał czym
+cokolwiek dopasować.
+
+Serwer **przestał** widzieć skład grupy. `GroupRelay` trzymał listę członków, bo
+sam rozsyłał commity — była to jedyna struktura mówiąca mu wprost „kto z kim
+rozmawia". Dziś rozsyła nadawca, który skład zna z drzewa MLS, a relay zajmuje
+tylko kolejne epoki przy nieprzezroczystym identyfikatorze. Skład nadal daje się
+zgrubnie odtworzyć z tego, kto do czyich skrzynek nadaje — ale nie leży już
+gotowy w bazie.
 
 Ostatni punkt jest istotniejszy, niż wygląda: sam rozmiar sporo mówi o rodzaju
 pliku — zdjęcie z telefonu, zrzut ekranu i krótkie wideo mają wyraźnie różne
@@ -42,8 +64,50 @@ co przy wideo oznaczałoby przesyłanie wielokrotnie większej ilości danych.
 
 Serwer **nie** widzi treści ani — przy działającym P2P — samych wiadomości.
 
-Ukrycie metadanych wymagałoby sealed sender albo miksowania ruchu. Poza
-zakresem wersji 1.
+### Nadawca przy zostawianiu koperty
+
+Nadanie do skrzynki **nie wymaga tokenu** i nie jest to przeoczenie: serwer
+z założenia nie ma się dowiadywać, kto do kogo pisze. Tożsamość nadawcy jest
+uwierzytelniona kryptograficznie **wewnątrz** MLS, gdzie serwer jej nie widzi.
+
+Cena jest realna i trzeba ją powiedzieć wprost: skoro nadawać może każdy,
+**każdy może zalewać cudzą skrzynkę**. Dziś broni przed tym wyłącznie limit
+rozmiaru koperty. Właściwym rozwiązaniem są niepowiązywalne tokeny doręczeniowe
+(podpisy na oślep albo VOPRF): serwer sprawdza, że nadający ma prawo nadawać,
+nie dowiadując się, kim jest. Tego jeszcze nie ma.
+
+Odbiór jest odwrotnie — **wymaga tokenu i to właściciela skrzynki**. Trasa
+`GET /inbox/:userId/connect` nie miała żadnego uwierzytelnienia: ktokolwiek znał
+nazwę użytkownika, mógł podłączyć się do cudzej skrzynki i potwierdzeniem
+`ack:<id>` skasować koperty, zanim dotarły do właściciela — wiadomość przepadała
+bez śladu, a nadawca nie widział błędu. Pilnują tego teraz testy
+w `server/test/inbox.test.ts`.
+
+Ukrycie pozostałych metadanych wymagałoby miksowania ruchu i dopełniania.
+Poza zakresem wersji 1.
+
+### Chwila odczytu
+
+Potwierdzenia dostarczenia i odczytu są zaszyfrowane, więc serwer nie wie, CO
+jest w kopercie. Wie natomiast, **kiedy** koperta poszła — a potwierdzenie
+wysłane natychmiast po przeczytaniu byłoby odczytywalne z samego ruchu:
+„urządzenie B nadało coś cztery sekundy po wiadomości od A".
+
+Dlatego klienty **zbierają** potwierdzenia i wysyłają je paczką po **losowym**
+opóźnieniu do 30 sekund (`web/src/lib/potwierdzenia.ts`,
+`android/.../Potwierdzenia.kt`). Losowym, nie stałym: stałe opóźnienie tylko
+przesuwa korelację, zamiast ją zrywać. Jedna koperta na wiele wiadomości ukrywa
+też, ile ich odczytano.
+
+To **ogranicza** wyciek, a nie usuwa go. Obserwator widzący cały ruch nadal wie,
+że w oknie 30 sekund coś poszło. Kto tego nie chce, wyłącza potwierdzenia
+odczytu w ustawieniach — wtedy nie wysyła ich wcale (i symetrycznie nie widzi
+cudzych). Potwierdzenia **dostarczenia** zostają: powstają przy odbiorze
+koperty, więc nie dokładają zdarzenia w innym momencie niż i tak nastąpiło.
+
+Sam ładunek potwierdzenia nie niesie znacznika czasu i test w
+`core/src/framing.rs` tego pilnuje — gdyby ktoś go dopisał, opóźnianie wysyłki
+przestałoby cokolwiek dawać.
 
 ### Adres IP przed rozmówcami
 

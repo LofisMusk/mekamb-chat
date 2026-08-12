@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
 import {
   type KodPrzeniesienia,
@@ -37,23 +38,32 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
   }, [kod]);
 
   if (!kod) {
+    // Karta, a nie goły przycisk: ten składnik stoi w siatce konta obok innych
+    // kart, a jeden przycisk bez powierzchni wygląda tam jak coś, co wypadło.
     return (
-      <button
-        className="przenies"
-        disabled={pracuje}
-        onClick={async () => {
-          setPracuje(true);
-          try {
-            setKod(await przygotujPrzeniesienie(token));
-          } catch (err) {
-            onBlad(err);
-          } finally {
-            setPracuje(false);
-          }
-        }}
-      >
-        {pracuje ? "Przygotowuję…" : "Przenieś na inne urządzenie"}
-      </button>
+      <div className="karta">
+        <strong>Przeniesienie konta</strong>
+        <p className="wskazowka">
+          Tożsamość i możliwość kontynuowania rozmów przechodzą na nowe urządzenie. To
+          urządzenie traci wtedy dostęp do konta.
+        </p>
+        <button
+          disabled={pracuje}
+          onClick={async () => {
+            setPracuje(true);
+            try {
+              setKod(await przygotujPrzeniesienie(token));
+            } catch (err) {
+              onBlad(err);
+            } finally {
+              setPracuje(false);
+            }
+          }}
+        >
+          <Ikona nazwa="kodQr" rozmiar={16} />
+          {pracuje ? "Przygotowuję…" : "Przenieś na inne urządzenie"}
+        </button>
+      </div>
     );
   }
 
@@ -61,12 +71,12 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
   const sekundy = String(zostalo % 60).padStart(2, "0");
 
   return (
-    <section className="karta przeniesienie">
-      <h2>Przenieś konto</h2>
+    <section className="karta">
+      <strong>Przenieś konto</strong>
 
       {zostalo > 0 ? (
         <>
-          <p>Zeskanuj ten kod na nowym urządzeniu:</p>
+          <p className="wskazowka">Zeskanuj ten kod na nowym urządzeniu:</p>
           <KodQr tresc={kod.tresc} opis="Kod QR do przeniesienia konta" />
           <p className="wskazowka">
             Kod ważny jeszcze <strong>{minuty}:{sekundy}</strong>. Można go użyć tylko raz.
@@ -77,15 +87,16 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
             <code className="sekret">{kod.tresc}</code>
           </details>
 
-          <p className="ostrzezenie">
-            <strong>Kto zobaczy ten kod, przejmuje konto.</strong> Nie fotografuj go
-            i nie wysyłaj — pokaż wprost z ekranu na ekran.
-          </p>
+          <div className="ostrzezenie">
+            <strong>Kto zobaczy ten kod, przejmuje konto.</strong>
+            <p>Nie fotografuj go i nie wysyłaj — pokaż wprost z ekranu na ekran.</p>
+          </div>
         </>
       ) : (
-        <p className="ostrzezenie">
-          Kod wygasł. Zamknij to okno i zacznij od nowa.
-        </p>
+        <div className="ostrzezenie">
+          <strong>Kod wygasł.</strong>
+          <p>Zamknij to okno i zacznij od nowa.</p>
+        </div>
       )}
 
       <p className="wskazowka">
@@ -94,7 +105,7 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
       </p>
 
       <button
-        className="rozlacz"
+        className="niszczacy"
         onClick={async () => {
           if (
             !confirm(
@@ -107,6 +118,7 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
           location.reload();
         }}
       >
+        <Ikona nazwa="kosz" rozmiar={16} />
         Odebrane — usuń konto z tego urządzenia
       </button>
 
@@ -200,16 +212,24 @@ export function OdbierzTutaj({
 
   return (
     <section className="karta">
-      <h2>Odbierz konto</h2>
-      <p>Na starym urządzeniu wybierz „Przenieś na inne urządzenie".</p>
+      <strong>Odbierz konto</strong>
+      <p className="wskazowka">
+        Na starym urządzeniu wybierz „Przenieś na inne urządzenie".
+      </p>
 
       {skanuje ? (
         <>
           <video ref={wideo} className="podglad-aparatu" playsInline muted />
-          <button onClick={() => setSkanuje(false)}>Przerwij skanowanie</button>
+          <button onClick={() => setSkanuje(false)}>
+            <Ikona nazwa="zamknij" rozmiar={16} />
+            Przerwij skanowanie
+          </button>
         </>
       ) : (
-        <button onClick={() => setSkanuje(true)}>Zeskanuj kod aparatem</button>
+        <button onClick={() => setSkanuje(true)}>
+          <Ikona nazwa="aparat" rozmiar={16} />
+          Zeskanuj kod aparatem
+        </button>
       )}
 
       <label>
@@ -225,7 +245,10 @@ export function OdbierzTutaj({
         {pracuje ? "Odbieram…" : "Odbierz konto"}
       </button>
 
-      <button onClick={onAnuluj}>Wróć</button>
+      <button onClick={onAnuluj}>
+        <Ikona nazwa="wstecz" rozmiar={16} />
+        Wróć
+      </button>
 
       <p className="wskazowka">
         Odebranie zastąpi konto na tym urządzeniu. Kod działa raz i wygasa po kwadransie.

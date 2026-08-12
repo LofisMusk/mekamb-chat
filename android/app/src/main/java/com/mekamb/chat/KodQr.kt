@@ -56,7 +56,11 @@ fun KodQr(tresc: String, opis: String, modifier: Modifier = Modifier) {
             .widthIn(max = 260.dp)
             .fillMaxWidth()
             .aspectRatio(1f)
-            .background(Neutral100, RoundedCornerShape(10.dp))
+            // Biel wprost, nie kolor tekstu z motywu: czytnik opiera się na
+            // kontraście czarnych modułów wobec tła kodu, a nie na tym, co
+            // aplikacja uznała dziś za jasne. W motywie jasnym kolor tekstu
+            // jest prawie czarny — kod przestałby się dać zeskanować.
+            .background(Color.White, RoundedCornerShape(10.dp))
             .padding(2.dp)
             .semantics { contentDescription = opis },
     ) {

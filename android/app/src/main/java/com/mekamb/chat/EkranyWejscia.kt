@@ -62,12 +62,12 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
         Text(
             "Szyfrowanie end-to-end. Serwer nie widzi treści.",
             style = MaterialTheme.typography.bodyMedium,
-            color = TekstPrzygaszony,
+            color = Nocturne.kolory.tekstDrugi,
         )
         Text(
             "End-to-end encrypted. The server sees nothing.",
             style = MaterialTheme.typography.bodySmall,
-            color = Neutral600,
+            color = Nocturne.kolory.tekstTrzeci,
         )
 
         Spacer(Modifier.size(Odstep.xxl))
@@ -160,7 +160,7 @@ private fun SilaHasla(haslo: String) {
                     .weight(1f)
                     .height(3.dp)
                     .background(
-                        if (i < wypelnione) Akcent else Neutral800,
+                        if (i < wypelnione) Nocturne.kolory.akcent else Nocturne.kolory.linia,
                         RoundedCornerShape(2.dp),
                     ),
             )
@@ -173,7 +173,7 @@ private fun SilaHasla(haslo: String) {
                 "min. $MINIMUM_HASLA znaków"
             },
             style = MaterialTheme.typography.labelSmall,
-            color = if (haslo.length >= MINIMUM_HASLA) Accent300 else Neutral500,
+            color = if (haslo.length >= MINIMUM_HASLA) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
         )
     }
 }
@@ -218,7 +218,7 @@ fun EkranOdbioru(
             Text(
                 "Na starym urządzeniu wybierz \u201ePrzenieś na inne urządzenie\u201d.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = TekstPrzygaszony,
+                color = Nocturne.kolory.tekstDrugi,
             )
 
             Pole(
@@ -314,7 +314,7 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             Text(
                 "Kod odświeża się co 30 s. Sekret jest tylko w Twojej aplikacji authenticator.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Neutral500,
+                color = Nocturne.kolory.tekstDrugi,
             )
 
             PrzyciskGlowny(
@@ -350,11 +350,11 @@ fun PasekZPowrotem(
         horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {
         IconButton(onClick = onWstecz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-            Icon(Ikony.Wstecz, contentDescription = "Wróć", tint = Tekst)
+            Icon(Ikony.Wstecz, contentDescription = "Wróć", tint = Nocturne.kolory.tekst)
         }
         Column {
             Text(tytul, style = MaterialTheme.typography.titleMedium)
-            Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Neutral500)
+            Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
         }
     }
 }

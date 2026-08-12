@@ -1,6 +1,7 @@
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
+import { issueToken } from "../src/crypto";
 import { MAX_ENVELOPE_BYTES } from "../src/env";
 
 /** Skrzynka wchodzi do gry dopiero, gdy dostarczenie bezpośrednie zawiodło. */
@@ -120,5 +121,74 @@ describe("UserInbox", () => {
   it("żądanie bez upgrade'u jest odrzucane", async () => {
     const odpowiedz = await inbox("bez-upgrade").fetch("https://inbox/connect");
     expect(odpowiedz.status).toBe(426);
+  });
+});
+
+/**
+ * Trasa `GET /inbox/:userId/connect` — kto ma prawo czytać skrzynkę.
+ *
+ * # Sedno
+ *
+ * Ta trasa nie miała żadnego uwierzytelnienia. Jedynym globalnym middleware
+ * jest CORS, a CORS nie jest kontrolą dostępu — nie dotyczy `curl`-a ani
+ * klienta natywnego. Ktokolwiek znał nazwę użytkownika, mógł podłączyć się do
+ * cudzej skrzynki, odebrać zaległe koperty i wysłać `ack:<id>`, KASUJĄC je
+ * z kolejki, zanim dotarły do właściciela.
+ *
+ * Wiadomość przepadała bez śladu, a nadawca nie widział błędu — dokładnie ten
+ * rodzaj awarii, którego w tym projekcie nie wolno zostawić bez testu.
+ */
+describe("dostęp do skrzynki", () => {
+  async function konto(nazwa: string) {
+    const userId = crypto.randomUUID();
+    const username = `${nazwa}-${userId.slice(0, 8)}`;
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, username, Date.now())
+      .run();
+
+    const token = await issueToken(env.TOKEN_SIGNING_KEY, {
+      userId,
+      deviceId: "test",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    return { username, token };
+  }
+
+  function polacz(skrzynka: string, token?: string) {
+    const naglowki: Record<string, string> = { Upgrade: "websocket" };
+    if (token) naglowki["Sec-WebSocket-Protocol"] = token;
+
+    return SELF.fetch(`https://mekamb/inbox/${skrzynka}/connect`, { headers: naglowki });
+  }
+
+  it("bez tokenu nie da się podłączyć", async () => {
+    const { username } = await konto("ofiara");
+    expect((await polacz(username)).status).toBe(401);
+  });
+
+  it("podrobiony token nie wystarcza", async () => {
+    const { username } = await konto("ofiara");
+    expect((await polacz(username, "kompletnie.zmyslony.token")).status).toBe(401);
+  });
+
+  it("cudzy token nie otwiera cudzej skrzynki", async () => {
+    // Najważniejszy przypadek: napastnik MA własne konto i własny ważny token.
+    const ofiara = await konto("ofiara");
+    const napastnik = await konto("napastnik");
+
+    expect((await polacz(ofiara.username, napastnik.token)).status).toBe(403);
+  });
+
+  it("właściciel podłącza się do swojej", async () => {
+    const wlasciciel = await konto("wlasciciel");
+    const odpowiedz = await polacz(wlasciciel.username, wlasciciel.token);
+
+    expect(odpowiedz.status).toBe(101);
+    // Przeglądarka zrywa połączenie, jeśli serwer nie potwierdzi podprotokołu.
+    expect(odpowiedz.headers.get("Sec-WebSocket-Protocol")).toBe(wlasciciel.token);
   });
 });

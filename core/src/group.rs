@@ -99,6 +99,26 @@ impl Conversation {
         Ok(Self { group })
     }
 
+    /// Otwiera rozmowę zapisaną w magazynie.
+    ///
+    /// # Czemu to musiało powstać
+    ///
+    /// Stan MLS przeżywał restart w magazynie providera, ale obiekt rozmowy
+    /// powstawał **wyłącznie** przy zakładaniu grupy albo przyjmowaniu
+    /// zaproszenia. Po odświeżeniu karty (albo restarcie aplikacji) klient miał
+    /// pełny stan na dysku i pustą listę otwartych rozmów — każda próba wysłania
+    /// i odebrania kończyła się „nie ma takiej rozmowy w tym kliencie".
+    ///
+    /// Wywołujący zna identyfikatory z własnej historii, więc otwiera je sam
+    /// przy starcie. `Ok(None)` znaczy, że magazyn tej grupy nie zna — rozmowa
+    /// jest w historii, ale bez stanu MLS (np. po przeniesieniu konta) i nie da
+    /// się jej wskrzesić.
+    pub fn load(provider: &Provider, group_id: &[u8]) -> Result<Option<Self>> {
+        MlsGroup::load(provider.storage(), &GroupId::from_slice(group_id))
+            .map(|grupa| grupa.map(|group| Self { group }))
+            .map_err(|e| Error::Group(format!("nie udało się wczytać grupy: {e}")))
+    }
+
     /// Zakłada rozmowę o z góry ustalonym identyfikatorze.
     ///
     /// Przydatne, gdy identyfikator grupy jest wyprowadzany deterministycznie

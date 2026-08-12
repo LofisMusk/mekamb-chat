@@ -87,17 +87,17 @@ fun EkranListy(
                     Text(
                         "Conversations",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
                 IconButton(
                     onClick = { szukanie = "" },
                     modifier = Modifier.size(Dotyk.ikonaWPasku),
                 ) {
-                    Icon(Ikony.Szukaj, contentDescription = "Szukaj", tint = Tekst)
+                    Icon(Ikony.Szukaj, contentDescription = "Szukaj", tint = Nocturne.kolory.tekst)
                 }
                 IconButton(onClick = onUstawienia, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                    Icon(Ikony.Suwaki, contentDescription = "Ustawienia", tint = Tekst)
+                    Icon(Ikony.Suwaki, contentDescription = "Ustawienia", tint = Nocturne.kolory.tekst)
                 }
             } else {
                 Pole(
@@ -110,7 +110,7 @@ fun EkranListy(
                     onClick = { szukanie = null },
                     modifier = Modifier.size(Dotyk.ikonaWPasku),
                 ) {
-                    Icon(Ikony.Wstecz, contentDescription = "Zamknij szukanie", tint = Tekst)
+                    Icon(Ikony.Wstecz, contentDescription = "Zamknij szukanie", tint = Nocturne.kolory.tekst)
                 }
             }
         }
@@ -146,7 +146,7 @@ fun EkranListy(
                             "Nic nie pasuje do tej nazwy."
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TekstPrzygaszony,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                     Text(
                         if (szukanie.isNullOrBlank()) {
@@ -155,7 +155,7 @@ fun EkranListy(
                             "Szukamy tylko w rozmowach zapisanych na tym urządzeniu."
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = Neutral600,
+                        color = Nocturne.kolory.tekstTrzeci,
                     )
                 }
             }
@@ -225,14 +225,14 @@ private fun WierszRozmowy(
                         null -> Ikony.BrakSieci
                     },
                     contentDescription = null,
-                    tint = Neutral600,
+                    tint = Nocturne.kolory.tekstTrzeci,
                     modifier = Modifier.size(13.dp),
                 )
             }
             Text(
                 ostatnia,
                 style = MaterialTheme.typography.bodySmall,
-                color = Neutral500,
+                color = Nocturne.kolory.tekstDrugi,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -243,7 +243,7 @@ private fun WierszRozmowy(
                 Text(
                     GODZINA_LISTY.format(java.util.Date(it)),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Neutral600,
+                    color = Nocturne.kolory.tekstTrzeci,
                 )
             }
             if (nieprzeczytane > 0) Znacznik(nieprzeczytane)
@@ -263,9 +263,9 @@ private fun Znacznik(ile: Int) {
     Text(
         ile.toString(),
         style = MaterialTheme.typography.labelSmall,
-        color = Accent300,
+        color = Nocturne.kolory.akcentTekst,
         modifier = Modifier
-            .border(1.dp, Akcent, RoundedCornerShape(4.dp))
+            .border(1.dp, Nocturne.kolory.akcent, RoundedCornerShape(4.dp))
             .padding(horizontal = Odstep.s, vertical = 1.dp),
     )
 }
@@ -283,9 +283,9 @@ fun DolnaNawigacja(
     nieprzeczytane: Int = 0,
 ) {
     Column(modifier) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Linia))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
 
-        Row(Modifier.fillMaxWidth().background(Tlo)) {
+        Row(Modifier.fillMaxWidth().background(Nocturne.kolory.tlo)) {
             Zakladka(
                 "Rozmowy",
                 Ikony.Rozmowy,
@@ -326,7 +326,7 @@ private fun Zakladka(
             Icon(
                 ikona,
                 contentDescription = etykieta,
-                tint = if (aktywna) Akcent else Neutral600,
+                tint = if (aktywna) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
                 modifier = Modifier.size(22.dp),
             )
             if (nieprzeczytane > 0) {
@@ -334,14 +334,14 @@ private fun Zakladka(
                     Modifier
                         .offset(x = 6.dp, y = (-3).dp)
                         .size(7.dp)
-                        .background(Akcent, CircleShape),
+                        .background(Nocturne.kolory.akcent, CircleShape),
                 )
             }
         }
         Text(
             etykieta,
             style = MaterialTheme.typography.labelSmall,
-            color = if (aktywna) Akcent else Neutral600,
+            color = if (aktywna) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
         )
     }
 }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import uniffi.mekamb_ffi.CallSignalKind
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
+import uniffi.mekamb_ffi.ReceiptKind
 import java.util.UUID
 
 /**
@@ -117,7 +118,49 @@ data class Wiadomosc(
      * który przy każdym zapisie szyfrujemy w całości.
      */
     val zalacznik: Zalacznik? = null,
-)
+
+    /**
+     * Identyfikator z protokołu — 16 bajtów.
+     *
+     * Potwierdzenia wskazują wiadomości właśnie po nim. Pusty przy wiadomościach
+     * z zapisów sprzed wersji 5 formatu historii; takiej wiadomości żadne
+     * potwierdzenie już nie dosięgnie i to jest w porządku.
+     */
+    val id: ByteArray = ByteArray(0),
+
+    /**
+     * Dokąd doszła własna wiadomość.
+     *
+     * `null` znaczy „wysłana" — tak wygląda wiadomość, na którą potwierdzenie
+     * jeszcze nie wróciło, i tak wyglądają wszystkie zapisy sprzed wersji 5.
+     * Przy cudzych wiadomościach pole nie ma sensu i zostaje puste.
+     */
+    val stan: StanWiadomosci? = null,
+) {
+    // `ByteArray` porównuje się przez referencję, a `data class` bierze je do
+    // wygenerowanej równości — bez tego dwie kopie tej samej wiadomości nigdy
+    // nie byłyby równe, a Compose przerysowywałby listę przy każdym złożeniu.
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Wiadomosc) return false
+        return autor == other.autor &&
+            tresc == other.tresc &&
+            wlasna == other.wlasna &&
+            czas == other.czas &&
+            zalacznik == other.zalacznik &&
+            id.contentEquals(other.id) &&
+            stan == other.stan
+    }
+
+    override fun hashCode(): Int {
+        var wynik = autor.hashCode()
+        wynik = 31 * wynik + tresc.hashCode()
+        wynik = 31 * wynik + czas.hashCode()
+        wynik = 31 * wynik + id.contentHashCode()
+        wynik = 31 * wynik + (stan?.hashCode() ?: 0)
+        return wynik
+    }
+}
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -125,6 +168,66 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val historia = Historia(vault)
     private val api = Api(BuildConfig.API_URL)
     private var messenger: Messenger? = null
+
+    /**
+     * Zbieracz potwierdzeń i jego zegar.
+     *
+     * Potwierdzenia nie lecą od razu: serwer nie zobaczy, CO jest w kopercie,
+     * ale zobaczy, KIEDY poszła. Powód opóźnienia i losowości siedzi
+     * w `Potwierdzenia.kt`.
+     */
+    private val zbieracz = ZbieraczPotwierdzen()
+    private var zegarPotwierdzen: kotlinx.coroutines.Job? = null
+
+    /** Dokłada potwierdzenie i pilnuje, żeby wysyłka była zaplanowana. */
+    private fun zakolejkujPotwierdzenie(
+        groupId: ByteArray,
+        rodzaj: ReceiptKind,
+        messageId: ByteArray,
+    ) {
+        zbieracz.dodaj(groupId, rodzaj, messageId)
+
+        // Jeden zegar na wszystko, co się nazbiera. Nowy przy każdym
+        // potwierdzeniu przesuwałby wysyłkę w nieskończoność przy żywej
+        // rozmowie — i wysyłałby ją dokładnie wtedy, gdy rozmowa ucichła,
+        // czyli w najbardziej wymownym momencie.
+        if (zegarPotwierdzen?.isActive == true) return
+
+        zegarPotwierdzen = viewModelScope.launch {
+            kotlinx.coroutines.delay(losoweOpoznienie())
+
+            val klient = messenger ?: return@launch
+            for (paczka in zbieracz.zabierz()) {
+                val odbiorca = klient.uczestnicy(paczka.groupId)
+                    .firstOrNull { it != klient.account.userId }
+                    ?: continue
+
+                // Nieudane potwierdzenie przepada i to jest w porządku: ptaszek
+                // jest wygodą, a nie treścią. Ponawianie w kółko dokładałoby
+                // kopert do ruchu, czyli tego, co ten mechanizm ma ograniczać.
+                runCatching {
+                    klient.sendReceipt(paczka.groupId, paczka.rodzaj, paczka.identyfikatory, odbiorca)
+                }
+            }
+        }
+    }
+
+    /**
+     * Potwierdza odczyt wszystkiego, co widać w otwartej rozmowie.
+     *
+     * Warunkiem jest OTWARTA rozmowa, nie samo dotarcie wiadomości:
+     * „przeczytane" ma znaczyć „widziałeś", a nie „dostałeś" — inaczej byłoby
+     * drugim potwierdzeniem dostarczenia.
+     */
+    private fun potwierdzOdczyt() {
+        if (!PotwierdzeniaOdczytu.wlaczone(getApplication())) return
+        val groupId = stan.groupId ?: return
+
+        for (wiadomosc in stan.wiadomosci) {
+            if (wiadomosc.wlasna || wiadomosc.id.isEmpty()) continue
+            zakolejkujPotwierdzenie(groupId, ReceiptKind.READ, wiadomosc.id)
+        }
+    }
 
     var stan by mutableStateOf(
         // Konto na urządzeniu znaczy, że powitanie jest zbędne — pytanie
@@ -170,9 +273,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     otwarty
                 }.getOrNull() ?: return@launch
 
+                // Rozmowy z dysku MUSZĄ zostać otwarte, zanim cokolwiek
+                // przyjdzie: rdzeń po odtworzeniu ma pełny stan, ale pustą listę
+                // otwartych rozmów, a koperta bez dopasowania przepada.
+                val zapisane = historia.lista()
+                klient.otworzZnaneRozmowy(zapisane.map { it.groupId })
+                klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
+                runCatching { klient.uzupelnijTokeny() }
+
                 klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
                 messenger = klient
-                stan = stan.copy(zalogowany = true, rozmowy = historia.lista())
+                stan = stan.copy(zalogowany = true, rozmowy = zapisane)
             }
         }
     }
@@ -192,6 +303,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             wiadomosci = historia.wczytaj(pozycja.groupId),
             blad = null,
         )
+
+        // Otwarcie rozmowy JEST przeczytaniem jej — potwierdzenia lecą stąd,
+        // a nie z odbioru koperty.
+        potwierdzOdczyt()
     }
 
     /**
@@ -494,6 +609,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 klient.registerDevice()
                 klient.publishKeyPackages()
 
+                // Rozmowy z dysku MUSZĄ zostać otwarte, zanim cokolwiek
+                // przyjdzie: rdzeń po odtworzeniu ma pełny stan, ale pustą listę
+                // otwartych rozmów, a koperta bez dopasowania przepada.
+                klient.otworzZnaneRozmowy(historia.lista().map { it.groupId })
+                klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
+                runCatching { klient.uzupelnijTokeny() }
+
                 klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
                 klient
             }.onSuccess { klient ->
@@ -587,11 +709,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             runCatching { klient.sendText(groupId, tresc, rozmowca) }
-                .onSuccess { sposob ->
+                .onSuccess { wyslana ->
+                    // Identyfikator Z RDZENIA, nie własny UUID: potwierdzenia
+                    // drugiej strony wskazują wiadomości właśnie po nim, więc
+                    // zapisanie własnego znaczyłoby ptaszek, który nigdy się
+                    // nie zmieni.
                     stan = stan.copy(
-                        wiadomosci = stan.wiadomosci + Wiadomosc("Ty", tresc, wlasna = true),
+                        wiadomosci = stan.wiadomosci + Wiadomosc(
+                            autor = "Ty",
+                            tresc = tresc,
+                            wlasna = true,
+                            id = wyslana.messageId,
+                        ),
                         wLocie = stan.wLocie.filterNot { it.id == id },
-                        trybPolaczenia = sposob,
+                        trybPolaczenia = wyslana.sposob,
                         blad = null,
                     )
                     zapiszHistorie()
@@ -631,7 +762,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     autor = zdarzenie.senderUserId,
                     tresc = zdarzenie.text,
                     wlasna = false,
+                    id = zdarzenie.messageId,
                 )
+
+                // Dostarczenie potwierdzamy przy ODBIORZE, nie przy pokazaniu.
+                // „Dostarczono" jest twierdzeniem o kopercie, nie o uwadze
+                // odbiorcy — i tak nie dokłada osobnego zdarzenia w czasie,
+                // bo koperta właśnie przyszła.
+                zakolejkujPotwierdzenie(zdarzenie.groupId, ReceiptKind.DELIVERED, zdarzenie.messageId)
 
                 if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
                     stan.copy(
@@ -659,13 +797,40 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         rozmiar = zdarzenie.sizeBytes.toLong(),
                         nazwaPliku = zdarzenie.fileName,
                     ),
+                    id = zdarzenie.messageId,
                 )
+
+                zakolejkujPotwierdzenie(zdarzenie.groupId, ReceiptKind.DELIVERED, zdarzenie.messageId)
 
                 if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
                     stan.copy(wiadomosci = stan.wiadomosci + wiadomosc, trybPolaczenia = tryb)
                 } else {
                     dopiszDoRozmowy(zdarzenie.groupId, wiadomosc)
                     stan.copy(rozmowy = historia.lista(), trybPolaczenia = tryb)
+                }
+            }
+
+            /*
+             * Potwierdzenie nie jest wiadomością do pokazania — zmienia stan
+             * dymków, które już są na ekranie albo leżą na dysku.
+             *
+             * Cudze potwierdzenia odczytu ignorujemy, gdy własnych nie wysyłamy:
+             * jednostronna wymiana byłaby korzystaniem z czegoś, czego się nie
+             * oddaje. Dostarczenie zostaje — nie mówi nic o niczyjej uwadze.
+             */
+            is IncomingEvent.Receipt -> {
+                val czytamy = PotwierdzeniaOdczytu.wlaczone(getApplication())
+
+                if (zdarzenie.kind == ReceiptKind.READ && !czytamy) {
+                    stan
+                } else {
+                    val nowy = if (zdarzenie.kind == ReceiptKind.READ) {
+                        StanWiadomosci.PRZECZYTANE
+                    } else {
+                        StanWiadomosci.DOSTARCZONE
+                    }
+
+                    nanieStan(zdarzenie.groupId, zdarzenie.messageIds, nowy)
                 }
             }
 
@@ -908,6 +1073,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * rozmowy otwartej. Nazwę bierzemy ze składu grupy — rozmowa mogła
      * powstać przed chwilą i nie mieć jeszcze żadnej.
      */
+    /**
+     * Nanosi potwierdzenie na własne wiadomości.
+     *
+     * Rozmowa otwarta na ekranie idzie przez stan, każda inna — prosto na dysk.
+     * Bez tej drugiej ścieżki ptaszek pojawiałby się tylko w rozmowie akurat
+     * oglądanej, a po wejściu w inną wracałby do „wysłano".
+     */
+    private fun nanieStan(
+        groupId: ByteArray,
+        identyfikatory: List<ByteArray>,
+        nowy: StanWiadomosci,
+    ): StanCzatu {
+        val szukane = identyfikatory.map { it.hex() }.toSet()
+
+        fun podnies(wiadomosci: List<Wiadomosc>) = wiadomosci.map { w ->
+            if (w.wlasna && w.id.hex() in szukane) {
+                w.copy(stan = (w.stan ?: StanWiadomosci.WYSLANE).wyzszy(nowy))
+            } else {
+                w
+            }
+        }
+
+        if (stan.groupId?.contentEquals(groupId) == true) {
+            val podniesione = podnies(stan.wiadomosci)
+            // Zapis od razu: potwierdzenie przychodzi RAZ. Gdyby nie trafiło na
+            // dysk, po restarcie aplikacji dymek wróciłby do „wysłano", a drugie
+            // potwierdzenie już nie przyjdzie.
+            runCatching {
+                val nazwa = stan.rozmowca ?: historia.rozmowca(groupId)
+                if (nazwa != null) historia.zapisz(groupId, nazwa, podniesione)
+            }
+            return stan.copy(wiadomosci = podniesione)
+        }
+
+        runCatching {
+            val nazwa = historia.rozmowca(groupId) ?: return stan
+            historia.zapisz(groupId, nazwa, podnies(historia.wczytaj(groupId)))
+        }
+        return stan
+    }
+
     private fun dopiszDoRozmowy(groupId: ByteArray, wiadomosc: Wiadomosc) {
         val nazwa = nazwaZeSkladu(groupId) ?: historia.rozmowca(groupId) ?: return
         runCatching { historia.zapisz(groupId, nazwa, historia.wczytaj(groupId) + wiadomosc) }

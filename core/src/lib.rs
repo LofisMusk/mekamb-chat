@@ -43,7 +43,7 @@ pub mod storage;
 
 pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
 pub use calls::{extract_fingerprints, verify_sdp_fingerprint};
-pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES};
+pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES, identyfikator_relaya};
 pub use error::{Error, Result};
 pub use framing::ChatMessage;
 pub use group::{CIPHERSUITE, Conversation, Incoming, PendingCommit, Provider};

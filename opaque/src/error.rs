@@ -21,6 +21,15 @@ pub enum Error {
     #[error("operacja OPAQUE nie powiodła się")]
     Protocol,
 
+    /// Błąd tokenów doręczeniowych.
+    ///
+    /// Osobny wariant od `Protocol`, bo niesie powód: przy tokenach rozróżnienie
+    /// „dane z sieci są uszkodzone" od „dowód serwera się nie zgadza" jest
+    /// istotne dla wołającego, a nie daje atakującemu żadnego oracle'a — obie
+    /// odpowiedzi i tak kończą się odrzuceniem.
+    #[error("token doręczeniowy: {0}")]
+    Token(String),
+
     /// Klient nie znał hasła albo konto nie istnieje.
     ///
     /// Jeden wariant dla obu przypadków: rozróżnienie pozwalałoby sprawdzać,

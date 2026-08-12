@@ -36,11 +36,19 @@ import uniffi.mekamb_ffi.DeliveryMode
  * czego brakuje.
  */
 @Composable
-fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz: () -> Unit) {
+fun EkranUstawien(
+    model: ChatViewModel,
+    wyborMotywu: WyborMotywu,
+    onMotyw: (WyborMotywu) -> Unit,
+    odczyt: Boolean,
+    onOdczyt: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    onWstecz: () -> Unit,
+) {
     val stan = model.stan
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Powiadomienia i połączenie", "Notifications & transport", onWstecz = onWstecz)
+        PasekZPowrotem("Ustawienia", "Settings", onWstecz = onWstecz)
 
         Column(
             Modifier
@@ -53,12 +61,78 @@ fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz:
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
-                    Icon(Ikony.Dzwonek, null, tint = Neutral600, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = if (Nocturne.kolory.jasny) Ikony.Slonce else Ikony.Ksiezyc,
+                        contentDescription = null,
+                        tint = Nocturne.kolory.akcent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text("Wygląd", style = MaterialTheme.typography.labelLarge)
+                }
+
+                WyborMotywuUI(wybrany = wyborMotywu, onWybor = onMotyw)
+
+                Text(
+                    "„Systemowy\" idzie za ustawieniem telefonu i zmienia się razem z nim. " +
+                        "Wybór jasnego albo ciemnego przestaje go słuchać.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+            }
+
+            /*
+              Potwierdzenia odczytu w ustawieniach, nie w rozmowie.
+
+              To decyzja o tym, ile o sobie mówisz — dotyczy każdej rozmowy
+              naraz, więc miejscem są ustawienia, a nie pojedynczy wątek.
+            */
+            Karta {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(
+                        Ikony.Dostarczone,
+                        contentDescription = null,
+                        tint = Nocturne.kolory.akcent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text("Potwierdzenia odczytu", style = MaterialTheme.typography.labelLarge)
+                }
+
+                Przelacznik(
+                    etykieta = "Wysyłaj potwierdzenia odczytu",
+                    zaznaczony = odczyt,
+                    onZmiana = onOdczyt,
+                )
+
+                Text(
+                    "Potwierdzenia są szyfrowane end-to-end i wysyłane zbiorczo, po losowym " +
+                        "opóźnieniu do 30 sekund — serwer nie zobaczy, co i kiedy przeczytałeś. " +
+                        "Chwili wysłania samej koperty ukryć się nie da.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+
+                Text(
+                    "Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych. " +
+                        "„Dostarczono\" zostaje — nie mówi nic o niczyjej uwadze.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+            }
+
+            Karta {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(Ikony.Dzwonek, null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(16.dp))
                     Text("Powiadomienia push", style = MaterialTheme.typography.labelLarge)
                     Text(
                         "niedostępne",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Neutral600,
+                        color = Nocturne.kolory.tekstTrzeci,
                     )
                 }
                 Text(
@@ -66,7 +140,7 @@ fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz:
                         "będzie wyłącznie budzący — bez nadawcy i bez treści. Wiadomość " +
                         "odszyfrowuje się dopiero w aplikacji.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Neutral500,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
@@ -82,7 +156,7 @@ fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz:
                             null -> Ikony.BrakSieci
                         },
                         contentDescription = null,
-                        tint = if (stan.trybPolaczenia == null) Neutral600 else Akcent,
+                        tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcent,
                         modifier = Modifier.size(16.dp),
                     )
                     Text("Droga dostarczania", style = MaterialTheme.typography.labelLarge)
@@ -93,20 +167,20 @@ fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz:
                             null -> "brak połączenia"
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = Neutral500,
+                        color = Nocturne.kolory.tekstDrugi,
                     )
                 }
                 Text(
                     "Nie da się jej wybrać — klient zawsze najpierw próbuje wprost, a na " +
                         "skrzynkę spada dopiero, gdy nie przebije NAT-u.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Neutral500,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
                 Text(
                     "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
                         "Przez serwer: adres widzi serwer, treści nie widzi nikt.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Neutral500,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
@@ -118,7 +192,7 @@ fun EkranUstawien(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz:
             Text(
                 "mekamb-chat · ${BuildConfig.VERSION_NAME} · rdzeń Rust przez UniFFI",
                 style = MaterialTheme.typography.labelSmall,
-                color = Neutral600,
+                color = Nocturne.kolory.tekstTrzeci,
             )
         }
     }

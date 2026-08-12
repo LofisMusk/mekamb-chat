@@ -6,7 +6,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -16,104 +21,156 @@ import androidx.compose.ui.unit.sp
 /**
  * Nocturne — system wizualny klienta.
  *
- * # Skąd te wartości
- *
- * Z tokenów projektu „Mekamb Android UI Design", nie z oka. Każda liczba ma
- * tam swój odpowiednik; zmiana projektu ma tu być przepisaniem tokenów, a nie
- * dobieraniem odcieni od nowa.
- *
  * # Charakter
  *
- * Ciemne, prawie neutralne tło i **jeden** akcent używany jako linia, nie jako
+ * Prawie neutralne tło i **jeden** akcent używany jako linia, nie jako
  * wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia. Główne
  * akcje są obrysowane, nie zalane kolorem — to najbardziej widoczna różnica
  * wobec domyślnego Material 3, gdzie przycisk główny jest pełną plamą.
  *
  * Skala odstępów ma gęstość 0,70×, więc jest ciasna celowo.
- */
-
-// --- Rampa neutralna ---------------------------------------------------------
-val Neutral100 = Color(0xFFF3F5FE)
-val Neutral200 = Color(0xFFE4E7F5)
-val Neutral300 = Color(0xFFCFD3E5)
-val Neutral400 = Color(0xFFB2B6CA)
-val Neutral500 = Color(0xFF9397AB)
-val Neutral600 = Color(0xFF75798C)
-val Neutral700 = Color(0xFF595D6C)
-val Neutral800 = Color(0xFF3F424D)
-val Neutral900 = Color(0xFF292B31)
-
-// --- Rampa akcentu -----------------------------------------------------------
-val Accent100 = Color(0xFFF5F4FF)
-val Accent200 = Color(0xFFE7E5FE)
-val Accent300 = Color(0xFFD2CEFD)
-val Accent400 = Color(0xFFB5ABFC)
-val Accent500 = Color(0xFF968AE0)
-val Accent600 = Color(0xFF796CBF)
-val Accent700 = Color(0xFF5D5294)
-val Accent800 = Color(0xFF423A6A)
-val Accent900 = Color(0xFF2B2741)
-
-// --- Role --------------------------------------------------------------------
-val Tlo = Color(0xFF161826)
-val Powierzchnia = Color(0xFF232532)
-val Tekst = Color(0xFFE9E9ED)
-val Akcent = Color(0xFF9184D9)
-
-/**
- * Linia rozdzielająca — 16% koloru tekstu.
  *
- * Wyliczona raz, bo Compose nie ma odpowiednika `color-mix()`, a wpisanie
- * gotowego odcienia rozjechałoby się przy zmianie koloru tekstu.
- */
-val Linia = Tekst.copy(alpha = 0.16f)
-
-/**
- * Zasłona pod arkuszem wysuwanym od dołu.
+ * # Dlaczego kolory są rolami, a nie stopniami rampy
  *
- * Przyciemnia to, co zostaje na ekranie, zamiast to zakrywać: arkusz jest
- * kolejnym krokiem w tej samej rozmowie, a nie osobnym miejscem.
- */
-val Zaslona = Neutral900.copy(alpha = 0.62f)
-
-/** Stan, z którym trzeba coś zrobić — nie chwilowy, nie ozdobny. */
-val Alarm = Color(0xFFE5484D)
-
-/**
- * Kolor tekstu przygaszonego.
+ * Wcześniej ekrany sięgały wprost po `Neutral600` czy `Accent800`. Przy jednym
+ * motywie to działało. Przy dwóch przestaje mieć sens, bo „600" w ciemnym jest
+ * jaśniejsze od tła, a w jasnym musi być ciemniejsze — każde takie użycie
+ * wymagałoby warunku, a warunek pominięty w jednym miejscu daje ciemną plamę
+ * na jasnym ekranie.
  *
- * Osobna stała, bo przygaszanie przez przezroczystość w kilkunastu miejscach
- * z różnymi wartościami daje interfejs, w którym „drugorzędny" znaczy co
- * innego na każdym ekranie.
+ * Dlatego jest [KoloryNocturne]: zestaw ról („tekst drugorzędny", „linia",
+ * „dymek własnej wiadomości"), pod które motyw podstawia odcienie. Ekran pisze
+ * `Nocturne.kolory.tekstDrugi` i działa w obu motywach bez ani jednego `if`.
+ *
+ * Te same role ma web (`web/src/styles.css`) i te same wartości. Zmiana
+ * projektu jest przepisaniem tokenów po obu stronach, a nie dobieraniem
+ * odcieni od nowa.
  */
-val TekstPrzygaszony = Tekst.copy(alpha = 0.62f)
 
-private val SchematCiemny = darkColorScheme(
-    primary = Akcent,
-    onPrimary = Accent900,
-    primaryContainer = Accent800,
-    onPrimaryContainer = Accent200,
+/** Role kolorystyczne. Jedna instancja na motyw — patrz [CIEMNE] i [JASNE]. */
+@Immutable
+data class KoloryNocturne(
+    /** Tło aplikacji. */
+    val tlo: Color,
+    /** Powierzchnia karty i dymka rozmówcy. */
+    val karta: Color,
+    /** Karta pod kursorem albo pod palcem. */
+    val kartaPodniesiona: Color,
+    /** Wgłębienie — kod bezpieczeństwa, sekret TOTP, pole tylko do odczytu. */
+    val wglebienie: Color,
 
-    secondary = Accent400,
-    onSecondary = Accent900,
+    val tekst: Color,
+    /** Drugi plan: podpisy, metadane, opisy pod etykietą. */
+    val tekstDrugi: Color,
+    /** Trzeci plan: podpowiedzi w polach, godziny, jednostki. */
+    val tekstTrzeci: Color,
 
-    background = Tlo,
-    onBackground = Tekst,
-    surface = Powierzchnia,
-    onSurface = Tekst,
-    surfaceVariant = Neutral900,
-    onSurfaceVariant = Neutral400,
+    /** Włos rozdzielający. */
+    val linia: Color,
+    /** Obrys kontrolki — mocniejszy, bo musi być widoczny sam z siebie. */
+    val liniaMocna: Color,
 
-    outline = Neutral700,
-    outlineVariant = Neutral800,
+    /** Akcent jako linia. Nigdy jako wypełnienie pod akcją. */
+    val akcent: Color,
+    /** Akcent jako kolor tekstu — osobny, bo linia i tekst potrzebują innego kontrastu. */
+    val akcentTekst: Color,
+    /** Delikatna poświata akcentu: tło ostrzeżenia, awatar, trwająca rozmowa. */
+    val akcentTlo: Color,
 
-    // Błąd w rampie systemu: dość jasny, żeby czytać go na ciemnym tle.
-    // Domyślny Material daje tu odcień, który na tym tle ledwo widać.
-    error = Color(0xFFF2B8B5),
-    onError = Color(0xFF601410),
-    errorContainer = Color(0xFF8C1D18),
-    onErrorContainer = Color(0xFFF9DEDC),
+    val babelWlasny: Color,
+    val babelWlasnyTekst: Color,
+    /** Godzina i stan wysyłki we własnym dymku. */
+    val babelWlasnyMeta: Color,
+
+    val alarm: Color,
+    val alarmTekst: Color,
+    val alarmTlo: Color,
+
+    /**
+     * Zasłona pod arkuszem wysuwanym od dołu.
+     *
+     * Przyciemnia to, co zostaje na ekranie, zamiast to zakrywać: arkusz jest
+     * kolejnym krokiem w tej samej rozmowie, a nie osobnym miejscem.
+     */
+    val zaslona: Color,
+
+    /** Czy to motyw jasny. Potrzebne dla ikon paska systemowego, nie do malowania. */
+    val jasny: Boolean,
 )
+
+/**
+ * Motyw ciemny — domyślny.
+ *
+ * Wartości identyczne z `:root` w `web/src/styles.css`.
+ */
+val CIEMNE = KoloryNocturne(
+    tlo = Color(0xFF161826),
+    karta = Color(0xFF232532),
+    kartaPodniesiona = Color(0xFF2A2C3B),
+    wglebienie = Color(0xFF1C1E2B),
+    tekst = Color(0xFFE9E9ED),
+    tekstDrugi = Color(0xFF9397AB),
+    tekstTrzeci = Color(0xFF75798C),
+    linia = Color(0xFFE9E9ED).copy(alpha = 0.14f),
+    liniaMocna = Color(0xFFE9E9ED).copy(alpha = 0.26f),
+    akcent = Color(0xFF9184D9),
+    akcentTekst = Color(0xFFD2CEFD),
+    akcentTlo = Color(0xFF2B2741),
+    babelWlasny = Color(0xFF423A6A),
+    babelWlasnyTekst = Color(0xFFF1F0FF),
+    babelWlasnyMeta = Color(0xFFB5ABFC),
+    alarm = Color(0xFFF2B8B5),
+    alarmTekst = Color(0xFFF9DEDC),
+    alarmTlo = Color(0xFF4A2330),
+    zaslona = Color(0xFF000000).copy(alpha = 0.62f),
+    jasny = false,
+)
+
+/**
+ * Motyw jasny.
+ *
+ * Nie jest odwróceniem ciemnego. Akcent musi być **ciemniejszy** niż w motywie
+ * ciemnym, bo linia w kolorze `#9184D9` na białym tle ma kontrast poniżej 3:1
+ * i przestaje być widoczna jako obrys akcji — czyli znika jedyny sygnał, po
+ * którym w tym systemie poznaje się akcję główną.
+ */
+val JASNE = KoloryNocturne(
+    tlo = Color(0xFFF1F1F7),
+    karta = Color(0xFFFFFFFF),
+    kartaPodniesiona = Color(0xFFF6F6FB),
+    wglebienie = Color(0xFFECECF4),
+    tekst = Color(0xFF1A1B26),
+    tekstDrugi = Color(0xFF5C5F73),
+    tekstTrzeci = Color(0xFF7E8296),
+    linia = Color(0xFF1A1B26).copy(alpha = 0.13f),
+    liniaMocna = Color(0xFF1A1B26).copy(alpha = 0.26f),
+    akcent = Color(0xFF5B4FA8),
+    akcentTekst = Color(0xFF463D86),
+    akcentTlo = Color(0xFFEDEBFA),
+    babelWlasny = Color(0xFFE7E4FB),
+    babelWlasnyTekst = Color(0xFF241F52),
+    babelWlasnyMeta = Color(0xFF5B4FA8),
+    alarm = Color(0xFFB3261E),
+    alarmTekst = Color(0xFF601410),
+    alarmTlo = Color(0xFFFDECEA),
+    zaslona = Color(0xFF1A1B26).copy(alpha = 0.38f),
+    jasny = true,
+)
+
+/**
+ * Kolory bieżącego motywu.
+ *
+ * `staticCompositionLocalOf`, a nie `compositionLocalOf`: motyw zmienia się
+ * kilka razy w życiu aplikacji, więc śledzenie odczytów byłoby płaceniem za
+ * coś, z czego nie korzystamy. Zmiana przerysowuje całą gałąź — i o to chodzi.
+ */
+val LokalneKolory = staticCompositionLocalOf { CIEMNE }
+
+/** Skrót do ról kolorystycznych: `Nocturne.kolory.tekstDrugi`. */
+object Nocturne {
+    val kolory: KoloryNocturne
+        @Composable @ReadOnlyComposable get() = LokalneKolory.current
+}
 
 /**
  * Skala typograficzna.
@@ -167,9 +224,7 @@ object Odstep {
     val ekran = 17.dp
 }
 
-/**
- * Minimalne cele dotyku z projektu — powyżej minimum Androida (48 dp).
- */
+/** Minimalne cele dotyku z projektu — powyżej minimum Androida (48 dp). */
 object Dotyk {
     val wierszRozmowy = 64.dp
     val kontrolka = 48.dp
@@ -177,21 +232,86 @@ object Dotyk {
 }
 
 /**
+ * Schemat Material 3 wyprowadzony z ról.
+ *
+ * Material jest tu tylko podkładem: bierze go garść komponentów, których nie
+ * przepisujemy (pole tekstowe, wskaźnik postępu). Wszystko, co rysujemy sami,
+ * czyta `Nocturne.kolory` — dzięki temu nie ma dwóch źródeł prawdy o tym, co
+ * znaczy „powierzchnia".
+ */
+private fun schemat(k: KoloryNocturne) = if (k.jasny) {
+    lightColorScheme(
+        primary = k.akcent,
+        onPrimary = Color.White,
+        primaryContainer = k.akcentTlo,
+        onPrimaryContainer = k.akcentTekst,
+        secondary = k.akcent,
+        onSecondary = Color.White,
+        background = k.tlo,
+        onBackground = k.tekst,
+        surface = k.karta,
+        onSurface = k.tekst,
+        surfaceVariant = k.wglebienie,
+        onSurfaceVariant = k.tekstDrugi,
+        outline = k.liniaMocna,
+        outlineVariant = k.linia,
+        error = k.alarm,
+        onError = Color.White,
+        errorContainer = k.alarmTlo,
+        onErrorContainer = k.alarmTekst,
+        scrim = k.zaslona,
+    )
+} else {
+    darkColorScheme(
+        primary = k.akcent,
+        onPrimary = k.akcentTlo,
+        primaryContainer = k.akcentTlo,
+        onPrimaryContainer = k.akcentTekst,
+        secondary = k.akcentTekst,
+        onSecondary = k.akcentTlo,
+        background = k.tlo,
+        onBackground = k.tekst,
+        surface = k.karta,
+        onSurface = k.tekst,
+        surfaceVariant = k.wglebienie,
+        onSurfaceVariant = k.tekstDrugi,
+        outline = k.liniaMocna,
+        outlineVariant = k.linia,
+        // Błąd w rampie systemu: dość jasny, żeby czytać go na ciemnym tle.
+        // Domyślny Material daje tu odcień, który na tym tle ledwo widać.
+        error = k.alarm,
+        onError = Color(0xFF601410),
+        errorContainer = k.alarmTlo,
+        onErrorContainer = k.alarmTekst,
+        scrim = k.zaslona,
+    )
+}
+
+/**
  * Motyw aplikacji.
  *
- * Zawsze ciemny: system jest ciemny z założenia, a wariant jasny nie istnieje
- * w projekcie. `isSystemInDarkTheme()` jest tu odczytany tylko po to, żeby
- * jawnie odnotować tę decyzję zamiast zostawiać wrażenie przeoczenia.
+ * `wybor` to decyzja użytkownika, nie wynik — [WyborMotywu.ZA_SYSTEMEM]
+ * rozwiązuje się przy każdym złożeniu, więc przełączenie telefonu na ciemny
+ * działa od razu, bez restartu aplikacji. Zapisanie wyliczonego wyniku
+ * zostawiłoby aplikację jasną do końca świata, bo w chwili zapisu system był
+ * jeszcze jasny.
  */
 @Composable
-fun MotywNocturne(content: @Composable () -> Unit) {
-    @Suppress("UNUSED_EXPRESSION")
-    isSystemInDarkTheme()
+fun MotywNocturne(wybor: WyborMotywu = WyborMotywu.CIEMNY, content: @Composable () -> Unit) {
+    val jasny = when (wybor) {
+        WyborMotywu.JASNY -> true
+        WyborMotywu.CIEMNY -> false
+        WyborMotywu.ZA_SYSTEMEM -> !isSystemInDarkTheme()
+    }
 
-    MaterialTheme(
-        colorScheme = SchematCiemny,
-        typography = Typografia,
-        shapes = Ksztalty,
-        content = content,
-    )
+    val kolory = if (jasny) JASNE else CIEMNE
+
+    CompositionLocalProvider(LokalneKolory provides kolory) {
+        MaterialTheme(
+            colorScheme = schemat(kolory),
+            typography = Typografia,
+            shapes = Ksztalty,
+            content = content,
+        )
+    }
 }

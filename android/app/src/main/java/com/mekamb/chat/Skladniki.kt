@@ -22,17 +22,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /**
@@ -69,8 +75,8 @@ fun PrzyciskGlowny(
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, if (wlaczony) Akcent else Neutral700),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Accent300),
+        border = BorderStroke(1.dp, if (wlaczony) Nocturne.kolory.akcent else Nocturne.kolory.liniaMocna),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Nocturne.kolory.akcentTekst),
     ) {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
@@ -89,8 +95,8 @@ fun PrzyciskDrugi(
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, Neutral700),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Tekst),
+        border = BorderStroke(1.dp, Nocturne.kolory.liniaMocna),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Nocturne.kolory.tekst),
     ) {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
@@ -109,7 +115,7 @@ fun PrzyciskCichy(
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.ikonaWPasku),
     ) {
-        Text(tekst, style = MaterialTheme.typography.labelLarge, color = TekstPrzygaszony)
+        Text(tekst, style = MaterialTheme.typography.labelLarge, color = Nocturne.kolory.tekstDrugi)
     }
 }
 
@@ -151,7 +157,7 @@ fun Pole(
     podpowiedz: String? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Odstep.s)) {
-        Text(etykieta, style = MaterialTheme.typography.labelMedium, color = TekstPrzygaszony)
+        Text(etykieta, style = MaterialTheme.typography.labelMedium, color = Nocturne.kolory.tekstDrugi)
 
         OutlinedTextField(
             value = wartosc,
@@ -164,12 +170,12 @@ fun Pole(
             keyboardOptions =
                 if (cyfry) KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
                 else KeyboardOptions.Default,
-            placeholder = podpowiedz?.let { { Text(it, color = Neutral600) } },
+            placeholder = podpowiedz?.let { { Text(it, color = Nocturne.kolory.tekstTrzeci) } },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Akcent,
-                unfocusedBorderColor = Linia,
-                focusedContainerColor = Powierzchnia,
-                unfocusedContainerColor = Powierzchnia,
+                focusedBorderColor = Nocturne.kolory.akcent,
+                unfocusedBorderColor = Nocturne.kolory.linia,
+                focusedContainerColor = Nocturne.kolory.karta,
+                unfocusedContainerColor = Nocturne.kolory.karta,
             ),
         )
     }
@@ -181,13 +187,13 @@ fun OdznakaMarki(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(34.dp)
-            .border(1.dp, Akcent, RoundedCornerShape(8.dp)),
+            .border(1.dp, Nocturne.kolory.akcent, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Ikony.Tarcza,
             contentDescription = null,
-            tint = Akcent,
+            tint = Nocturne.kolory.akcent,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -200,7 +206,7 @@ fun OdznakaMarki(modifier: Modifier = Modifier) {
 fun NaglowekEkranu(tytul: String, podtytul: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.xs)) {
         Text(tytul, style = MaterialTheme.typography.headlineMedium)
-        Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Neutral500)
+        Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
     }
 }
 
@@ -217,8 +223,8 @@ fun Wskazowka(tekst: String, ikona: ImageVector, modifier: Modifier = Modifier) 
         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
         verticalAlignment = Alignment.Top,
     ) {
-        Icon(ikona, contentDescription = null, tint = Neutral600, modifier = Modifier.size(14.dp))
-        Text(tekst, style = MaterialTheme.typography.bodySmall, color = Neutral500)
+        Icon(ikona, contentDescription = null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(14.dp))
+        Text(tekst, style = MaterialTheme.typography.bodySmall, color = Nocturne.kolory.tekstDrugi)
     }
 }
 
@@ -234,7 +240,7 @@ fun Ostrzezenie(tekst: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
-            .background(Accent900, MaterialTheme.shapes.medium),
+            .background(Nocturne.kolory.akcentTlo, MaterialTheme.shapes.medium),
         horizontalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
         // Linia akcentu z boku zamiast plamy koloru. Plama jest w tym systemie
@@ -243,12 +249,12 @@ fun Ostrzezenie(tekst: String, modifier: Modifier = Modifier) {
             Modifier
                 .width(2.dp)
                 .fillMaxHeight()
-                .background(Akcent),
+                .background(Nocturne.kolory.akcent),
         )
         Text(
             tekst,
             style = MaterialTheme.typography.bodySmall,
-            color = Accent200,
+            color = Nocturne.kolory.akcentTekst,
             modifier = Modifier.padding(vertical = Odstep.l, horizontal = 0.dp).weight(1f),
         )
     }
@@ -260,12 +266,115 @@ fun Karta(modifier: Modifier = Modifier, zawartosc: @Composable ColumnScope.() -
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Powierzchnia, MaterialTheme.shapes.medium)
-            .border(1.dp, Linia, MaterialTheme.shapes.medium)
+            .background(Nocturne.kolory.karta, MaterialTheme.shapes.medium)
+            .border(1.dp, Nocturne.kolory.linia, MaterialTheme.shapes.medium)
             .padding(Odstep.l),
         verticalArrangement = Arrangement.spacedBy(Odstep.m),
         content = zawartosc,
     )
+}
+
+/**
+ * Wybór motywu — trzy stany w jednym pasku.
+ *
+ * Nie przełącznik dwustanowy: „jasny / ciemny" bez trzeciej opcji znaczy, że
+ * wybór raz podjęty przestaje słuchać systemu, więc telefon przełączony
+ * wieczorem na ciemny zostawia aplikację jasną. „Systemowy" musi być osobnym,
+ * widocznym stanem, a nie domyślnym zachowaniem, o którym nikt nie wie.
+ *
+ * Zaznaczenie niesie obrys akcentu, nie wypełnienie — jak każdy inny stan
+ * wybrany w tym systemie.
+ */
+@Composable
+fun WyborMotywuUI(
+    wybrany: WyborMotywu,
+    onWybor: (WyborMotywu) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, Nocturne.kolory.linia, MaterialTheme.shapes.medium)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        for (motyw in WyborMotywu.entries) {
+            val aktywny = motyw == wybrany
+
+            OutlinedButton(
+                onClick = { onWybor(motyw) },
+                modifier = Modifier.weight(1f).height(36.dp),
+                shape = MaterialTheme.shapes.small,
+                contentPadding = PaddingValues(horizontal = Odstep.s),
+                border = BorderStroke(1.dp, if (aktywny) Nocturne.kolory.akcent else Color.Transparent),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = if (aktywny) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
+                ),
+            ) {
+                Icon(
+                    imageVector = when (motyw) {
+                        WyborMotywu.CIEMNY -> Ikony.Ksiezyc
+                        WyborMotywu.JASNY -> Ikony.Slonce
+                        WyborMotywu.ZA_SYSTEMEM -> Ikony.Ekran
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    motyw.etykieta,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(start = Odstep.s),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Przełącznik z etykietą.
+ *
+ * `Switch` Material 3, ale bez wypełnionego toru w kolorze akcentu — w tym
+ * systemie akcent jest linią. Włączony stan niesie kolor kciuka i obrys,
+ * a nie plama na całej szerokości kontrolki.
+ */
+@Composable
+fun Przelacznik(
+    etykieta: String,
+    zaznaczony: Boolean,
+    onZmiana: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = Dotyk.kontrolka)
+            .toggleable(value = zaznaczony, role = Role.Switch, onValueChange = onZmiana),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+    ) {
+        Text(
+            etykieta,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Nocturne.kolory.tekst,
+            modifier = Modifier.weight(1f),
+        )
+
+        Switch(
+            checked = zaznaczony,
+            // Sam wiersz jest klikalny (`toggleable`), więc przełącznik nie
+            // obsługuje kliknięć osobno — inaczej czytnik ekranu ogłaszałby
+            // dwa niezależne elementy o tym samym znaczeniu.
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Nocturne.kolory.akcent,
+                checkedTrackColor = Nocturne.kolory.akcentTlo,
+                checkedBorderColor = Nocturne.kolory.akcent,
+                uncheckedThumbColor = Nocturne.kolory.tekstDrugi,
+                uncheckedTrackColor = Color.Transparent,
+                uncheckedBorderColor = Nocturne.kolory.liniaMocna,
+            ),
+        )
+    }
 }
 
 /** Pasek błędu. Znika po dotknięciu — komunikat nie ma zostawać na zawsze. */

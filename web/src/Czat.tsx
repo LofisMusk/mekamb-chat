@@ -1,0 +1,1339 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { Ikona, type NazwaIkony } from "./Ikony";
+import { Rozmowa, type SygnalRozmowy, type ZadanieRozmowy } from "./Rozmowa";
+import { Uczestnicy } from "./Uczestnicy";
+import { Zalacznik } from "./Zalacznik";
+import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { PrzeniesStad } from "./Przeniesienie";
+import { api } from "./lib/api";
+import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
+import {
+  type PozycjaListy,
+  type Wiadomosc,
+  kluczRozmowy,
+  listaRozmow,
+  oznaczPrzeczytane,
+  wczytajRozmowe,
+  zapiszRozmowe,
+} from "./lib/historia";
+import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
+import { filtrujRozmowy } from "./lib/lista";
+import { type Messenger, type ReceivedMessage, idWiadomosci } from "./lib/messenger";
+import {
+  type StanWiadomosci,
+  Zbieracz,
+  losoweOpoznienie,
+  opisStanu,
+  stanZPotwierdzenia,
+  wyzszyStan,
+} from "./lib/potwierdzenia";
+import { odczytWlaczony, ustawOdczyt } from "./lib/ustawienia";
+import { useWstecz } from "./lib/nawigacja";
+import { createPasskey, isPasskeySupported } from "./lib/passkey";
+import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
+import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
+import { isInstalled, isPersistent, wipe } from "./lib/vault";
+import { ulozWatek } from "./lib/watek";
+
+/**
+ * Godzina wiadomości — bez daty.
+ *
+ * Dzień rozdziela osobna etykieta w wątku; w dymku liczy się „o której",
+ * a data powtarzana przy każdej wiadomości jest szumem.
+ */
+const GODZINA = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function godzina(czas: number): string {
+  return GODZINA.format(new Date(czas));
+}
+
+type Galaz = "rozmowy" | "kontakty" | "konto";
+
+/** Wiadomość, której wysyłka jeszcze trwa albo się nie powiodła. */
+interface WLocie {
+  id: string;
+  tresc: string;
+  czas: number;
+  blad: boolean;
+}
+
+/** Jak stan sieci brzmi i wygląda. Jedno miejsce, bo pojawia się w trzech. */
+function opisSieci(stan: StanPolaczenia): { ikona: NazwaIkony; tekst: string; uwaga: boolean } {
+  switch (stan) {
+    case "polaczone":
+      return { ikona: "przezSerwer", tekst: "przez serwer", uwaga: false };
+    case "laczenie":
+      return { ikona: "zegar", tekst: "łączę…", uwaga: false };
+    case "rozlaczone":
+      return { ikona: "brakSieci", tekst: "brak połączenia — ponawiam", uwaga: true };
+  }
+}
+
+export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown) => void }) {
+  const [wiadomosci, setWiadomosci] = useState<Wiadomosc[]>([]);
+  const [tresc, setTresc] = useState("");
+  const [rozmowca, setRozmowca] = useState("");
+  const [groupId, setGroupId] = useState<Uint8Array | null>(null);
+  const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
+  const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
+  const [galaz, setGalaz] = useState<Galaz>("rozmowy");
+  const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
+  const [szukane, setSzukane] = useState("");
+
+  /*
+   * Wyzwalacz rozmowy A/V.
+   *
+   * Przyciski „Zadzwoń" i „Wideo" stoją w nagłówku wątku, a rozmową zarządza
+   * komponent niżej. Zamiast przekazywać w dół funkcję, przekazujemy DANE:
+   * licznik zmienia się przy każdym kliknięciu, więc powtórne wybranie tego
+   * samego trybu też jest zauważone.
+   */
+  const [zadanieRozmowy, setZadanieRozmowy] = useState<ZadanieRozmowy | null>(null);
+
+  /*
+   * Inspektor na wąskim ekranie jest schowany, dopóki ktoś o niego nie poprosi.
+   *
+   * Na szerokim stoi obok wątku i nic nie zasłania — tam zostaje widoczny
+   * zawsze, o co dba arkusz stylów.
+   */
+  const [inspektorOtwarty, setInspektorOtwarty] = useState(false);
+
+  /*
+   * Trwałość magazynu pokazujemy w panelu konta, a nie tylko w ostrzeżeniu
+   * na górze: ostrzeżenie znika po jej przyznaniu, a wtedy nie ma już gdzie
+   * sprawdzić, czy naprawdę jest przyznana.
+   */
+  const [trwaly, setTrwaly] = useState(true);
+  useEffect(() => {
+    void isPersistent().then(setTrwaly).catch(() => {});
+  }, []);
+
+  /**
+   * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
+   *
+   * Osobno od historii, a nie z polem stanu w niej: wiadomość, której wysyłka
+   * nie dobiegła końca przed zamknięciem karty, ma nieznany los. Zapisana
+   * wyglądałaby na wysłaną, a nie wiemy tego — więc nie zapisujemy jej wcale.
+   */
+  const [wLocie, setWLocie] = useState<WLocie[]>([]);
+  const nieprzeczytane = rozmowy.reduce((suma, p) => suma + p.nieprzeczytane, 0);
+
+  /*
+   * Nazwa pozycji na liście, z naprawą wstecz.
+   *
+   * Rozmowy zapisane przed poprawką mają nazwę pustą, a wiersz bez imienia
+   * i bez awatara nie mówi nic o tym, z kim się rozmawia. Skład z drzewa MLS
+   * odtwarza ją bez pytania serwera o cokolwiek — a gdy i tego nie ma (grupa
+   * spoza stanu MLS, np. po przeniesieniu konta), mówimy wprost, że nazwy nie
+   * znamy, zamiast pokazywać pusty wiersz.
+   */
+  const nazwaPozycji = useCallback(
+    (pozycja: PozycjaListy): string => {
+      if (pozycja.rozmowca) return pozycja.rozmowca;
+
+      try {
+        const z = nazwaRozmowy(messenger.memberUserIds(pozycja.groupId), messenger.account.userId);
+        return z || "rozmowa bez nazwy";
+      } catch {
+        return "rozmowa bez nazwy";
+      }
+    },
+    [messenger],
+  );
+
+  const widoczne = useMemo(
+    () => filtrujRozmowy(rozmowy, szukane, nazwaPozycji),
+    [rozmowy, szukane, nazwaPozycji],
+  );
+
+  /**
+   * Ile razy dana koperta odpadła przy przetwarzaniu.
+   *
+   * Potrzebne, bo koperta bez potwierdzenia wraca przy każdym połączeniu.
+   * Bez licznika koperta, której nigdy nie da się przetworzyć — powtórzona
+   * albo spreparowana — wracałaby w nieskończoność.
+   */
+  const nieudane = useRef<LicznikProb>(new Map());
+
+  /*
+   * Zbieracz potwierdzeń i jego zegar.
+   *
+   * Przez referencję, nie przez stan: dołożenie potwierdzenia nie ma
+   * przerysowywać ekranu, a przerysowanie nie ma resetować odliczania.
+   * Powód opóźnienia i losowości siedzi w `potwierdzenia.ts`.
+   */
+  const zbieracz = useRef(new Zbieracz());
+  const zegarPotwierdzen = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [odczyt, setOdczyt] = useState(() => odczytWlaczony());
+
+  /** Rozmowy po kluczu — potwierdzenie musi wrócić do właściwej grupy. */
+  const grupyPoKluczu = useRef(new Map<string, Uint8Array>());
+
+  const zaplanujWysylke = useCallback(() => {
+    if (zegarPotwierdzen.current !== null) return;
+
+    zegarPotwierdzen.current = setTimeout(() => {
+      zegarPotwierdzen.current = null;
+
+      for (const paczka of zbieracz.current.zabierz()) {
+        const groupId = grupyPoKluczu.current.get(paczka.kluczRozmowy);
+        if (!groupId) continue;
+
+        // Nieudane potwierdzenie przepada i to jest w porządku: ptaszek jest
+        // wygodą, a nie treścią. Ponawianie w kółko dokładałoby kopert do
+        // ruchu, czyli dokładnie tego, co ten mechanizm ma ograniczać.
+        void messenger.sendReceipt(groupId, paczka.rodzaj, paczka.identyfikatory).catch(() => {});
+      }
+    }, losoweOpoznienie());
+  }, [messenger]);
+
+  // Zegar nie może przeżyć komponentu — inaczej wysyłka trafia w messengera,
+  // którego nikt już nie używa.
+  useEffect(() => () => {
+    if (zegarPotwierdzen.current !== null) clearTimeout(zegarPotwierdzen.current);
+  }, []);
+
+  const dodaj = useCallback(
+    (odebrana: ReceivedMessage) => {
+      setWiadomosci((poprzednie) => [
+        ...poprzednie,
+        {
+          id: idWiadomosci(odebrana.messageId),
+          autor: odebrana.senderUserId,
+          tresc: odebrana.text,
+          czas: odebrana.sentAtMs,
+          wlasna: false,
+          zalacznik: odebrana.attachment,
+        },
+      ]);
+
+      /*
+       * Dostarczenie potwierdzamy przy odbiorze, a nie przy pokazaniu.
+       *
+       * „Dostarczono" jest twierdzeniem o kopercie, nie o uwadze odbiorcy —
+       * i tak nie dokłada osobnego zdarzenia w czasie, bo koperta i tak
+       * właśnie przyszła.
+       */
+      const klucz = kluczRozmowy(odebrana.groupId);
+      grupyPoKluczu.current.set(klucz, odebrana.groupId);
+      zbieracz.current.dodaj(klucz, "delivered", idWiadomosci(odebrana.messageId));
+      zaplanujWysylke();
+    },
+    [zaplanujWysylke],
+  );
+
+  /** Nanosi potwierdzenie na własne wiadomości. */
+  const nanieStan = useCallback((identyfikatory: string[], stan: StanWiadomosci) => {
+    const zbior = new Set(identyfikatory);
+
+    setWiadomosci((poprzednie) =>
+      poprzednie.map((w) =>
+        w.wlasna && zbior.has(w.id) ? { ...w, stan: wyzszyStan(w.stan ?? "wyslane", stan) } : w,
+      ),
+    );
+  }, []);
+
+  // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
+  // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
+  // zrywałaby połączenie.
+  const biezacaGrupa = useRef<Uint8Array | null>(null);
+  biezacaGrupa.current = groupId;
+
+  const obsluzKoperte = useCallback(
+    async (ramkaBuf: ArrayBuffer, potwierdz: (id: bigint) => void) => {
+      const ramka = new Uint8Array(ramkaBuf);
+
+      // Pierwsze osiem bajtów to identyfikator wpisu w kolejce serwera.
+      const id = new DataView(ramka.buffer, ramka.byteOffset, 8).getBigUint64(0);
+      const koperta = ramka.subarray(8);
+
+      try {
+        const odebrana = await messenger.handleEnvelope(koperta);
+
+        // Potwierdzamy DOPIERO po przetworzeniu i zapisaniu stanu. Wcześniejsze
+        // potwierdzenie kasowałoby kopertę, której jeszcze nie umiemy odtworzyć
+        // po odświeżeniu strony — czyli gubiłoby wiadomość bezpowrotnie.
+        potwierdz(id);
+
+        if (odebrana?.receipt) {
+          /*
+           * Potwierdzenie nie jest wiadomością do pokazania — zmienia stan
+           * dymków, które już są na ekranie.
+           *
+           * Cudze potwierdzenia odczytu ignorujemy, gdy własnych nie wysyłamy:
+           * jednostronna wymiana byłaby korzystaniem z czegoś, czego się nie
+           * oddaje. Dostarczenie zostaje — nie mówi nic o niczyjej uwadze.
+           */
+          if (odebrana.receipt.kind === "delivered" || odczytRef.current) {
+            nanieStan(odebrana.receipt.messageIds, stanZPotwierdzenia(odebrana.receipt.kind));
+          }
+        } else if (odebrana?.call) {
+          // Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia —
+          // trafia do komponentu rozmowy.
+          setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
+          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
+        } else if (odebrana) {
+          dodaj(odebrana);
+          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
+        }
+        poSukcesie(nieudane.current, String(id));
+      } catch (err) {
+        // Nieudane przetworzenie koperty jest sytuacją SPODZIEWANĄ: powtórzenie
+        // ze skrzynki, pakiet z nieaktualnej epoki, dane spreparowane przez
+        // kogoś z sieci. Pokazywanie tego użytkownikowi jako błędu straszy go
+        // czymś, na co nie ma wpływu i czego nie musi rozumieć.
+        console.warn("koperta odrzucona przy przetwarzaniu", err);
+
+        // Bez potwierdzenia koperta wraca przy każdym połączeniu. Po kilku
+        // nieudanych próbach uznajemy ją za martwą i potwierdzamy, żeby nie
+        // krążyła w nieskończoność — ale dopiero po kilku, bo koperta, która
+        // wyprzedziła swój commit, może przejść za drugim razem.
+        if (poNiepowodzeniu(nieudane.current, String(id)).rodzaj === "odrzuc") {
+          potwierdz(id);
+        }
+      }
+    },
+    [messenger, dodaj, nanieStan],
+  );
+
+  // Ustawienie przez referencję: obsługa koperty nie może zależeć od stanu,
+  // bo każda zmiana zależności zrywałaby i otwierała połączenie na nowo.
+  const odczytRef = useRef(odczyt);
+  odczytRef.current = odczyt;
+
+  // Połączenie zależy WYŁĄCZNIE od konta. Wcześniej wisiało na `groupId`
+  // i na niememoizowanej funkcji błędu, więc każde przerysowanie zrywało je
+  // i otwierało nowe.
+  useEffect(() => {
+    const polaczenie = polaczZeSkrzynka({
+      otworz: () => api.connectInbox(messenger.account.userId, messenger.accessToken),
+      naRamke: (ramka, potwierdz) => void obsluzKoperte(ramka, potwierdz),
+      naStan: setStanSieci,
+    });
+
+    return () => polaczenie.zamknij();
+  }, [messenger, obsluzKoperte]);
+
+  /*
+   * Oznaczanie przeczytanego.
+   *
+   * Warunkiem jest OTWARTA rozmowa, nie samo dotarcie wiadomości: licznik ma
+   * mówić „nie widziałeś tego", a nie „nie dostałeś tego". Wiadomość, która
+   * przyszła do rozmowy oglądanej w innej gałęzi, zostaje nieprzeczytana.
+   */
+  useEffect(() => {
+    if (!groupId || galaz !== "rozmowy" || wiadomosci.length === 0) return;
+
+    /*
+     * Potwierdzenie odczytu wychodzi z tego samego warunku co licznik:
+     * rozmowa musi być OTWARTA. „Przeczytane" ma znaczyć „widziałeś", a nie
+     * „dostałeś" — inaczej byłoby drugim potwierdzeniem dostarczenia.
+     *
+     * Wysyłamy tylko wtedy, gdy użytkownik na to pozwala. Wyłączenie działa
+     * w obie strony: kto nie oddaje, ten nie dostaje (patrz `ustawienia.ts`).
+     */
+    if (odczyt) {
+      const klucz = kluczRozmowy(groupId);
+      grupyPoKluczu.current.set(klucz, groupId);
+
+      let cokolwiek = false;
+      for (const w of wiadomosci) {
+        if (w.wlasna) continue;
+        zbieracz.current.dodaj(klucz, "read", w.id);
+        cokolwiek = true;
+      }
+
+      if (cokolwiek) zaplanujWysylke();
+    }
+
+    const najnowsza = Math.max(...wiadomosci.map((w) => w.czas));
+    void oznaczPrzeczytane(groupId, najnowsza)
+      .then(() => listaRozmow())
+      .then(setRozmowy)
+      .catch(() => {
+        // Nieudany zapis znacznika nie może wywrócić rozmowy — najwyżej
+        // licznik pokaże za dużo, co jest mniejszą szkodą niż pusty ekran.
+      });
+  }, [groupId, galaz, wiadomosci, odczyt, zaplanujWysylke]);
+
+  /*
+   * Rozmowy z poprzednich uruchomień.
+   *
+   * Nie tylko do listy: rdzeń po odtworzeniu ma pełny stan MLS na dysku, ale
+   * pustą listę OTWARTYCH rozmów. Bez `otworzZnaneRozmowy` po odświeżeniu karty
+   * nie dałoby się ani nic wysłać, ani odebrać — koperty przestałyby pasować do
+   * czegokolwiek.
+   */
+  useEffect(() => {
+    void listaRozmow().then((pozycje) => {
+      messenger.otworzZnaneRozmowy(pozycje.map((p) => p.groupId));
+      setRozmowy(pozycje);
+    });
+  }, [messenger]);
+
+  /*
+   * Nazwa rozmowy pochodzi z drzewa MLS, nie ze stanu interfejsu.
+   *
+   * Wcześniej brała się z tego, co użytkownik wpisał w Kontaktach albo
+   * kliknął na liście. Rozmowa założona przez KOGOŚ INNEGO nie przechodzi
+   * przez żadne z tych miejsc, więc zapisywała się bez nazwy — na liście
+   * pojawiał się wiersz bez imienia i bez awatara.
+   */
+  useEffect(() => {
+    if (!groupId) return;
+
+    try {
+      const nazwa = nazwaRozmowy(messenger.memberUserIds(groupId), messenger.account.userId);
+      // Pusto znaczy „zostaliśmy sami" — wtedy stara nazwa jest lepsza niż żadna.
+      if (nazwa) setRozmowca(nazwa);
+    } catch {
+      // Grupa spoza stanu MLS zostaje z nazwą zapisaną na dysku.
+    }
+  }, [groupId, messenger]);
+
+  // Historia rozmowy z dysku. Bez tego odświeżenie strony kasowało rozmowę,
+  // a odświeżenie było jedynym ratunkiem na zerwane połączenie.
+  useEffect(() => {
+    if (!groupId) return;
+    let aktualne = true;
+
+    void wczytajRozmowe(groupId).then((zapisane) => {
+      if (!aktualne || zapisane.length === 0) return;
+
+      // Scalamy z tym, co przyszło w międzyczasie — koperta mogła dotrzeć,
+      // zanim odczyt z dysku się skończył.
+      setWiadomosci((biezace) => {
+        const znane = new Set(biezace.map((w) => w.id));
+        return [...zapisane.filter((w) => !znane.has(w.id)), ...biezace].sort(
+          (a, b) => a.czas - b.czas,
+        );
+      });
+    });
+
+    return () => {
+      aktualne = false;
+    };
+  }, [groupId]);
+
+  // Zapis po każdej zmianie. Zapisujemy całą rozmowę, bo leży w jednym
+  // zaszyfrowanym rekordzie — dopisywanie po jednej wiadomości i tak
+  // wymagałoby odczytania oraz przepisania całości.
+  useEffect(() => {
+    if (!groupId || wiadomosci.length === 0) return;
+    void zapiszRozmowe(groupId, rozmowca, wiadomosci)
+      // Lista czyta z dysku, więc odświeżamy ją po zapisie, a nie przed.
+      .then(() => listaRozmow())
+      .then(setRozmowy)
+      .catch((err) => {
+        console.warn("nie udało się zapisać historii", err);
+      });
+  }, [groupId, rozmowca, wiadomosci]);
+
+  /*
+   * Otwarta rozmowa jest osobnym ekranem, nie doklejką pod listą.
+   *
+   * Klasa na układzie mówi arkuszowi stylów, że na wąskim ekranie ma pokazać
+   * sam wątek. Wyjście z niego idzie przez historię przeglądarki, więc
+   * strzałka, gest i systemowe „wstecz" robią dokładnie to samo.
+   */
+  useWstecz(
+    galaz === "rozmowy" && groupId !== null,
+    () => setGroupId(null),
+    groupId ? kluczRozmowy(groupId) : "",
+  );
+
+  // Inspektor otwarty jako panel też ma wyjść na „wstecz" — inaczej systemowy
+  // przycisk zamyka rozmowę spod panelu, który został na wierzchu.
+  useWstecz(inspektorOtwarty, () => setInspektorOtwarty(false), "inspektor");
+
+  const rozpocznijZ = async (nazwa: string) => {
+    try {
+      // Rozmowa z tą osobą mogła już powstać. Bez tego sprawdzenia każde
+      // „rozpocznij rozmowę" zakładało nową grupę MLS, więc lista puchła od
+      // duplikatów, a historia rozjeżdżała się między nimi.
+      const istniejaca = znajdzRozmowe1na1(
+        rozmowy,
+        (g) => messenger.memberUserIds(g),
+        messenger.account.userId,
+        nazwa,
+      );
+
+      setGroupId(istniejaca ? istniejaca.groupId : await messenger.startConversation(nazwa));
+      setGalaz("rozmowy");
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  return (
+    <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
+      <Nawigacja
+        galaz={galaz}
+        onGalaz={setGalaz}
+        nieprzeczytane={nieprzeczytane}
+        stanSieci={stanSieci}
+      />
+
+      {galaz === "rozmowy" && (
+        <PanelListy
+          rozmowy={widoczne}
+          wszystkich={rozmowy.length}
+          szukane={szukane}
+          onSzukane={setSzukane}
+          nazwaPozycji={nazwaPozycji}
+          otwarta={groupId}
+          onOtworz={(pozycja) => {
+            setGroupId(pozycja.groupId);
+            setRozmowca(nazwaPozycji(pozycja));
+          }}
+        />
+      )}
+
+      <section className="ekran">
+        {galaz === "rozmowy" && !groupId && (
+          <Pusto
+            ikona="rozmowy"
+            tytul="Wybierz rozmowę"
+            wskazowka="Albo zacznij nową w Kontaktach — wystarczy nazwa użytkownika."
+          />
+        )}
+
+        {galaz === "rozmowy" && groupId && (
+          <Watek
+            messenger={messenger}
+            groupId={groupId}
+            rozmowca={rozmowca}
+            wiadomosci={wiadomosci}
+            wLocie={wLocie}
+            setWiadomosci={setWiadomosci}
+            setWLocie={setWLocie}
+            tresc={tresc}
+            setTresc={setTresc}
+            stanSieci={stanSieci}
+            sygnalRozmowy={sygnalRozmowy}
+            zadanieRozmowy={zadanieRozmowy}
+            setZadanieRozmowy={setZadanieRozmowy}
+            inspektorOtwarty={inspektorOtwarty}
+            setInspektorOtwarty={setInspektorOtwarty}
+            onBlad={onBlad}
+          />
+        )}
+
+        {galaz === "kontakty" && <Kontakty onRozpocznij={rozpocznijZ} />}
+
+        {galaz === "konto" && (
+          <Konto
+            messenger={messenger}
+            stanSieci={stanSieci}
+            trwaly={trwaly}
+            odczyt={odczyt}
+            onOdczyt={(wlaczony) => {
+              ustawOdczyt(wlaczony);
+              setOdczyt(wlaczony);
+            }}
+            onBlad={onBlad}
+          />
+        )}
+      </section>
+
+      {galaz === "rozmowy" && groupId && (
+        <aside
+          className={inspektorOtwarty ? "inspektor otwarty" : "inspektor"}
+          aria-label="Uczestnicy i kod bezpieczeństwa"
+        >
+          <div className="pasek-ekranu">
+            <h2>Rozmowa</h2>
+            <button
+              className="ikonowy"
+              aria-label="Zamknij panel"
+              onClick={() => setInspektorOtwarty(false)}
+            >
+              <Ikona nazwa="zamknij" rozmiar={16} />
+            </button>
+          </div>
+
+          <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
+        </aside>
+      )}
+    </div>
+  );
+}
+
+/** Panel boczny — na wąskim ekranie ten sam kod ląduje na dole. */
+function Nawigacja({
+  galaz,
+  onGalaz,
+  nieprzeczytane,
+  stanSieci,
+}: {
+  galaz: Galaz;
+  onGalaz: (g: Galaz) => void;
+  nieprzeczytane: number;
+  stanSieci: StanPolaczenia;
+}) {
+  const galezie: { klucz: Galaz; ikona: NazwaIkony; etykieta: string }[] = [
+    { klucz: "rozmowy", ikona: "rozmowy", etykieta: "Rozmowy" },
+    { klucz: "kontakty", ikona: "kontakty", etykieta: "Kontakty" },
+    { klucz: "konto", ikona: "konto", etykieta: "Konto" },
+  ];
+
+  const siec = opisSieci(stanSieci);
+
+  return (
+    <nav className="sidebar" aria-label="Nawigacja">
+      <div className="marka">
+        <ZnakMarki />
+        <span>mekamb</span>
+      </div>
+
+      {galezie.map((g) => (
+        <button
+          key={g.klucz}
+          className={galaz === g.klucz ? "galaz aktywna" : "galaz"}
+          aria-current={galaz === g.klucz ? "page" : undefined}
+          onClick={() => onGalaz(g.klucz)}
+        >
+          <Ikona nazwa={g.ikona} rozmiar={18} />
+          {g.etykieta}
+          {g.klucz === "rozmowy" && nieprzeczytane > 0 && (
+            <span className="znacznik">{nieprzeczytane}</span>
+          )}
+        </button>
+      ))}
+
+      <div className="stopka-sidebara">
+        {/* Stan połączenia jest tu istotny, nie ozdobny: przy zerwanej sieci
+            wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
+        <span
+          className={siec.uwaga ? "tryb uwaga" : "tryb"}
+          title="Przeglądarka nie potrafi łączyć się bezpośrednio — wiadomości idą przez skrzynkę na serwerze."
+        >
+          <Ikona nazwa={siec.ikona} rozmiar={13} />
+          {siec.tekst}
+        </span>
+
+        <WyborMotywuUI />
+      </div>
+    </nav>
+  );
+}
+
+function PanelListy({
+  rozmowy,
+  wszystkich,
+  szukane,
+  onSzukane,
+  nazwaPozycji,
+  otwarta,
+  onOtworz,
+}: {
+  rozmowy: PozycjaListy[];
+  wszystkich: number;
+  szukane: string;
+  onSzukane: (s: string) => void;
+  nazwaPozycji: (p: PozycjaListy) => string;
+  otwarta: Uint8Array | null;
+  onOtworz: (p: PozycjaListy) => void;
+}) {
+  const kluczOtwartej = otwarta ? kluczRozmowy(otwarta) : null;
+
+  return (
+    <aside className="panel-listy" aria-label="Lista rozmów">
+      <div className="panel-listy-naglowek">
+        <h2>Rozmowy</h2>
+      </div>
+
+      {/* Szukanie pojawia się dopiero, gdy jest w czym szukać — pole nad pustą
+          listą jest obietnicą bez pokrycia. */}
+      {wszystkich > 0 && (
+        <div className="szukanie">
+          <Ikona nazwa="szukaj" rozmiar={15} />
+          <input
+            type="search"
+            value={szukane}
+            onChange={(e) => onSzukane(e.target.value)}
+            placeholder="Szukaj w rozmowach · Search"
+            aria-label="Szukaj rozmowy"
+          />
+        </div>
+      )}
+
+      {wszystkich === 0 ? (
+        <Pusto
+          ikona="rozmowy"
+          tytul="Nie masz jeszcze żadnej rozmowy"
+          wskazowka="Zacznij od kontaktu — wystarczy nazwa użytkownika."
+        />
+      ) : rozmowy.length === 0 ? (
+        <Pusto ikona="szukaj" tytul="Nic nie pasuje" wskazowka="Szukamy po nazwie i po ostatniej wiadomości." />
+      ) : (
+        <ul className="lista-rozmow">
+          {rozmowy.map((pozycja) => {
+            const nazwa = nazwaPozycji(pozycja);
+            const klucz = kluczRozmowy(pozycja.groupId);
+
+            return (
+              <li key={klucz}>
+                <button
+                  className={klucz === kluczOtwartej ? "wiersz-rozmowy otwarta" : "wiersz-rozmowy"}
+                  onClick={() => onOtworz(pozycja)}
+                >
+                  <span className="awatar" aria-hidden="true">
+                    {nazwa.slice(0, 1)}
+                  </span>
+
+                  <span className="wiersz-tresc">
+                    <span className="wiersz-gora">
+                      <span className="wiersz-nazwa">{nazwa}</span>
+                      {pozycja.ostatnia && (
+                        <span className="wiersz-czas">{godzina(pozycja.ostatnia.czas)}</span>
+                      )}
+                    </span>
+
+                    <span className="wiersz-ostatnia">
+                      {pozycja.ostatnia?.zalacznik && <Ikona nazwa="spinacz" rozmiar={13} />}
+                      <span className="tekst">
+                        {pozycja.ostatnia
+                          ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + pozycja.ostatnia.tresc
+                          : "brak wiadomości"}
+                      </span>
+                    </span>
+                  </span>
+
+                  {pozycja.nieprzeczytane > 0 && (
+                    <span className="znacznik">{pozycja.nieprzeczytane}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <p className="wskazowka-ikona">
+        <Ikona nazwa="klucz" rozmiar={14} />
+        Historia jest tylko na tym urządzeniu — serwer jej nie ma.
+      </p>
+    </aside>
+  );
+}
+
+/** Otwarta rozmowa: nagłówek, wiadomości, pole pisania. */
+function Watek({
+  messenger,
+  groupId,
+  rozmowca,
+  wiadomosci,
+  wLocie,
+  setWiadomosci,
+  setWLocie,
+  tresc,
+  setTresc,
+  stanSieci,
+  sygnalRozmowy,
+  zadanieRozmowy,
+  setZadanieRozmowy,
+  inspektorOtwarty,
+  setInspektorOtwarty,
+  onBlad,
+}: {
+  messenger: Messenger;
+  groupId: Uint8Array;
+  rozmowca: string;
+  wiadomosci: Wiadomosc[];
+  wLocie: WLocie[];
+  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>;
+  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>;
+  tresc: string;
+  setTresc: (t: string) => void;
+  stanSieci: StanPolaczenia;
+  sygnalRozmowy: SygnalRozmowy | null;
+  zadanieRozmowy: ZadanieRozmowy | null;
+  setZadanieRozmowy: (z: ZadanieRozmowy) => void;
+  inspektorOtwarty: boolean;
+  setInspektorOtwarty: (o: boolean | ((o: boolean) => boolean)) => void;
+  onBlad: (e: unknown) => void;
+}) {
+  const lista = useRef<HTMLOListElement | null>(null);
+  const pole = useRef<HTMLTextAreaElement | null>(null);
+  const siec = opisSieci(stanSieci);
+
+  /*
+   * Wiadomości w locie idą przez ten sam układ co reszta.
+   *
+   * Rysowane osobno pod listą wypadały spod rozdzielacza dnia i nie sklejały
+   * się z poprzednim dymkiem — wysłanie wiadomości rozbijało blok, który po
+   * potwierdzeniu z powrotem się zrastał. Widać było skok.
+   */
+  const wszystkie = useMemo(
+    () => [
+      ...wiadomosci,
+      ...wLocie.map((w) => ({ id: w.id, autor: "Ty", tresc: w.tresc, czas: w.czas, wlasna: true })),
+    ],
+    [wiadomosci, wLocie],
+  );
+
+  const stanyWysylki = useMemo(() => new Map(wLocie.map((w) => [w.id, w])), [wLocie]);
+  const uklad = useMemo(() => ulozWatek(wszystkie, Date.now()), [wszystkie]);
+
+  /*
+   * Zjazd na dół po nowej wiadomości.
+   *
+   * Tylko wtedy, gdy użytkownik już był na dole. Przewijanie do dołu komuś,
+   * kto czyta starszą część rozmowy, wyrywa mu tekst sprzed oczu — a nowa
+   * wiadomość i tak zostanie zauważona, bo lista ma znacznik.
+   */
+  const naDole = useRef(true);
+  useEffect(() => {
+    const el = lista.current;
+    if (el && naDole.current) el.scrollTop = el.scrollHeight;
+  }, [uklad.length]);
+
+  // Pole rośnie z treścią. Wysokość zerujemy przed odczytem `scrollHeight`,
+  // bo inaczej pole raz urośnięte nigdy już nie zmaleje.
+  useEffect(() => {
+    const el = pole.current;
+    if (!el) return;
+
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [tresc]);
+
+  const wyslij = async () => {
+    if (!tresc.trim()) return;
+
+    // Wiadomość pojawia się natychmiast ze znacznikiem „wysyłam". Wcześniej
+    // przez cały czas wysyłki — a przy nieudanej próbie bezpośredniej to kilka
+    // sekund — nie działo się nic i nie było wiadomo, czy cokolwiek poszło.
+    //
+    // Identyfikator „w locie" jest tymczasowy i służy tylko do znalezienia tego
+    // dymka po powrocie z wysyłki. Do historii trafia identyfikator Z RDZENIA:
+    // potwierdzenia drugiej strony wskazują wiadomości właśnie po nim, więc
+    // zapisanie własnego UUID-a znaczyłoby ptaszek, który nigdy się nie zmieni.
+    const id = crypto.randomUUID();
+    const wyslana = tresc;
+    setWLocie((p) => [...p, { id, tresc: wyslana, czas: Date.now(), blad: false }]);
+    setTresc("");
+
+    try {
+      const messageId = await messenger.sendText(groupId, wyslana);
+
+      setWiadomosci((p) => [
+        ...p,
+        { id: messageId, autor: "Ty", tresc: wyslana, czas: Date.now(), wlasna: true },
+      ]);
+      setWLocie((p) => p.filter((w) => w.id !== id));
+    } catch (err) {
+      // Zostaje w locie, oznaczona jako nieudana. Treść nie przepada:
+      // zawiodła sieć, nie użytkownik.
+      setWLocie((p) => p.map((w) => (w.id === id ? { ...w, blad: true } : w)));
+      onBlad(err);
+    }
+  };
+
+  return (
+    <div className="watek">
+      <header className="pasek-watku">
+        {/* Na wąskim ekranie rozmowa zajmuje cały widok, więc bez tego nie ma
+            jak wrócić do listy. Na szerokim lista stoi obok i strzałka jest
+            zbędna — chowa ją arkusz stylów. */}
+        <button
+          className="ikonowy wstecz"
+          aria-label="Wróć do listy rozmów"
+          onClick={() => history.back()}
+        >
+          <Ikona nazwa="wstecz" rozmiar={18} />
+        </button>
+
+        <span className="awatar" aria-hidden="true">
+          {rozmowca.slice(0, 1)}
+        </span>
+
+        <span className="pasek-tozsamosc">
+          <span className="pasek-nazwa">{rozmowca}</span>
+          {/* Droga dostarczania przy nazwie, nie w ustawieniach: „przez serwer"
+              to zdanie o tym, kto widzi metadane. */}
+          <span className={siec.uwaga ? "pasek-meta uwaga" : "pasek-meta"}>
+            <Ikona nazwa={siec.ikona} rozmiar={12} />
+            {siec.tekst}
+            {stanSieci === "polaczone" && " · szyfrowane end-to-end"}
+          </span>
+        </span>
+
+        <div className="akcje-watku">
+          <button
+            className="ikonowy"
+            title="Zadzwoń"
+            onClick={() => setZadanieRozmowy({ wideo: false, n: Date.now() })}
+          >
+            <Ikona nazwa="sluchawka" rozmiar={18} etykieta="Zadzwoń" />
+          </button>
+          <button
+            className="ikonowy"
+            title="Rozmowa z obrazem"
+            onClick={() => setZadanieRozmowy({ wideo: true, n: Date.now() })}
+          >
+            <Ikona nazwa="kamera" rozmiar={18} etykieta="Rozmowa z obrazem" />
+          </button>
+          <button
+            className={inspektorOtwarty ? "ikonowy aktywny" : "ikonowy"}
+            title="Uczestnicy i kod bezpieczeństwa"
+            aria-pressed={inspektorOtwarty}
+            onClick={() => setInspektorOtwarty((o) => !o)}
+          >
+            <Ikona nazwa="osoby" rozmiar={18} etykieta="Uczestnicy i kod bezpieczeństwa" />
+          </button>
+        </div>
+      </header>
+
+      {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
+          najważniejszą rzeczą na ekranie. */}
+      <Rozmowa
+        messenger={messenger}
+        groupId={groupId}
+        sygnal={sygnalRozmowy}
+        zadanie={zadanieRozmowy}
+        onBlad={onBlad}
+      />
+
+      <ol
+        className="wiadomosci"
+        ref={lista}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          naDole.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+      >
+        {/* W `<ol>` wolno stać tylko elementom `<li>` — pusty stan też. */}
+        {uklad.length === 0 && (
+          <li className="pusto-watku">
+            <Pusto
+              ikona="tarcza"
+              tytul="Tu jeszcze nic nie ma"
+              wskazowka="Wiadomości są szyfrowane end-to-end. Serwer nie zobaczy treści."
+            />
+          </li>
+        )}
+
+        {uklad.map((pozycja) =>
+          pozycja.rodzaj === "dzien" ? (
+            <li key={pozycja.klucz} className="dzien">
+              {pozycja.etykieta}
+            </li>
+          ) : (
+            <Dymek
+              key={pozycja.klucz}
+              messenger={messenger}
+              wiadomosc={pozycja.wiadomosc}
+              ciag={pozycja.ciag}
+              stan={stanyWysylki.get(pozycja.wiadomosc.id)}
+              onBlad={onBlad}
+            />
+          ),
+        )}
+      </ol>
+
+      <form
+        className="pisanie"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void wyslij();
+        }}
+      >
+        <DolaczPlik
+          messenger={messenger}
+          groupId={groupId}
+          setWiadomosci={setWiadomosci}
+          setWLocie={setWLocie}
+          onBlad={onBlad}
+        />
+
+        <textarea
+          ref={pole}
+          rows={1}
+          value={tresc}
+          onChange={(e) => setTresc(e.target.value)}
+          placeholder="Napisz wiadomość · Message"
+          aria-label="Treść wiadomości"
+          onKeyDown={(e) => {
+            /*
+             * Enter wysyła, Shift+Enter łamie wiersz.
+             *
+             * Odwrotnie niż w formularzu, bo to pole rozmowy: wysłanie jest tu
+             * czynnością wykonywaną co kilkanaście sekund, a nowy akapit —
+             * rzadko. Wymuszanie kliknięcia w przycisk przy każdej wiadomości
+             * jest kosztem płaconym setki razy dziennie.
+             */
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void wyslij();
+            }
+          }}
+        />
+
+        <button className="wyslij" disabled={!tresc.trim()} title="Wyślij">
+          <Ikona nazwa="wyslij" rozmiar={18} etykieta="Wyślij" />
+        </button>
+      </form>
+
+      {/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */}
+      <p className="wskazowka-plik">
+        <Ikona nazwa="tarcza" rozmiar={12} />
+        Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia przed wysłaniem.
+      </p>
+    </div>
+  );
+}
+
+function Dymek({
+  messenger,
+  wiadomosc,
+  ciag,
+  stan,
+  onBlad,
+}: {
+  messenger: Messenger;
+  wiadomosc: Wiadomosc;
+  ciag: boolean;
+  stan?: WLocie;
+  onBlad: (e: unknown) => void;
+}) {
+  const klasy = ["", wiadomosc.wlasna ? "wlasna" : "", ciag ? "ciag" : ""];
+  if (stan) klasy.push(stan.blad ? "nieudana" : "w-locie");
+
+  /*
+   * Jeden stan zamiast trzech warunków rozsypanych po JSX.
+   *
+   * Wysyłka w locie ma pierwszeństwo nad zapisanym stanem: dopóki nie wróciło
+   * potwierdzenie wysłania, potwierdzenia odczytu nie ma prawa być.
+   */
+  const stanWysylki = stan
+    ? stan.blad
+      ? "nieudana"
+      : "w-locie"
+    : (wiadomosc.stan ?? "wyslane");
+
+  const opis = opisStanu(stanWysylki);
+
+  return (
+    <li className={klasy.join(" ").trim()}>
+      {/* Autor tylko na początku bloku i tylko przy cudzych — przy własnych
+          mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem. */}
+      {!wiadomosc.wlasna && !ciag && <span className="autor">{wiadomosc.autor}</span>}
+
+      {wiadomosc.zalacznik ? (
+        <Zalacznik messenger={messenger} zalacznik={wiadomosc.zalacznik} onBlad={onBlad} />
+      ) : (
+        <span className="tresc">{wiadomosc.tresc}</span>
+      )}
+
+      <span className={stanWysylki === "przeczytane" ? "stopka-dymka przeczytana" : "stopka-dymka"}>
+        {godzina(wiadomosc.czas)}
+        {wiadomosc.wlasna && <Ikona nazwa={opis.ikona} rozmiar={13} etykieta={opis.etykieta} />}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Spinacz przy polu, nie prostokąt nad nim.
+ *
+ * Wielki obszar „Dołącz zdjęcie lub wideo" zajmował tyle miejsca co dwie
+ * wiadomości i podpowiadał, że załącznik jest głównym sposobem pisania.
+ */
+function DolaczPlik({
+  messenger,
+  groupId,
+  setWiadomosci,
+  setWLocie,
+  onBlad,
+}: {
+  messenger: Messenger;
+  groupId: Uint8Array;
+  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>;
+  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>;
+  onBlad: (e: unknown) => void;
+}) {
+  return (
+    <label className="dolacz-plik" title="Dołącz zdjęcie lub wideo">
+      <input
+        type="file"
+        accept="image/*,video/*"
+        onChange={async (e) => {
+          const plik = e.target.files?.[0];
+          // Czyścimy pole od razu, żeby dało się wysłać ten sam plik dwa razy.
+          e.target.value = "";
+          if (!plik) return;
+
+          // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie
+          // metadanych, szyfrowanie i wysyłka. Bez znacznika wygląda to
+          // jak zawieszenie.
+          const id = crypto.randomUUID();
+          setWLocie((p) => [
+            ...p,
+            { id, tresc: `wysyłam: ${plik.name}`, czas: Date.now(), blad: false },
+          ]);
+
+          try {
+            const { stripped, messageId } = await messenger.sendFile(groupId, plik);
+
+            // Gdy czyszczenie się nie powiodło, mówimy o tym wprost. Milczenie
+            // byłoby wprowadzaniem w błąd: użytkownik ma prawo wiedzieć, że
+            // akurat ten plik poszedł z metadanymi.
+            const opis = stripped
+              ? `wysłano: ${plik.name}`
+              : `wysłano: ${plik.name} — nie udało się usunąć metadanych`;
+
+            setWiadomosci((p) => [
+              ...p,
+              { id: messageId, autor: "Ty", tresc: opis, czas: Date.now(), wlasna: true },
+            ]);
+            setWLocie((p) => p.filter((w) => w.id !== id));
+          } catch (err) {
+            setWLocie((p) =>
+              p.map((w) => (w.id === id ? { ...w, tresc: plik.name, blad: true } : w)),
+            );
+            onBlad(err);
+          }
+        }}
+      />
+      <Ikona nazwa="spinacz" rozmiar={18} />
+      <span className="tylko-dla-czytnika">Dołącz zdjęcie lub wideo</span>
+    </label>
+  );
+}
+
+/**
+ * Rozpoczęcie rozmowy z nazwy użytkownika.
+ *
+ * Katalog nie ma listy do przeglądania i to jest decyzja, nie brak: lista
+ * wszystkich użytkowników mówiłaby każdemu, kto jest w systemie.
+ */
+function Kontakty({ onRozpocznij }: { onRozpocznij: (nazwa: string) => void }) {
+  const [nazwa, setNazwa] = useState("");
+
+  return (
+    <>
+      <header className="naglowek-konta">
+        <h2>Nowa rozmowa</h2>
+        <p className="wskazowka">Rozmowę zaczyna się od nazwy, którą już się zna.</p>
+      </header>
+
+      <div className="siatka-konta">
+        <form
+          className="karta"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (nazwa.trim()) onRozpocznij(nazwa.trim());
+          }}
+        >
+          <label>
+            Z kim rozmawiasz · Recipient
+            <input value={nazwa} onChange={(e) => setNazwa(e.target.value)} required />
+          </label>
+
+          <button className="glowny" disabled={!nazwa.trim()}>
+            <Ikona nazwa="rozmowy" rozmiar={16} />
+            Rozpocznij rozmowę · Start chat
+          </button>
+
+          <p className="wskazowka-ikona">
+            <Ikona nazwa="info" rozmiar={14} />
+            Katalog przechowuje tylko nazwy, urządzenia i key packages. Kto z kim rozmawia — nie.
+          </p>
+        </form>
+      </div>
+    </>
+  );
+}
+
+function Konto({
+  messenger,
+  stanSieci,
+  trwaly,
+  odczyt,
+  onOdczyt,
+  onBlad,
+}: {
+  messenger: Messenger;
+  stanSieci: StanPolaczenia;
+  trwaly: boolean;
+  odczyt: boolean;
+  onOdczyt: (wlaczony: boolean) => void;
+  onBlad: (e: unknown) => void;
+}) {
+  const siec = opisSieci(stanSieci);
+
+  return (
+    <>
+      <header className="naglowek-konta">
+        <h2>Konto</h2>
+        <p className="wskazowka">Wszystko poniżej dotyczy tej przeglądarki, nie serwera.</p>
+      </header>
+
+      <div className="siatka-konta">
+        <div className="karta">
+          <div className="tozsamosc">
+            <span className="awatar" aria-hidden="true">
+              {messenger.account.username.slice(0, 1)}
+            </span>
+            <span>
+              <strong>{messenger.account.username}</strong>
+              <span className="wskazowka">{messenger.account.deviceId}</span>
+            </span>
+          </div>
+
+          <dl className="stan-konta">
+            <div>
+              <dt>Trwały magazyn</dt>
+              <dd className={trwaly ? undefined : "uwaga"}>
+                <Ikona nazwa={trwaly ? "wyslane" : "ostrzezenie"} rozmiar={13} />
+                {trwaly ? "przyznany" : "nieprzyznany"}
+              </dd>
+            </div>
+            <div>
+              <dt>Aplikacja zainstalowana</dt>
+              <dd>
+                <Ikona nazwa={isInstalled() ? "wyslane" : "info"} rozmiar={13} />
+                {isInstalled() ? "tak" : "nie"}
+              </dd>
+            </div>
+            <div>
+              <dt>Połączenie ze skrzynką</dt>
+              <dd className={siec.uwaga ? "uwaga" : undefined}>
+                <Ikona nazwa={siec.ikona} rozmiar={13} />
+                {stanSieci === "polaczone" ? "działa" : stanSieci === "laczenie" ? "łączę…" : "zerwane"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        {/*
+          Potwierdzenia odczytu w panelu konta, nie w ustawieniach rozmowy.
+
+          To decyzja o tym, ile o sobie mówisz — dotyczy każdej rozmowy naraz,
+          więc miejscem jest konto, a nie pojedynczy wątek.
+        */}
+        <div className="karta">
+          <strong>Potwierdzenia odczytu</strong>
+
+          <label className="przelacznik">
+            <input
+              type="checkbox"
+              checked={odczyt}
+              onChange={(e) => onOdczyt(e.target.checked)}
+            />
+            <span>Wysyłaj potwierdzenia odczytu · Read receipts</span>
+          </label>
+
+          <p className="wskazowka-ikona">
+            <Ikona nazwa="tarcza" rozmiar={14} />
+            Potwierdzenia są szyfrowane end-to-end i wysyłane zbiorczo, po losowym opóźnieniu do
+            30 sekund — serwer nie zobaczy, co i kiedy przeczytałeś. Chwili wysłania samej koperty
+            ukryć się nie da.
+          </p>
+
+          <p className="wskazowka">
+            Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych.
+            „Dostarczono" zostaje — nie mówi nic o niczyjej uwadze.
+          </p>
+        </div>
+
+        <div className="karta">
+          <strong>Wygląd</strong>
+          <p className="wskazowka">
+            Motyw dotyczy tej przeglądarki. „Systemowy" idzie za ustawieniem urządzenia
+            i zmienia się razem z nim.
+          </p>
+          <WyborMotywuUI />
+        </div>
+
+        <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
+
+        <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
+
+        <div className="karta">
+          <strong>Klucze w tej przeglądarce</strong>
+          <p className="wskazowka-ikona">
+            <Ikona nazwa="klucz" rozmiar={14} />
+            Serwer nie ma czego wydać ani zgubić — ale też nie odtworzy niczego, gdy stracisz
+            wszystkie urządzenia. Historia leży w jednym zaszyfrowanym rekordzie IndexedDB.
+          </p>
+        </div>
+      </div>
+
+      {/*
+        Kasowanie w osobnej strefie, na dole i za linią.
+
+        Nieodwracalne obok odwracalnego to zaproszenie do pomyłki — a tej
+        pomyłki nie da się cofnąć, bo historii nie ma nigdzie indziej.
+      */}
+      <section className="strefa-kasowania">
+        <strong>Usunięcie konta z tego urządzenia</strong>
+        <p className="wskazowka">Historii nie da się odzyskać — nigdzie jej nie zapisujemy.</p>
+
+        <button
+          className="niszczacy"
+          onClick={async () => {
+            if (confirm("Usunąć konto z tego urządzenia? Historii nie da się odzyskać.")) {
+              // Najlepszy wysiłek: nawet gdy się nie powiedzie (offline),
+              // lokalne skasowanie musi zajść — użytkownik prosił o usunięcie
+              // danych na TYM urządzeniu, niezależnie od stanu sieci.
+              await logout(messenger.account.deviceId).catch(() => {});
+              await wipe();
+              location.reload();
+            }
+          }}
+        >
+          <Ikona nazwa="kosz" rozmiar={16} />
+          Usuń konto z tego urządzenia · Delete
+        </button>
+      </section>
+    </>
+  );
+}
+
+/** Dodawanie passkeya do konta — punkt wejścia do rejestracji, nie logowania. */
+function PasskeyZarzadzanie({
+  messenger,
+  onBlad,
+}: {
+  messenger: Messenger;
+  onBlad: (e: unknown) => void;
+}) {
+  const [pracuje, setPracuje] = useState(false);
+  const [zarejestrowano, setZarejestrowano] = useState(false);
+
+  if (!isPasskeySupported()) return null;
+
+  return (
+    <div className="karta">
+      <strong>Passkey</strong>
+      <p className="wskazowka">
+        Zaloguj się odciskiem palca, PIN-em albo kluczem sprzętowym — zamiast wpisywać hasło
+        i kod za każdym razem.
+      </p>
+      <button
+        disabled={pracuje || zarejestrowano}
+        onClick={async () => {
+          setPracuje(true);
+          try {
+            const opcje = await webauthnRegisterOptions(messenger.accessToken);
+            const odpowiedz = await createPasskey(opcje);
+            await webauthnRegisterVerify(messenger.accessToken, odpowiedz);
+            setZarejestrowano(true);
+          } catch (err) {
+            onBlad(err);
+          } finally {
+            setPracuje(false);
+          }
+        }}
+      >
+        <Ikona nazwa={zarejestrowano ? "wyslane" : "blokada"} rozmiar={16} />
+        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey · Add passkey"}
+      </button>
+    </div>
+  );
+}

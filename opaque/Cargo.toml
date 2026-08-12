@@ -18,6 +18,11 @@ opaque-ke = { version = "4.0.1", features = ["ristretto255"] }
 # ale wciągnięcie jej tutaj daje dwie niezgodne wersje `digest` w jednym
 # drzewie i typy przestają do siebie pasować.
 sha2 = "0.10"
+
+# Ristretto dla tokenów doręczeniowych. Wersja i tak jest w drzewie przez
+# `opaque-ke` z cechą `ristretto255` — deklarujemy ją jawnie, bo poleganie na
+# zależności przechodniej znaczy, że cudza zmiana cech potrafi wywalić nasz kod.
+curve25519-dalek = { version = "4.1", features = ["rand_core", "digest"] }
 rand = { version = "0.8", features = ["getrandom"] }
 thiserror.workspace = true
 

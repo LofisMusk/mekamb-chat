@@ -15,19 +15,33 @@ syntax = "proto3";
 package mekamb.chat.v1;
 
 // ---------------------------------------------------------------------------
-// Koperta transportowa — JAWNA, na zewnątrz szyfrowania MLS.
+// Koperta transportowa — na zewnątrz szyfrowania MLS.
 //
-// Odbiorca musi wiedzieć, do której rozmowy skierować ładunek, zanim będzie
-// w stanie cokolwiek odszyfrować. Przy dostarczaniu bezpośrednim koperta jest
-// dodatkowo zamknięta w szyfrowaniu QUIC/TLS; przy doręczaniu przez skrzynkę
-// `group_id` jest widoczny dla serwera. Patrz docs/THREAT_MODEL.md.
+// WERSJA 2 nie niesie identyfikatora rozmowy. Wersja 1 niosła go jawnie, a to
+// wystarczało serwerowi, żeby zbudować graf rozmów z samego ruchu: dwie koperty
+// z tym samym `group_id` znaczyły „to ta sama rozmowa".
 //
-// Implementacja: core/../transport/src/envelope.rs
+// Zamiast identyfikatora jedzie losowa SÓL i wyprowadzony z niej ZNACZNIK:
+//
+//   klucz    = HKDF(group_id, "mekamb-chat/v1/koperta-routing")
+//   znacznik = HKDF(salt = sól, ikm = klucz, "mekamb-chat/v1/koperta-znacznik")
+//
+// Sól jest inna dla każdej koperty, więc znacznik też — dwie koperty tej samej
+// rozmowy są dla serwera nie do powiązania. Odbiorca liczy znacznik dla każdej
+// swojej rozmowy i porównuje.
+//
+// `group_id` nie może więc trafić do serwera żadną inną drogą. Dlatego obiekt
+// porządkujący epoki nazywa się osobno wyprowadzonym
+// HKDF(group_id, "mekamb-chat/v1/relay"), a nie surowym identyfikatorem.
+//
+// Implementacja: core/src/envelope.rs. Patrz docs/THREAT_MODEL.md.
 // ---------------------------------------------------------------------------
 
 message Envelope {
   uint32 version = 1;
-  bytes group_id = 2;
+
+  // Losowa sól tej koperty, 16 bajtów.
+  bytes sol = 2;
 
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -39,6 +53,11 @@ message Envelope {
 
   // Zserializowana wiadomość MLS. Nieczytelna poza grupą.
   bytes payload = 4;
+
+  // Znacznik rozmowy, 16 bajtów. PUSTY dla WELCOME: odbiorca nie zna jeszcze
+  // rozmowy, więc nie ma czym dopasowywać — musi spróbować przetworzyć
+  // zaproszenie. Brak znacznika przy każdym innym rodzaju jest odrzucany.
+  bytes znacznik = 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +84,7 @@ message ChatMessage {
     TextBody text = 4;
     AttachmentBody attachment = 5;
     CallSignalBody call_signal = 6;
+    ReceiptBody receipt = 8;
   }
 
   // message_id wiadomości, na którą to jest odpowiedź.
@@ -84,6 +104,34 @@ message AttachmentBody {
   string mime_type = 4;
   uint64 size_bytes = 5;
   optional string file_name = 6;
+}
+
+// Potwierdzenie dostarczenia albo odczytu.
+//
+// Idzie kanałem MLS jak każda inna wiadomość aplikacyjna, więc serwer widzi
+// wyłącznie szyfrogram — nie wie, kto co odebrał ani kiedy przeczytał.
+//
+// CZEGO TO NIE UKRYWA: samego faktu, że w danej chwili poszła koperta.
+// Potwierdzenie wysłane natychmiast po odczycie jest odczytywalne z ruchu:
+// „urządzenie B nadało coś kilka sekund po wiadomości od A". Dlatego klienty
+// zbierają potwierdzenia i wysyłają je paczką po losowym opóźnieniu — patrz
+// `web/src/lib/potwierdzenia.ts` i `android/.../Potwierdzenia.kt`.
+//
+// Nie ma tu znacznika czasu. Chwila odczytu jest dokładnie tą informacją,
+// której nie chcemy oddawać, a nadawcy wystarczy „przeczytane" — moment
+// wpisany przez nadawcę potwierdzenia i tak byłby deklaracją, nie faktem.
+message ReceiptBody {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    DELIVERED = 1;  // koperta dotarła i została przetworzona
+    READ = 2;       // rozmowa była otwarta na ekranie
+  }
+  Kind kind = 1;
+
+  // message_id wiadomości, których dotyczy. Paczka, nie pojedyncze
+  // potwierdzenie: jedna koperta na wiele wiadomości ujawnia mniej niż
+  // koperta na każdą z osobna.
+  repeated bytes message_ids = 2;
 }
 
 // Sygnalizacja WebRTC przenoszona kanałem MLS.

@@ -31,6 +31,12 @@ export default defineConfig({
           OPAQUE_SERVER_KEY:
             "SjEx2h2qb2r14pDqmG/ljG4FzQBMAuZ7sMGibfK2KjI8LBEx+SinI/dekSRoxIiwNaVnbXREud1Rk86b5jeO+4pCXg4nBhD8zdjjEGp42tt3gHC9Q1vaNcxE5OMVIWUJdinK/KSSqBEo3zGbHJmZWbYzMAP0p18FGieTJuB/RXk=",
 
+          // Klucz wydawania tokenów doręczeniowych: 32 bajty skalara Ristretto,
+          // przypięty tak samo jak sekret OPAQUE. Wymuszanie jest w testach
+          // WYŁĄCZONE, bo domyślne wdrożenie też je ma wyłączone — włącza się
+          // je dopiero wtedy, gdy klienty umieją brać tokeny.
+          DELIVERY_TOKEN_KEY: "mdLiOxwVngJb1ZE64FuXJ65NBPhO/MF2xFL8IP8wYAw=",
+
           // WebAuthn potrzebuje `origin`/`rpID` przy weryfikacji ceremonii —
           // testy podpisują odpowiedzi authenticatora pod ten sam origin.
           ALLOWED_ORIGINS: "https://mekamb.test",

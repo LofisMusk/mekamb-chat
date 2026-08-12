@@ -20,9 +20,15 @@ import type { Env } from "./env";
  *
  * # Czego ten obiekt NIE robi
  *
- * Nie odszyfrowuje commitów i nie potrafi tego zrobić. Widzi nieprzezroczysty
- * bajtowy blob oraz numer epoki, który nadawca deklaruje. Rozstrzyga wyłącznie
+ * Nie odszyfrowuje commitów i nie potrafi tego zrobić. Rozstrzyga wyłącznie
  * kolejność — nie treść.
+ *
+ * **Nie zna też składu grupy.** Wcześniej trzymał listę członków, bo sam
+ * rozsyłał commity do ich skrzynek — i była to jedyna w systemie struktura
+ * mówiąca serwerowi, kto z kim rozmawia. Dziś rozsyła nadawca, który skład
+ * i tak zna z drzewa MLS; serwer widzi tylko rosnący licznik przy
+ * nieprzezroczystym identyfikatorze. Nie widzi nawet samego commitu: ten idzie
+ * do skrzynek osobnym żądaniem, nie tędy.
  */
 export class GroupRelay extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -34,10 +40,12 @@ export class GroupRelay extends DurableObject<Env> {
           key   TEXT PRIMARY KEY,
           value INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS members (
-          user_id TEXT PRIMARY KEY
-        );
       `);
+
+      // Skład grupy leżał tu do wersji, która przeniosła rozsyłkę do nadawcy.
+      // Kasujemy go, bo dane, których nie potrzebujemy, a które trzymamy, są
+      // po prostu wyciekiem czekającym na okazję.
+      this.ctx.storage.sql.exec("DROP TABLE IF EXISTS members");
     });
   }
 
@@ -49,27 +57,24 @@ export class GroupRelay extends DurableObject<Env> {
     return row?.value ?? 0;
   }
 
-  members(): string[] {
-    return this.ctx.storage.sql
-      .exec<{ user_id: string }>("SELECT user_id FROM members")
-      .toArray()
-      .map((row) => row.user_id);
-  }
-
   /**
-   * Przyjmuje commit, jeśli nadawca pracował na aktualnej epoce.
+   * Zajmuje kolejną epokę, jeśli nadawca pracował na aktualnej.
    *
    * Zwraca `accepted: false` wraz z bieżącą epoką, gdy ktoś inny był szybszy.
    * Klient ma wtedy porzucić swój commit (`discard_pending_commit`), przetworzyć
    * cudzy i spróbować ponownie — nigdy nie scalać commitu, którego ten obiekt
    * nie przyjął.
+   *
+   * # Dlaczego nie przechodzi tędy sam commit
+   *
+   * Bo nie musi. Ten obiekt rozstrzyga wyłącznie kolejność, a rozesłanie
+   * commitu do skrzynek robi nadawca — zna skład grupy z drzewa MLS, więc
+   * serwer nie ma powodu go znać. Przepuszczanie koperty tędy dawało serwerowi
+   * dokładnie jedno: listę osób w rozmowie.
    */
-  async submitCommit(
+  claimEpoch(
     expectedEpoch: number,
-    envelope: ArrayBuffer,
-    members: string[],
-    sender: string,
-  ): Promise<{ accepted: true; epoch: number } | { accepted: false; epoch: number }> {
+  ): { accepted: true; epoch: number } | { accepted: false; epoch: number } {
     const current = this.epoch();
 
     // Sedno całego mechanizmu. Sprawdzenie i zwiększenie epoki zachodzą w tym
@@ -86,45 +91,6 @@ export class GroupRelay extends DurableObject<Env> {
       next,
     );
 
-    // Skład aktualizujemy PO przyjęciu commitu, nie przed. Przy odrzuceniu
-    // lista zostaje nietknięta, więc nieudana próba nie psuje routingu grupy.
-    this.setMembers(members);
-    await this.fanOut(envelope, sender);
-
     return { accepted: true, epoch: next };
-  }
-
-  /**
-   * Aktualizuje listę członków.
-   *
-   * Serwer potrzebuje jej wyłącznie do routingu — żeby wiedzieć, do czyich
-   * skrzynek rozesłać commit. Nie wynika z niej nic o treści rozmowy.
-   */
-  setMembers(userIds: string[]): void {
-    this.ctx.storage.sql.exec("DELETE FROM members");
-    for (const userId of new Set(userIds)) {
-      this.ctx.storage.sql.exec("INSERT INTO members (user_id) VALUES (?)", userId);
-    }
-  }
-
-  /**
-   * Rozsyła kopertę z commitem do skrzynek pozostałych członków.
-   *
-   * Nadawcę pomijamy: on scalił commit u siebie i próba przetworzenia własnego
-   * commitu w MLS kończy się błędem, więc dostarczenie mu go tylko generowałoby
-   * szum w logach.
-   *
-   * Rozsyłamy **kopertę**, a nie surowy commit — odbiorca musi wiedzieć, do
-   * której rozmowy ją skierować, zanim cokolwiek odszyfruje.
-   */
-  private async fanOut(envelope: ArrayBuffer, sender: string): Promise<void> {
-    const odbiorcy = this.members().filter((userId) => userId !== sender);
-
-    await Promise.all(
-      odbiorcy.map(async (userId) => {
-        const id = this.env.USER_INBOX.idFromName(userId);
-        await this.env.USER_INBOX.get(id).deposit(envelope);
-      }),
-    );
   }
 }

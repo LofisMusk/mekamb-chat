@@ -1,6 +1,7 @@
 package com.mekamb.chat
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -26,10 +27,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -60,11 +64,31 @@ class MainActivity : ComponentActivity() {
         kodZIntencji = kodPrzeniesienia(intent)
 
         setContent {
-            MotywNocturne {
-                Scaffold(modifier = Modifier.fillMaxSize()) { wciecia ->
+            /*
+             * Wybór motywu żyje tutaj, nie w `ChatViewModel`.
+             *
+             * Model powstaje po zalogowaniu i jest o rozmowach; motyw działa od
+             * pierwszego ekranu i po wylogowaniu ma zostać. Trzymany niżej
+             * gasłby razem z sesją, czyli wracałby do domyślnego dokładnie
+             * wtedy, gdy użytkownik go najmniej się spodziewa.
+             */
+            var wybor by remember { mutableStateOf(Motyw.wczytaj(this)) }
+
+            MotywNocturne(wybor) {
+                PasekSystemowy()
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = Nocturne.kolory.tlo,
+                ) { wciecia ->
                     Zawartosc(
                         kodZIntencji = kodZIntencji,
                         onKodZuzyty = { kodZIntencji = null },
+                        wyborMotywu = wybor,
+                        onMotyw = {
+                            wybor = it
+                            Motyw.zapisz(this, it)
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(wciecia)
@@ -88,10 +112,36 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Ikony paska systemowego pod motyw.
+ *
+ * Rysujemy od krawędzi do krawędzi (`enableEdgeToEdge`), więc pasek stanu
+ * pokazuje NASZE tło. Bez tego w motywie jasnym zostają na nim białe ikony
+ * na białym tle — godzina i zasięg znikają, a wygląda to jak usterka systemu,
+ * nie aplikacji.
+ */
+@Composable
+private fun PasekSystemowy() {
+    val jasny = Nocturne.kolory.jasny
+    val widok = LocalView.current
+
+    if (widok.isInEditMode) return
+
+    SideEffect {
+        val okno = (widok.context as Activity).window
+        WindowCompat.getInsetsController(okno, widok).run {
+            isAppearanceLightStatusBars = jasny
+            isAppearanceLightNavigationBars = jasny
+        }
+    }
+}
+
 @Composable
 private fun Zawartosc(
     kodZIntencji: String?,
     onKodZuzyty: () -> Unit,
+    wyborMotywu: WyborMotywu,
+    onMotyw: (WyborMotywu) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val model: ChatViewModel = viewModel()
@@ -143,6 +193,10 @@ private fun Zawartosc(
     }
     var wUczestnikach by remember { mutableStateOf(false) }
     var wUstawieniach by remember { mutableStateOf(false) }
+
+    // Ustawienie prywatności żyje tak samo długo jak motyw — poza modelem,
+    // który powstaje dopiero po zalogowaniu i gaśnie razem z sesją.
+    var odczytPotwierdzen by remember { mutableStateOf(PotwierdzeniaOdczytu.wlaczone(kontekst)) }
 
     // Otwarta rozmowa jest przeczytana. Warunkiem jest widok na ekranie,
     // nie samo dotarcie wiadomości.
@@ -246,7 +300,7 @@ private fun Zawartosc(
                         null -> Ikony.BrakSieci
                     },
                     contentDescription = null,
-                    tint = if (stan.trybPolaczenia == null) Neutral600 else Akcent,
+                    tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcent,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
@@ -256,7 +310,7 @@ private fun Zawartosc(
                         null -> "brak połączenia"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = TekstPrzygaszony,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
             }
         }
@@ -290,7 +344,17 @@ private fun Zawartosc(
                 EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
 
             stan.zalogowany && wUstawieniach ->
-                EkranUstawien(model, onWstecz = { wUstawieniach = false })
+                EkranUstawien(
+                    model,
+                    wyborMotywu = wyborMotywu,
+                    onMotyw = onMotyw,
+                    odczyt = odczytPotwierdzen,
+                    onOdczyt = {
+                        odczytPotwierdzen = it
+                        PotwierdzeniaOdczytu.ustaw(kontekst, it)
+                    },
+                    onWstecz = { wUstawieniach = false },
+                )
 
             stan.zalogowany && wUczestnikach ->
                 EkranUczestnikow(model, onWstecz = { wUczestnikach = false })
@@ -370,7 +434,7 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
             Text(
                 "Zeskanuj aplikacją authenticator:",
                 style = MaterialTheme.typography.bodyMedium,
-                color = TekstPrzygaszony,
+                color = Nocturne.kolory.tekstDrugi,
             )
             KodQr(
                 tresc = uri,
@@ -389,7 +453,7 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
             Text(
                 "Albo wpisz ten sekret ręcznie:",
                 style = MaterialTheme.typography.labelMedium,
-                color = Neutral500,
+                color = Nocturne.kolory.tekstDrugi,
             )
             Karta { Text(sekret, style = MaterialTheme.typography.bodyMedium) }
         }

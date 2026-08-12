@@ -142,6 +142,101 @@ export class LoginStart {
 if (Symbol.dispose) LoginStart.prototype[Symbol.dispose] = LoginStart.prototype.free;
 
 /**
+ * Ocena oślepionej wartości wraz z dowodem użycia właściwego klucza.
+ */
+export class TokenIssued {
+    static __wrap(ptr) {
+        const obj = Object.create(TokenIssued.prototype);
+        obj.__wbg_ptr = ptr;
+        TokenIssuedFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        TokenIssuedFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_tokenissued_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get challenge() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_tokenissued_challenge(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get evaluated() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_tokenissued_evaluated(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get response() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_tokenissued_response(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set challenge(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_tokenissued_challenge(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set evaluated(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_tokenissued_evaluated(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set response(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_tokenissued_response(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) TokenIssued.prototype[Symbol.dispose] = TokenIssued.prototype.free;
+
+/**
  * @param {Uint8Array} state
  * @param {string} password
  * @param {string} username
@@ -402,6 +497,116 @@ export function registrationStart(server_key, username, request) {
 export function start() {
     wasm.start();
 }
+
+/**
+ * Losuje klucz wydawania tokenów. Wołane raz, przy zakładaniu wdrożenia.
+ *
+ * **Zmiana tej wartości unieważnia wszystkie wydane tokeny.**
+ * @returns {Uint8Array}
+ */
+export function tokenGenerateKey() {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        wasm.tokenGenerateKey(retptr);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var v1 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export2(r0, r1 * 1, 1);
+        return v1;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Wydaje token na oślepioną wartość klienta.
+ *
+ * Wołane na ścieżce UWIERZYTELNIONEJ — tylko tutaj serwer wie, komu wydaje.
+ * Przy realizacji już nie będzie wiedział i o to chodzi.
+ * @param {Uint8Array} key
+ * @param {Uint8Array} blinded
+ * @returns {TokenIssued}
+ */
+export function tokenIssue(key, blinded) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(blinded, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.tokenIssue(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return TokenIssued.__wrap(r0);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Klucz publiczny do opublikowania klientom.
+ *
+ * Musi być ten sam dla wszystkich. Wydawanie różnych kluczy różnym osobom to
+ * właśnie atak znakujący, przed którym broni dowód po stronie klienta.
+ * @param {Uint8Array} key
+ * @returns {Uint8Array}
+ */
+export function tokenPublicKey(key) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.tokenPublicKey(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v2 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export2(r0, r1 * 1, 1);
+        return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Sprawdza token pokazany przy nadaniu.
+ *
+ * **Nie sprawdza, czy token był już użyty** — o to dba wołający, bo tylko on
+ * ma trwały magazyn. Bez tego jeden token wystarczyłby na dowolną liczbę nadań.
+ * @param {Uint8Array} key
+ * @param {Uint8Array} seed
+ * @param {Uint8Array} unblinded
+ * @returns {boolean}
+ */
+export function tokenVerify(key, seed, unblinded) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(seed, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(unblinded, wasm.__wbindgen_export3);
+        const len2 = WASM_VECTOR_LEN;
+        wasm.tokenVerify(retptr, ptr0, len0, ptr1, len1, ptr2, len2);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return r0 !== 0;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
 export function __wbg_Error_92b29b0548f8b746(arg0, arg1) {
     const ret = Error(getStringFromWasm0(arg0, arg1));
     return addHeapObject(ret);
@@ -536,6 +741,9 @@ const ClientStartFinalization = (typeof FinalizationRegistry === 'undefined')
 const LoginStartFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_loginstart_free(ptr, 1));
+const TokenIssuedFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_tokenissued_free(ptr, 1));
 
 function addHeapObject(obj) {
     if (heap_next === heap.length) heap.push(heap.length + 1);

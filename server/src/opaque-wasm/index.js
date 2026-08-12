@@ -26,6 +26,12 @@ export const {
   registrationFinish,
   loginStart,
   loginFinish,
+
+  // Tokeny doręczeniowe — serwerowa połowa schematu z `opaque/src/tokeny.rs`.
+  tokenGenerateKey,
+  tokenPublicKey,
+  tokenIssue,
+  tokenVerify,
 } = glue;
 
 // Strona klienta — wyłącznie dla testów, żeby dało się przejść pełną rundę

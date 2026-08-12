@@ -190,6 +190,8 @@ enum class StanPolaczenia { LACZENIE, POLACZONE, ROZLACZONE }
 class PolaczenieZeSkrzynka(
     private val http: OkHttpClient,
     private val adres: String,
+    /** Token dostępowy — serwer wpuszcza wyłącznie właściciela skrzynki. */
+    private val token: String,
     private val naRamke: (ByteArray, (Long) -> Unit) -> Unit,
     private val naStan: (StanPolaczenia) -> Unit = {},
     private val zegar: ScheduledExecutorService =
@@ -209,7 +211,16 @@ class PolaczenieZeSkrzynka(
         if (zamkniete) return
 
         naStan(StanPolaczenia.LACZENIE)
-        gniazdo = http.newWebSocket(Request.Builder().url(adres).build(), Nasluch())
+        // Token idzie podprotokołem, tak samo jak w przeglądarce — tam nie da
+        // się dodać nagłówka `Authorization`, a serwer ma czytać jedno miejsce,
+        // nie dwa. Bez tego serwer wpuszczał kogokolwiek do cudzej skrzynki.
+        gniazdo = http.newWebSocket(
+            Request.Builder()
+                .url(adres)
+                .header("Sec-WebSocket-Protocol", token)
+                .build(),
+            Nasluch(),
+        )
     }
 
     /** Zamyka na stałe. Po tym nie ma już ponowień. */

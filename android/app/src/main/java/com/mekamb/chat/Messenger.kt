@@ -1,5 +1,7 @@
 package com.mekamb.chat
 
+import android.util.Base64
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -12,12 +14,15 @@ import uniffi.mekamb_ffi.CallSignalKind
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
 import uniffi.mekamb_ffi.MekambClient
+import uniffi.mekamb_ffi.ReceiptKind
 import uniffi.mekamb_ffi.MekambTransport
 import uniffi.mekamb_ffi.canStripMetadata
 import uniffi.mekamb_ffi.maxAttachmentBytes
 import uniffi.mekamb_ffi.openAttachment
 import uniffi.mekamb_ffi.sealAttachment
 import uniffi.mekamb_ffi.stripMetadata
+import uniffi.mekamb_ffi.tokenOdslon
+import uniffi.mekamb_ffi.tokenOslep
 import uniffi.mekamb_ffi.tryDirectDelivery
 
 /**
@@ -31,6 +36,14 @@ data class WyslanyZalacznik(
     val zalacznik: Zalacznik,
     val metadaneUsuniete: Boolean,
     val sposob: DeliveryMode,
+    /** Identyfikator z rdzenia — po nim wracają potwierdzenia. */
+    val messageId: ByteArray,
+)
+
+/** Wysłana wiadomość: którą drogą poszła i pod jakim identyfikatorem. */
+data class WyslanaWiadomosc(
+    val sposob: DeliveryMode,
+    val messageId: ByteArray,
 )
 
 /**
@@ -73,6 +86,15 @@ class Messenger private constructor(
     /** Szereguje dostęp do stanu MLS — patrz [przetworzKoperte]. */
     private val mlsMutex = Mutex()
 
+    /**
+     * Portfel tokenów doręczeniowych.
+     *
+     * Zapas bierzemy z góry i wydajemy pojedynczo: pobranie jest żądaniem
+     * uwierzytelnionym, więc branie tokenu tuż przed każdą wiadomością dałoby
+     * serwerowi dokładnie to powiązanie, które ten schemat usuwa.
+     */
+    private var portfel: PortfelTokenow? = null
+
     private var skrzynka: PolaczenieZeSkrzynka? = null
     private var kolejkaSkrzynki: Channel<Pair<ByteArray, (Long) -> Unit>>? = null
 
@@ -103,6 +125,73 @@ class Messenger private constructor(
             val transport = MekambTransport.start(client.irohSecret())
 
             Messenger(client, transport, api, vault, account, token)
+        }
+    }
+
+    /**
+     * Otwiera rozmowy zapisane na dysku.
+     *
+     * # Czemu to musiało powstać
+     *
+     * Stan MLS przeżywał restart w magazynie, ale lista OTWARTYCH rozmów
+     * powstawała wyłącznie przy zakładaniu grupy albo przyjmowaniu zaproszenia.
+     * Po restarcie klient miał pełny stan na dysku i pustą listę — każde
+     * wysłanie i odebranie kończyło się „nie ma takiej rozmowy w tym kliencie".
+     *
+     * Identyfikatory znamy z własnej historii, więc otwieramy je sami. Rozmowa
+     * bez stanu MLS (np. po przeniesieniu konta) po prostu się nie otworzy —
+     * zostaje w historii do czytania i tyle.
+     */
+    fun otworzZnaneRozmowy(groupIds: List<ByteArray>) {
+        for (groupId in groupIds) {
+            // Uszkodzony wpis nie może zablokować pozostałych rozmów.
+            runCatching { client.openConversation(groupId) }
+        }
+    }
+
+    /** Podpina portfel tokenów. Wołane raz, po zalogowaniu. */
+    fun ustawPortfel(nowy: PortfelTokenow) {
+        portfel = nowy
+    }
+
+    /**
+     * Uzupełnia zapas tokenów, jeśli zszedł poniżej progu.
+     *
+     * Cicha przy każdym niepowodzeniu: wdrożenie bez skonfigurowanych tokenów
+     * odpowiada 503 i to jest poprawny stan, nie awaria. Brak tokenów nie może
+     * zatrzymać wysyłania.
+     */
+    suspend fun uzupelnijTokeny() {
+        val portfel = portfel ?: return
+        if (!portfel.trzebaDobrac()) return
+
+        runCatching {
+            val kluczPubliczny = api.kluczTokenow() ?: return
+
+            // Przypięcie klucza: serwer wydający różnym osobom tokeny różnymi
+            // kluczami ZNAKUJE je. Dowód wykrywa użycie innego klucza niż
+            // podany, ale nie to, że sam klucz podstawiono pod nas.
+            if (!portfel.przypnijKlucz(kluczPubliczny)) return
+
+            val proby = List(PortfelTokenow.DOCELOWY) { tokenOslep() }
+            val wydane = api.wydajTokeny(token, proby.map { it.oslepione })
+            val klucz = kluczPubliczny.fromBase64()
+
+            val nowe = wydane.mapIndexedNotNull { i, (ocenione, wyzwanie, odpowiedz) ->
+                val proba = proby.getOrNull(i) ?: return@mapIndexedNotNull null
+
+                // Odrzucony token pomijamy zamiast wywracać całe uzupełnienie:
+                // jeden zły nie może kosztować pozostałych.
+                runCatching {
+                    val gotowy = tokenOdslon(proba, ocenione, wyzwanie, odpowiedz, klucz)
+                    TokenDoreczenia(
+                        Base64.encodeToString(gotowy.ziarno, Base64.NO_WRAP),
+                        Base64.encodeToString(gotowy.odslonione, Base64.NO_WRAP),
+                    )
+                }.getOrNull()
+            }
+
+            portfel.doloz(nowe)
         }
     }
 
@@ -142,15 +231,14 @@ class Messenger private constructor(
         val groupId = client.createConversation()
         val oczekujacy = client.addMember(groupId, keyPackage)
 
-        // Skład PO commicie: nowa osoba musi znaleźć się na liście, do której
-        // relay rozsyła, inaczej nie dostanie kolejnych commitów. `members()`
-        // zwraca `user_id:device_id`, a serwer adresuje skrzynki po user_id.
-        val czlonkowie = (
-            client.members(groupId).map { it.substringBefore(':') } + peerUsername
-        ).distinct()
-
-        val przyjety =
-            api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit, czlonkowie)
+        /*
+         * Do serwera idzie sam numer epoki.
+         *
+         * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
+         * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
+         * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
+         */
+        val przyjety = api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
         if (!przyjety) {
             // Relay odrzucił commit — ktoś zmienił grupę w międzyczasie.
             // Scalenie na siłę wypchnęłoby nas poza rozmowę.
@@ -162,6 +250,9 @@ class Messenger private constructor(
         client.confirmCommit(groupId)
         vault.saveState(client.exportState())
 
+        // Rozsyłkę commitu robi nadawca — patrz `dodajCzlonka`. Przy zakładaniu
+        // rozmowy nie ma jednak komu go wysłać: w grupie jesteśmy my i osoba,
+        // którą właśnie zapraszamy, a ona dostaje `welcome`.
         oczekujacy.welcome?.let { welcome ->
             wyslij(peerUsername, urzadzenie, welcome)
         }
@@ -196,9 +287,7 @@ class Messenger private constructor(
             val keyPackage = api.claimKeyPackage(urzadzenie.deviceId)
             val oczekujacy = client.addMember(groupId, keyPackage)
 
-            val czlonkowie = (uczestnicy(groupId) + peerUsername).distinct()
-            val przyjety =
-                api.submitCommit(token, groupId, client.epoch(groupId), oczekujacy.commit, czlonkowie)
+            val przyjety = api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
 
             if (!przyjety) {
                 client.discardCommit(groupId)
@@ -209,19 +298,71 @@ class Messenger private constructor(
             client.confirmCommit(groupId)
             vault.saveState(client.exportState())
 
+            /*
+             * Rozsyłamy commit sami — po zajęciu epoki, nie przed.
+             *
+             * Kolejność ma znaczenie: rozesłanie przed potwierdzeniem oznaczałoby
+             * wysłanie commitu, który relay może odrzucić, a odbiorcy nie mają
+             * jak cofnąć tego, co już przetworzyli.
+             *
+             * Nowa osoba jest pomijana: dostaje `welcome`, a commitu, który ją
+             * wprowadza do grupy, nie potrafi przetworzyć.
+             */
+            for (osoba in uczestnicy(groupId)) {
+                if (osoba == peerUsername || osoba == account.userId) continue
+                api.deposit(osoba, oczekujacy.commit)
+            }
+
             oczekujacy.welcome?.let { wyslij(peerUsername, urzadzenie, it) }
         }
 
-    /** Szyfruje i wysyła wiadomość tekstową. */
+    /**
+     * Szyfruje i wysyła wiadomość tekstową.
+     *
+     * Zwraca też identyfikator z rdzenia: potwierdzenia drugiej strony wskazują
+     * wiadomości właśnie po nim, więc bez zapisania go ptaszek nigdy by się nie
+     * zmienił — i nikt nie wiedziałby dlaczego.
+     */
     suspend fun sendText(
         groupId: ByteArray,
         text: String,
         recipient: String,
-    ): DeliveryMode = withContext(Dispatchers.IO) {
-        val koperta = client.sealText(groupId, text, System.currentTimeMillis().toULong())
+    ): WyslanaWiadomosc = withContext(Dispatchers.IO) {
+        val zapakowana = client.sealText(groupId, text, System.currentTimeMillis().toULong())
 
         // Ratchet przesunął się już przy szyfrowaniu, więc zapis musi nastąpić
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
+        vault.saveState(client.exportState())
+
+        val urzadzenie = api.lookupDevices(recipient).firstOrNull()
+        WyslanaWiadomosc(
+            sposob = wyslij(recipient, urzadzenie, zapakowana.koperta),
+            messageId = zapakowana.messageId,
+        )
+    }
+
+    /**
+     * Wysyła paczkę potwierdzeń.
+     *
+     * Idzie tą samą drogą co wiadomość, więc serwer widzi wyłącznie szyfrogram.
+     * **Chwili** wysyłki to nie ukrywa — o to dba wołający, który zbiera
+     * potwierdzenia i opóźnia wysyłkę o losowy czas (`Potwierdzenia.kt`).
+     */
+    suspend fun sendReceipt(
+        groupId: ByteArray,
+        rodzaj: ReceiptKind,
+        messageIds: List<ByteArray>,
+        recipient: String,
+    ) = withContext(Dispatchers.IO) {
+        if (messageIds.isEmpty()) return@withContext
+
+        val koperta = client.sendReceipt(
+            groupId,
+            rodzaj,
+            messageIds,
+            System.currentTimeMillis().toULong(),
+        )
+
         vault.saveState(client.exportState())
 
         val urzadzenie = api.lookupDevices(recipient).firstOrNull()
@@ -267,7 +408,7 @@ class Messenger private constructor(
         val zapieczetowany = sealAttachment(doWyslania, mimeType)
         val blobId = api.uploadAttachment(token, zapieczetowany.ciphertext)
 
-        val koperta = client.sealAttachmentMessage(
+        val zapakowana = client.sealAttachmentMessage(
             groupId,
             blobId,
             zapieczetowany.key,
@@ -283,7 +424,7 @@ class Messenger private constructor(
         vault.saveState(client.exportState())
 
         val urzadzenie = api.lookupDevices(recipient).firstOrNull()
-        val sposob = wyslij(recipient, urzadzenie, koperta)
+        val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         WyslanyZalacznik(
             zalacznik = Zalacznik(
@@ -296,6 +437,7 @@ class Messenger private constructor(
             ),
             metadaneUsuniete = oczyszczone,
             sposob = sposob,
+            messageId = zapakowana.messageId,
         )
     }
 
@@ -367,7 +509,14 @@ class Messenger private constructor(
         )
 
         if (sposob == DeliveryMode.MAILBOX) {
-            api.deposit(recipient, koperta)
+            // Token doręczeniowy tylko na drodze przez skrzynkę: przy
+            // dostarczeniu wprost serwera w ogóle nie ma w torze, więc nie ma
+            // komu niczego dowodzić.
+            api.deposit(recipient, koperta, portfel?.wez()?.naglowek())
+
+            // Uzupełnianie PO wysyłce, nie przed: pobranie zapasu jest żądaniem
+            // uwierzytelnionym, więc trzymamy je z dala od chwili nadania.
+            uzupelnijTokeny()
         }
 
         return sposob
@@ -444,6 +593,7 @@ class Messenger private constructor(
 
         skrzynka = api.polaczZeSkrzynka(
             userId = account.userId,
+            token = token,
             naRamke = { ramka, potwierdz -> kolejka.trySend(ramka to potwierdz) },
         )
         kolejkaSkrzynki = kolejka

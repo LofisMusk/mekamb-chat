@@ -10,6 +10,7 @@ import init, {
   stripMetadata,
 } from "../wasm/mekamb_wasm";
 import { api } from "./api";
+import { naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
 import { loadSeed, loadState, saveSeed, saveState } from "./vault";
 
@@ -356,9 +357,24 @@ export class Messenger {
     return idWiadomosci(wyslana.message_id);
   }
 
-  /** Rozsyła gotową kopertę do wszystkich uczestników poza nami. */
+  /**
+   * Rozsyła gotową kopertę do wszystkich uczestników poza nami.
+   *
+   * Każde nadanie zużywa osobny token doręczeniowy — ten sam użyty dwa razy
+   * zostałby odrzucony przy drugim, a jeden na całą grupę wiązałby odbiorców
+   * ze sobą po stronie serwera.
+   */
   private async rozeslij(groupId: Uint8Array, envelope: Uint8Array): Promise<void> {
-    await Promise.all(this.recipients(groupId).map((userId) => api.deposit(userId, envelope)));
+    await Promise.all(
+      this.recipients(groupId).map((userId) => {
+        const token = wezToken();
+        return api.deposit(userId, envelope, token ? naglowekTokenu(token) : undefined);
+      }),
+    );
+
+    // Uzupełnianie PO wysyłce, nie przed: pobranie zapasu jest żądaniem
+    // uwierzytelnionym, więc trzymamy je z dala od chwili nadania.
+    void uzupelnij(this.token);
   }
 
   /**

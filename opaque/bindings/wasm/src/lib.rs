@@ -147,3 +147,66 @@ pub fn client_login_finish(
         .map(|w| w.finalization)
         .map_err(to_js)
 }
+
+// --- Tokeny doręczeniowe -----------------------------------------------------
+//
+// Serwerowa połowa schematu z `opaque/src/tokeny.rs`. Klient ma swoją w rdzeniu.
+//
+// Po co to jest: zostawienie koperty w skrzynce nie wymaga tokenu konta, bo
+// serwer nie ma się dowiadywać, kto do kogo pisze. Skoro jednak nadawać może
+// każdy, każdy może też zalewać cudzą skrzynkę. Token doręczeniowy dowodzi
+// „mam prawo nadać", nie mówiąc „jestem tym kontem".
+
+/// Losuje klucz wydawania tokenów. Wołane raz, przy zakładaniu wdrożenia.
+///
+/// **Zmiana tej wartości unieważnia wszystkie wydane tokeny.**
+#[wasm_bindgen(js_name = tokenGenerateKey)]
+pub fn token_generate_key() -> Vec<u8> {
+    mekamb_opaque::tokeny::KluczTokenow::losuj()
+        .do_bajtow()
+        .to_vec()
+}
+
+/// Klucz publiczny do opublikowania klientom.
+///
+/// Musi być ten sam dla wszystkich. Wydawanie różnych kluczy różnym osobom to
+/// właśnie atak znakujący, przed którym broni dowód po stronie klienta.
+#[wasm_bindgen(js_name = tokenPublicKey)]
+pub fn token_public_key(key: &[u8]) -> Result<Vec<u8>, JsError> {
+    let klucz = mekamb_opaque::tokeny::KluczTokenow::z_bajtow(key).map_err(to_js)?;
+    Ok(klucz.klucz_publiczny().to_vec())
+}
+
+/// Ocena oślepionej wartości wraz z dowodem użycia właściwego klucza.
+#[wasm_bindgen(getter_with_clone)]
+pub struct TokenIssued {
+    pub evaluated: Vec<u8>,
+    pub challenge: Vec<u8>,
+    pub response: Vec<u8>,
+}
+
+/// Wydaje token na oślepioną wartość klienta.
+///
+/// Wołane na ścieżce UWIERZYTELNIONEJ — tylko tutaj serwer wie, komu wydaje.
+/// Przy realizacji już nie będzie wiedział i o to chodzi.
+#[wasm_bindgen(js_name = tokenIssue)]
+pub fn token_issue(key: &[u8], blinded: &[u8]) -> Result<TokenIssued, JsError> {
+    let klucz = mekamb_opaque::tokeny::KluczTokenow::z_bajtow(key).map_err(to_js)?;
+    let ocena = klucz.ocen(blinded).map_err(to_js)?;
+
+    Ok(TokenIssued {
+        evaluated: ocena.ocenione.to_vec(),
+        challenge: ocena.wyzwanie.to_vec(),
+        response: ocena.odpowiedz.to_vec(),
+    })
+}
+
+/// Sprawdza token pokazany przy nadaniu.
+///
+/// **Nie sprawdza, czy token był już użyty** — o to dba wołający, bo tylko on
+/// ma trwały magazyn. Bez tego jeden token wystarczyłby na dowolną liczbę nadań.
+#[wasm_bindgen(js_name = tokenVerify)]
+pub fn token_verify(key: &[u8], seed: &[u8], unblinded: &[u8]) -> Result<bool, JsError> {
+    let klucz = mekamb_opaque::tokeny::KluczTokenow::z_bajtow(key).map_err(to_js)?;
+    klucz.sprawdz(seed, unblinded).map_err(to_js)
+}

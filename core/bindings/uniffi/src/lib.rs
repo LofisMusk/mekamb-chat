@@ -1012,7 +1012,10 @@ impl From<mekamb_opaque::Error> for MekambError {
             // „złe hasło" od „nie ma konta" pozwalałoby sprawdzać, które
             // nazwy są zajęte.
             E::AuthenticationFailed => Self::MessageRejected,
-            E::InvalidServerKey | E::MalformedMessage => Self::InvalidInput {
+            // Token doręczeniowy: dane z sieci albo dowód, który się nie
+            // zgadza. Jedno i drugie jest wejściem do odrzucenia, nie awarią
+            // kryptografii po naszej stronie.
+            E::InvalidServerKey | E::MalformedMessage | E::Token(_) => Self::InvalidInput {
                 powod: error.to_string(),
             },
             E::Protocol => Self::Crypto {
@@ -1099,5 +1102,83 @@ pub fn opaque_login_finish(
         finalization: w.finalization,
         session_key: w.session_key,
         export_key: w.export_key,
+    })
+}
+
+// --- Tokeny doręczeniowe (strona klienta) ------------------------------------
+//
+// Serwerowa połowa jest w `opaque/bindings/wasm`, bo Worker ładuje tamten moduł.
+// Uzasadnienie całego schematu: `opaque/src/tokeny.rs`.
+
+/// Oślepiona prośba o token wraz z tym, co trzeba zachować do odsłonięcia.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OslepionyToken {
+    /// Pokazywane dopiero przy nadaniu.
+    pub ziarno: Vec<u8>,
+    /// **Nie opuszcza urządzenia.**
+    pub oslepiacz: Vec<u8>,
+    /// Do wysłania serwerowi.
+    pub oslepione: Vec<u8>,
+}
+
+/// Gotowy token doręczeniowy.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TokenDoreczeniowy {
+    pub ziarno: Vec<u8>,
+    pub odslonione: Vec<u8>,
+}
+
+/// Przygotowuje jedną prośbę o token.
+#[uniffi::export]
+pub fn token_oslep() -> OslepionyToken {
+    let proba = mekamb_opaque::tokeny::oslep();
+
+    OslepionyToken {
+        ziarno: proba.ziarno.to_vec(),
+        oslepiacz: proba.oslepiacz.to_vec(),
+        oslepione: proba.oslepione.to_vec(),
+    }
+}
+
+/// Odsłania ocenę serwera, sprawdzając wcześniej jego dowód.
+///
+/// Sprawdzenie dowodu jest **w środku**, nie osobnym krokiem: klient, który by
+/// je pominął, płaciłby własną anonimowością — złośliwy serwer wydawałby każdemu
+/// tokeny innym kluczem i rozpoznawał przy nadaniu, czyj był.
+#[uniffi::export]
+pub fn token_odslon(
+    proba: OslepionyToken,
+    ocenione: Vec<u8>,
+    wyzwanie: Vec<u8>,
+    odpowiedz: Vec<u8>,
+    klucz_publiczny: Vec<u8>,
+) -> Result<TokenDoreczeniowy, MekambError> {
+    fn na_32(bajty: &[u8], co: &str) -> Result<[u8; 32], MekambError> {
+        bajty.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: format!("{co} musi mieć 32 bajty"),
+        })
+    }
+
+    let proba = mekamb_opaque::tokeny::Proba {
+        ziarno: na_32(&proba.ziarno, "ziarno tokenu")?,
+        oslepiacz: na_32(&proba.oslepiacz, "czynnik oślepiający")?,
+        oslepione: na_32(&proba.oslepione, "oślepiona wartość")?,
+    };
+
+    let ocena = mekamb_opaque::tokeny::Ocena {
+        ocenione: na_32(&ocenione, "ocena")?,
+        wyzwanie: na_32(&wyzwanie, "wyzwanie")?,
+        odpowiedz: na_32(&odpowiedz, "odpowiedź")?,
+    };
+
+    let token = mekamb_opaque::tokeny::odslon(&proba, &ocena, &klucz_publiczny).map_err(|e| {
+        MekambError::InvalidInput {
+            powod: e.to_string(),
+        }
+    })?;
+
+    Ok(TokenDoreczeniowy {
+        ziarno: token.ziarno.to_vec(),
+        odslonione: token.odslonione.to_vec(),
     })
 }

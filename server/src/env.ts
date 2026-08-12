@@ -34,6 +34,28 @@ export interface Env {
   OPAQUE_SERVER_KEY: string;
 
   /**
+   * Klucz wydawania tokenów doręczeniowych (base64).
+   *
+   * Opcjonalny: wdrożenie bez niego działa, tylko nadanie do skrzynki nie
+   * wymaga tokenu — czyli tak, jak przed wprowadzeniem sealed sendera. Dzięki
+   * temu klucz można dołożyć i włączyć wymuszanie DOPIERO wtedy, gdy klienty
+   * już umieją brać tokeny; inaczej aktualizacja serwera odcięłaby wszystkich
+   * ze starą wersją aplikacji.
+   *
+   * **Zmiana tej wartości unieważnia wszystkie wydane tokeny.**
+   */
+  DELIVERY_TOKEN_KEY?: string;
+
+  /**
+   * Czy nadanie bez tokenu jest odrzucane.
+   *
+   * Osobno od samego klucza, bo to dwie różne decyzje: „umiem wydawać tokeny"
+   * i „odmawiam tym, którzy ich nie mają". Między jednym a drugim musi zmieścić
+   * się okno, w którym klienty zdążą się zaktualizować.
+   */
+  DELIVERY_TOKEN_REQUIRED?: string;
+
+  /**
    * Wspólny sekret serwera TURN. Opcjonalny.
    *
    * Bez niego rozmowy działają przez samo STUN — nie uda się tylko połączenie

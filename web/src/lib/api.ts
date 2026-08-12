@@ -63,9 +63,20 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
 
   /** Zostawia szyfrogram w skrzynce odbiorcy. */
-  async deposit(userId: string, envelope: Uint8Array): Promise<void> {
+  /**
+   * Zostawia kopertę w skrzynce odbiorcy.
+   *
+   * **Bez tokenu konta i to jest decyzja**: serwer nie ma się dowiadywać, kto
+   * do kogo pisze. Prawo do nadania potwierdza token DORĘCZENIOWY — wydany na
+   * wartość oślepioną, więc nie do powiązania z kontem (patrz `tokeny.ts`).
+   *
+   * Brak tokenu nie blokuje wysyłki: dopóki serwer ich nie wymusza, wiadomość
+   * jest ważniejsza niż limit nadużyć.
+   */
+  async deposit(userId: string, envelope: Uint8Array, tokenDoreczenia?: string): Promise<void> {
     const response = await fetch(`${API_URL}/inbox/${encodeURIComponent(userId)}`, {
       method: "POST",
+      headers: tokenDoreczenia ? { "X-Delivery-Token": tokenDoreczenia } : undefined,
       body: envelope as BufferSource,
     });
 

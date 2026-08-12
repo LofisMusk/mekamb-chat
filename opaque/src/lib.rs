@@ -39,6 +39,7 @@ use opaque_ke::{
 };
 
 mod error;
+pub mod tokeny;
 pub use error::{Error, Result};
 
 /// Zestaw kryptograficzny.

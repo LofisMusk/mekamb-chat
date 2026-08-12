@@ -895,3 +895,86 @@ pub fn own_sdp_fingerprint(sdp: &str) -> Result<String, JsError> {
 
     Ok(pierwszy.clone())
 }
+
+// --- Tokeny doręczeniowe (strona klienta) ------------------------------------
+//
+// Serwerowa połowa jest w `opaque/bindings/wasm`, bo Worker ładuje tamten moduł.
+// Uzasadnienie całego schematu: `opaque/src/tokeny.rs`.
+
+/// Oślepiona prośba o token wraz z tym, co trzeba zachować do odsłonięcia.
+#[wasm_bindgen(getter_with_clone)]
+pub struct TokenBlinded {
+    /// Pokazywane dopiero przy nadaniu.
+    pub seed: Vec<u8>,
+    /// **Nie opuszcza urządzenia.**
+    pub blinder: Vec<u8>,
+    /// Do wysłania serwerowi.
+    pub blinded: Vec<u8>,
+}
+
+/// Gotowy token doręczeniowy.
+#[wasm_bindgen(getter_with_clone)]
+pub struct DeliveryToken {
+    pub seed: Vec<u8>,
+    pub unblinded: Vec<u8>,
+}
+
+/// Przygotowuje jedną prośbę o token.
+#[wasm_bindgen(js_name = tokenBlind)]
+pub fn token_blind() -> TokenBlinded {
+    let proba = mekamb_opaque::tokeny::oslep();
+
+    TokenBlinded {
+        seed: proba.ziarno.to_vec(),
+        blinder: proba.oslepiacz.to_vec(),
+        blinded: proba.oslepione.to_vec(),
+    }
+}
+
+/// Odsłania ocenę serwera, sprawdzając wcześniej jego dowód.
+///
+/// Sprawdzenie dowodu jest **w środku**, nie osobnym krokiem: klient, który by
+/// je pominął, płaciłby własną anonimowością — złośliwy serwer wydawałby każdemu
+/// tokeny innym kluczem i rozpoznawał przy nadaniu, czyj był.
+#[wasm_bindgen(js_name = tokenUnblind)]
+pub fn token_unblind(
+    seed: &[u8],
+    blinder: &[u8],
+    blinded: &[u8],
+    evaluated: &[u8],
+    challenge: &[u8],
+    response: &[u8],
+    public_key: &[u8],
+) -> Result<DeliveryToken, JsError> {
+    let proba = mekamb_opaque::tokeny::Proba {
+        ziarno: seed
+            .try_into()
+            .map_err(|_| JsError::new("ziarno tokenu musi mieć 32 bajty"))?,
+        oslepiacz: blinder
+            .try_into()
+            .map_err(|_| JsError::new("czynnik oślepiający musi mieć 32 bajty"))?,
+        oslepione: blinded
+            .try_into()
+            .map_err(|_| JsError::new("oślepiona wartość musi mieć 32 bajty"))?,
+    };
+
+    let ocena = mekamb_opaque::tokeny::Ocena {
+        ocenione: evaluated
+            .try_into()
+            .map_err(|_| JsError::new("ocena musi mieć 32 bajty"))?,
+        wyzwanie: challenge
+            .try_into()
+            .map_err(|_| JsError::new("wyzwanie musi mieć 32 bajty"))?,
+        odpowiedz: response
+            .try_into()
+            .map_err(|_| JsError::new("odpowiedź musi mieć 32 bajty"))?,
+    };
+
+    let token = mekamb_opaque::tokeny::odslon(&proba, &ocena, public_key)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(DeliveryToken {
+        seed: token.ziarno.to_vec(),
+        unblinded: token.odslonione.to_vec(),
+    })
+}

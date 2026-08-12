@@ -269,10 +269,24 @@ class Api(private val baseUrl: String) {
         }
     }
 
-    /** Zostawia kopertę w skrzynce odbiorcy. */
-    suspend fun deposit(userId: String, envelope: ByteArray) = withContext(Dispatchers.IO) {
+    /**
+     * Zostawia kopertę w skrzynce odbiorcy.
+     *
+     * **Bez tokenu konta i to jest decyzja**: serwer nie ma się dowiadywać, kto
+     * do kogo pisze. Prawo do nadania potwierdza token DORĘCZENIOWY — wydany na
+     * wartość oślepioną, więc nie do powiązania z kontem (patrz `Tokeny.kt`).
+     *
+     * Brak tokenu nie blokuje wysyłki: dopóki serwer ich nie wymusza, wiadomość
+     * jest ważniejsza niż limit nadużyć.
+     */
+    suspend fun deposit(
+        userId: String,
+        envelope: ByteArray,
+        tokenDoreczenia: String? = null,
+    ) = withContext(Dispatchers.IO) {
         val zadanie = Request.Builder()
             .url("$baseUrl/inbox/$userId")
+            .apply { tokenDoreczenia?.let { header("X-Delivery-Token", it) } }
             .post(envelope.toRequestBody(BINARNE))
             .build()
 
@@ -396,6 +410,39 @@ class Api(private val baseUrl: String) {
         naRamke = naRamke,
         naStan = naStan,
     ).also { it.polacz() }
+
+    /** Klucz publiczny wydawania tokenów. Ten sam dla wszystkich — inaczej znakuje. */
+    suspend fun kluczTokenow(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            get("/tokens/key")["publicKey"]?.jsonPrimitive?.content
+        }.getOrNull()
+    }
+
+    /**
+     * Prosi o tokeny na oślepione wartości.
+     *
+     * To jedyne miejsce, w którym serwer wie, komu wydaje — i właśnie dlatego
+     * nie widzi tu, co wydaje.
+     */
+    suspend fun wydajTokeny(
+        token: String,
+        oslepione: List<ByteArray>,
+    ): List<Triple<ByteArray, ByteArray, ByteArray>> = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("blinded", buildJsonArray { oslepione.forEach { add(base64(it)) } })
+        }
+
+        val odpowiedz = postJson("/tokens/issue", body, token)
+
+        odpowiedz["tokens"]?.jsonArray.orEmpty().map { wpis ->
+            val o = wpis.jsonObject
+            Triple(
+                o.getValue("evaluated").jsonPrimitive.content.fromBase64(),
+                o.getValue("challenge").jsonPrimitive.content.fromBase64(),
+                o.getValue("response").jsonPrimitive.content.fromBase64(),
+            )
+        }
+    }
 
     private suspend fun postJson(
         sciezka: String,

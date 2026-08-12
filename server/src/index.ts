@@ -15,6 +15,14 @@ import {
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
 import transfer, { cleanupExpiredTransfers } from "./transfer";
+import {
+  MAX_TOKENOW_NA_RAZ,
+  kluczPubliczny,
+  posprzataj as posprzatajTokeny,
+  tokenyWlaczone,
+  wydaj,
+  zrealizuj,
+} from "./tokeny";
 import { requireAuth } from "./middleware";
 import { verifyToken } from "./crypto";
 
@@ -193,7 +201,68 @@ app.post("/groups/:groupId/commit", requireAuth, async (c) => {
   return c.json({ accepted: true, epoch: result.epoch });
 });
 
-/** Zostawia kopertę dla odbiorcy, którego nie udało się osiągnąć bezpośrednio. */
+/**
+ * Klucz publiczny wydawania tokenów doręczeniowych.
+ *
+ * Nieuwierzytelniony i **musi** być ten sam dla wszystkich: klient sprawdza nim
+ * dowód serwera. Wydawanie różnych kluczy różnym osobom to atak znakujący —
+ * serwer rozpoznawałby przy realizacji, czyj był token.
+ */
+app.get("/tokens/key", (c) => {
+  if (!tokenyWlaczone(c.env)) {
+    return c.json({ error: "tokeny doręczeniowe nie są skonfigurowane" }, 503);
+  }
+
+  return c.json({ publicKey: toBase64(kluczPubliczny(c.env)) });
+});
+
+/**
+ * Wydaje tokeny doręczeniowe na oślepione wartości klienta.
+ *
+ * To JEDYNE miejsce, w którym serwer wie, komu wydaje — i właśnie dlatego nie
+ * widzi tu, co wydaje: wartości są oślepione. Przy nadaniu będzie odwrotnie.
+ */
+app.post("/tokens/issue", requireAuth, async (c) => {
+  if (!tokenyWlaczone(c.env)) {
+    return c.json({ error: "tokeny doręczeniowe nie są skonfigurowane" }, 503);
+  }
+
+  const body = await c.req.json<{ blinded?: string[] }>();
+
+  if (!Array.isArray(body.blinded) || body.blinded.length === 0) {
+    return c.json({ error: "oczekiwano niepustej listy oślepionych wartości" }, 400);
+  }
+  if (body.blinded.length > MAX_TOKENOW_NA_RAZ) {
+    return c.json({ error: `naraz można wydać najwyżej ${MAX_TOKENOW_NA_RAZ} tokenów` }, 400);
+  }
+
+  try {
+    const wydane = wydaj(c.env, body.blinded.map(fromBase64).map((b) => new Uint8Array(b)));
+
+    return c.json({
+      tokens: wydane.map((t) => ({
+        evaluated: toBase64(t.evaluated),
+        challenge: toBase64(t.challenge),
+        response: toBase64(t.response),
+      })),
+    });
+  } catch {
+    // Oślepiona wartość spoza grupy albo o złym rozmiarze.
+    return c.json({ error: "nieprawidłowa oślepiona wartość" }, 400);
+  }
+});
+
+/**
+ * Zostawia kopertę dla odbiorcy, którego nie udało się osiągnąć bezpośrednio.
+ *
+ * # Dlaczego nie ma tu tokenu konta
+ *
+ * Bo serwer nie ma się dowiadywać, kto do kogo pisze. Tożsamość nadawcy jest
+ * uwierzytelniona **wewnątrz** MLS, gdzie serwer jej nie widzi.
+ *
+ * Prawo do nadania potwierdza token DORĘCZENIOWY: wydany na wartość oślepioną,
+ * więc nie do powiązania z kontem, któremu go wydano. Patrz `tokeny.ts`.
+ */
 app.post("/inbox/:userId", async (c) => {
   const envelope = await c.req.arrayBuffer();
 
@@ -202,6 +271,39 @@ app.post("/inbox/:userId", async (c) => {
   }
   if (envelope.byteLength > MAX_ENVELOPE_BYTES) {
     return c.json({ error: "koperta przekracza limit rozmiaru" }, 413);
+  }
+
+  /*
+   * Token idzie nagłówkiem, nie w ciele: ciało jest surową kopertą i nie ma
+   * w niej miejsca na cokolwiek naszego.
+   *
+   * Wymuszanie jest osobną decyzją od samego wydawania (patrz `env.ts`): między
+   * wdrożeniem serwera a aktualizacją klientów musi zmieścić się okno, w którym
+   * nadanie bez tokenu jeszcze przechodzi. Inaczej aktualizacja serwera odcina
+   * wszystkich ze starą wersją aplikacji.
+   */
+  const naglowek = c.req.header("X-Delivery-Token");
+  const wymagany = c.env.DELIVERY_TOKEN_REQUIRED === "true";
+
+  if (naglowek) {
+    const czesci = naglowek.split(".");
+    if (czesci.length !== 2 || !czesci[0] || !czesci[1]) {
+      return c.json({ error: "nieprawidłowy token doręczeniowy" }, 400);
+    }
+
+    const wynik = await zrealizuj(
+      c.env,
+      new Uint8Array(fromBase64(czesci[0])),
+      new Uint8Array(fromBase64(czesci[1])),
+    );
+
+    if (wynik !== "ok") {
+      // Ten sam kod dla „podrobiony" i „już użyty": rozróżnienie mówiłoby
+      // pytającemu, czy trafił w prawdziwy token.
+      return c.json({ error: "token doręczeniowy odrzucony" }, 403);
+    }
+  } else if (wymagany) {
+    return c.json({ error: "wymagany token doręczeniowy" }, 401);
   }
 
   const userId = c.req.param("userId");
@@ -333,6 +435,9 @@ export default {
         }
       }),
     );
+
+    // Ślady po zużytych tokenach rosną z każdą wysłaną wiadomością.
+    if (tokenyWlaczone(env)) ctx.waitUntil(posprzatajTokeny(env));
 
     ctx.waitUntil(
       cleanupExpiredTransfers(env).then((usuniete) => {

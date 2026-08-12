@@ -70,11 +70,25 @@ Nadanie do skrzynki **nie wymaga tokenu** i nie jest to przeoczenie: serwer
 z założenia nie ma się dowiadywać, kto do kogo pisze. Tożsamość nadawcy jest
 uwierzytelniona kryptograficznie **wewnątrz** MLS, gdzie serwer jej nie widzi.
 
-Cena jest realna i trzeba ją powiedzieć wprost: skoro nadawać może każdy,
-**każdy może zalewać cudzą skrzynkę**. Dziś broni przed tym wyłącznie limit
-rozmiaru koperty. Właściwym rozwiązaniem są niepowiązywalne tokeny doręczeniowe
-(podpisy na oślep albo VOPRF): serwer sprawdza, że nadający ma prawo nadawać,
-nie dowiadując się, kim jest. Tego jeszcze nie ma.
+Skoro jednak nadawać może każdy, każdy mógłby zalewać cudzą skrzynkę. Broni
+przed tym **token doręczeniowy**: serwer wydaje go na wartość *oślepioną*, więc
+przy wydaniu nie widzi, co wydał, a przy realizacji nie widzi, komu
+(`opaque/src/tokeny.rs`). Nadający dowodzi „mam prawo nadać", nie mówiąc
+„jestem tym kontem".
+
+Klient sprawdza dowód, że serwer użył swojego opublikowanego klucza. Bez tego
+złośliwy serwer **znakowałby** użytkowników — wydawałby każdemu tokeny innym
+kluczem i rozpoznawał przy realizacji, czyj był token. Klucz jest dodatkowo
+przypinany przy pierwszym pobraniu, więc podstawienie go pod jedną osobę
+wymaga zmiany u wszystkich naraz.
+
+Token jest jednorazowy: tabela `spent_tokens` odrzuca powtórzenie atomowo,
+kluczem głównym. Nie ma w niej nic o nadawcy i nie może się pojawić.
+
+Czego to **nie** ukrywa: adresu IP nadającego i tego, że w danej chwili ktoś
+nadał do konkretnej skrzynki. Zapas tokenów bierze się z góry i rzadko, żeby
+uwierzytelnione pobranie nie sąsiadowało w czasie z nadaniem — ale korelacja
+po IP zostaje. Na to potrzeba miksowania ruchu, którego nie mamy.
 
 Odbiór jest odwrotnie — **wymaga tokenu i to właściciela skrzynki**. Trasa
 `GET /inbox/:userId/connect` nie miała żadnego uwierzytelnienia: ktokolwiek znał

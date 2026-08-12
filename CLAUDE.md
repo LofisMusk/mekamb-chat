@@ -471,9 +471,21 @@ route** — that is why `GroupRelay` is named by a separately derived
 `identyfikator_relaya`, not by the group id. Welcome envelopes carry no tag (the
 recipient does not know the group yet); any other kind without one is rejected.
 
-**Depositing into a mailbox is deliberately unauthenticated; reading it is not.**
+**Depositing into a mailbox carries no account token; reading requires one.**
 The server must not learn who writes to whom, so `POST /inbox/:userId` takes no
-token — sender identity is authenticated inside MLS. `GET /inbox/:userId/connect`
+account token — sender identity is authenticated inside MLS. The right to send
+is proved by a **delivery token** instead (`opaque/src/tokeny.rs`): the server
+signs a *blinded* value, so at issuance it cannot see what it signed and at
+redemption it cannot see whom it signed for. The client verifies a
+Chaum-Pedersen proof that the server used its published key — without it a
+malicious server would tag users by issuing each one tokens under a different
+key. Tokens are single-use; `spent_tokens` rejects a replay atomically via its
+primary key and holds nothing about the sender.
+
+Issuance and enforcement are separate settings (`DELIVERY_TOKEN_KEY` and
+`DELIVERY_TOKEN_REQUIRED`) because a server that starts refusing untokened
+deposits the moment it is deployed cuts off every client that has not updated
+yet. `GET /inbox/:userId/connect`
 had no authentication either, which was a hole, not a design: anyone knowing a
 username could drain someone's mailbox and `ack:<id>` the envelopes away before
 they arrived. It now requires the owner's token, passed as

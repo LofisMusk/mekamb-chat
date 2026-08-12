@@ -1375,6 +1375,7 @@ name = "mekamb-opaque"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "curve25519-dalek",
  "opaque-ke",
  "rand 0.8.7",
  "sha2 0.10.9",

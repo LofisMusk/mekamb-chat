@@ -278,6 +278,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // otwartych rozmów, a koperta bez dopasowania przepada.
                 val zapisane = historia.lista()
                 klient.otworzZnaneRozmowy(zapisane.map { it.groupId })
+                klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
+                runCatching { klient.uzupelnijTokeny() }
 
                 klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
                 messenger = klient
@@ -611,6 +613,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // przyjdzie: rdzeń po odtworzeniu ma pełny stan, ale pustą listę
                 // otwartych rozmów, a koperta bez dopasowania przepada.
                 klient.otworzZnaneRozmowy(historia.lista().map { it.groupId })
+                klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
+                runCatching { klient.uzupelnijTokeny() }
 
                 klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
                 klient

@@ -1,5 +1,7 @@
 package com.mekamb.chat
 
+import android.util.Base64
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -19,6 +21,8 @@ import uniffi.mekamb_ffi.maxAttachmentBytes
 import uniffi.mekamb_ffi.openAttachment
 import uniffi.mekamb_ffi.sealAttachment
 import uniffi.mekamb_ffi.stripMetadata
+import uniffi.mekamb_ffi.tokenOdslon
+import uniffi.mekamb_ffi.tokenOslep
 import uniffi.mekamb_ffi.tryDirectDelivery
 
 /**
@@ -82,6 +86,15 @@ class Messenger private constructor(
     /** Szereguje dostęp do stanu MLS — patrz [przetworzKoperte]. */
     private val mlsMutex = Mutex()
 
+    /**
+     * Portfel tokenów doręczeniowych.
+     *
+     * Zapas bierzemy z góry i wydajemy pojedynczo: pobranie jest żądaniem
+     * uwierzytelnionym, więc branie tokenu tuż przed każdą wiadomością dałoby
+     * serwerowi dokładnie to powiązanie, które ten schemat usuwa.
+     */
+    private var portfel: PortfelTokenow? = null
+
     private var skrzynka: PolaczenieZeSkrzynka? = null
     private var kolejkaSkrzynki: Channel<Pair<ByteArray, (Long) -> Unit>>? = null
 
@@ -133,6 +146,52 @@ class Messenger private constructor(
         for (groupId in groupIds) {
             // Uszkodzony wpis nie może zablokować pozostałych rozmów.
             runCatching { client.openConversation(groupId) }
+        }
+    }
+
+    /** Podpina portfel tokenów. Wołane raz, po zalogowaniu. */
+    fun ustawPortfel(nowy: PortfelTokenow) {
+        portfel = nowy
+    }
+
+    /**
+     * Uzupełnia zapas tokenów, jeśli zszedł poniżej progu.
+     *
+     * Cicha przy każdym niepowodzeniu: wdrożenie bez skonfigurowanych tokenów
+     * odpowiada 503 i to jest poprawny stan, nie awaria. Brak tokenów nie może
+     * zatrzymać wysyłania.
+     */
+    suspend fun uzupelnijTokeny() {
+        val portfel = portfel ?: return
+        if (!portfel.trzebaDobrac()) return
+
+        runCatching {
+            val kluczPubliczny = api.kluczTokenow() ?: return
+
+            // Przypięcie klucza: serwer wydający różnym osobom tokeny różnymi
+            // kluczami ZNAKUJE je. Dowód wykrywa użycie innego klucza niż
+            // podany, ale nie to, że sam klucz podstawiono pod nas.
+            if (!portfel.przypnijKlucz(kluczPubliczny)) return
+
+            val proby = List(PortfelTokenow.DOCELOWY) { tokenOslep() }
+            val wydane = api.wydajTokeny(token, proby.map { it.oslepione })
+            val klucz = kluczPubliczny.fromBase64()
+
+            val nowe = wydane.mapIndexedNotNull { i, (ocenione, wyzwanie, odpowiedz) ->
+                val proba = proby.getOrNull(i) ?: return@mapIndexedNotNull null
+
+                // Odrzucony token pomijamy zamiast wywracać całe uzupełnienie:
+                // jeden zły nie może kosztować pozostałych.
+                runCatching {
+                    val gotowy = tokenOdslon(proba, ocenione, wyzwanie, odpowiedz, klucz)
+                    TokenDoreczenia(
+                        Base64.encodeToString(gotowy.ziarno, Base64.NO_WRAP),
+                        Base64.encodeToString(gotowy.odslonione, Base64.NO_WRAP),
+                    )
+                }.getOrNull()
+            }
+
+            portfel.doloz(nowe)
         }
     }
 
@@ -450,7 +509,14 @@ class Messenger private constructor(
         )
 
         if (sposob == DeliveryMode.MAILBOX) {
-            api.deposit(recipient, koperta)
+            // Token doręczeniowy tylko na drodze przez skrzynkę: przy
+            // dostarczeniu wprost serwera w ogóle nie ma w torze, więc nie ma
+            // komu niczego dowodzić.
+            api.deposit(recipient, koperta, portfel?.wez()?.naglowek())
+
+            // Uzupełnianie PO wysyłce, nie przed: pobranie zapasu jest żądaniem
+            // uwierzytelnionym, więc trzymamy je z dala od chwili nadania.
+            uzupelnijTokeny()
         }
 
         return sposob

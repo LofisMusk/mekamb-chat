@@ -155,12 +155,43 @@ impl Conversation {
         identity: &DeviceIdentity,
         key_package: &KeyPackage,
     ) -> Result<PendingCommit> {
+        self.stage_add_members(provider, identity, core::slice::from_ref(key_package))
+    }
+
+    /// Przygotowuje dodanie **wielu** członków jednym commitem.
+    ///
+    /// # Dlaczego to musi być jedno wywołanie
+    ///
+    /// Jedna osoba ma kilka urządzeń, a członkiem grupy jest urządzenie —
+    /// dodanie jej to tyle commitów, ile ma urządzeń. Robione po kolei
+    /// oznaczałoby tyle samo osobnych epok, z których **każda** wymaga zgody
+    /// `GroupRelay`: pierwsza przechodzi, a przy kolejnej wystarczy, że ktoś
+    /// inny wtrąci swój commit, i zostajemy z konta dodanym w połowie —
+    /// część urządzeń w grupie, część poza nią, bez możliwości wycofania tego,
+    /// co już weszło.
+    ///
+    /// MLS pozwala umieścić wiele propozycji Add w jednym commicie i zwraca
+    /// **jeden** Welcome ważny dla wszystkich nowych liści. Jedna epoka, jedno
+    /// rozstrzygnięcie kolejności, jedno „udało się albo nie".
+    ///
+    /// Pusta lista jest błędem, nie commitem bez zmian: commit niczego nie
+    /// zmieniający i tak zająłby epokę.
+    pub fn stage_add_members(
+        &mut self,
+        provider: &Provider,
+        identity: &DeviceIdentity,
+        key_packages: &[KeyPackage],
+    ) -> Result<PendingCommit> {
+        if key_packages.is_empty() {
+            return Err(Error::Group("nie ma kogo dodać do grupy".into()));
+        }
+
         let signer = identity.signature_keypair();
 
         let (commit, welcome, _group_info) = self
             .group
-            .add_members(provider, &signer, core::slice::from_ref(key_package))
-            .map_err(|e| Error::Group(format!("nie udało się dodać członka: {e}")))?;
+            .add_members(provider, &signer, key_packages)
+            .map_err(|e| Error::Group(format!("nie udało się dodać członków: {e}")))?;
 
         Ok(PendingCommit {
             commit: serialize_message(&commit)?,

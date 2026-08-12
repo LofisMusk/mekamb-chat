@@ -120,6 +120,29 @@ export function rozetnijIdentyfikatory(bajty: Uint8Array): string[] {
   return identyfikatory;
 }
 
+/**
+ * Skleja key packages, każdy poprzedzony swoją długością (u32 big-endian).
+ *
+ * Identyfikatory wyżej mają stałą długość, więc wystarczało je zestawić obok
+ * siebie. Key packages nie mają, a `wasm_bindgen` nie przenosi tablicy tablic
+ * bajtów — stąd długość z przodu, dokładnie tak samo jak w zrzucie
+ * przeniesienia konta. Rozcina to `rozetnij_pakiety` w rdzeniu.
+ */
+export function sklejPakiety(pakiety: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  const rozmiar = pakiety.reduce((suma, p) => suma + 4 + p.length, 0);
+  const wynik = new Uint8Array(new ArrayBuffer(rozmiar));
+  const widok = new DataView(wynik.buffer);
+
+  let pozycja = 0;
+  for (const pakiet of pakiety) {
+    widok.setUint32(pozycja, pakiet.length);
+    wynik.set(pakiet, pozycja + 4);
+    pozycja += 4 + pakiet.length;
+  }
+
+  return wynik;
+}
+
 export class Messenger {
   private constructor(
     private readonly client: MekambClient,
@@ -238,7 +261,7 @@ export class Messenger {
   }
 
   /**
-   * Dodaje osobę do rozmowy.
+   * Dodaje osobę do rozmowy — ze **wszystkimi** jej urządzeniami.
    *
    * Ta sama ścieżka obsługuje założenie DM-a i rozbudowę grupy — bo DM to
    * grupa o rozmiarze 2 i nie ma powodu, żeby istniały dwa różne przepływy.
@@ -247,24 +270,39 @@ export class Messenger {
    * pozostałym członkom. Dopiero jego potwierdzenie pozwala scalić zmianę
    * lokalnie: scalenie na siłę zostawiłoby nas w epoce, której reszta grupy
    * nie zna, czyli poza rozmową.
+   *
+   * # Czemu wszystkie urządzenia, a nie pierwsze
+   *
+   * Członkiem grupy MLS jest **urządzenie**, nie osoba. Wcześniej braliśmy
+   * `devices[0]`, więc do rozmowy wchodziło wyłącznie ostatnio widziane
+   * urządzenie odbiorcy — na pozostałych nie pojawiało się nic i **nadawca nie
+   * widział przy tym żadnego błędu**. Jedno konto na kilku urządzeniach nie
+   * mogło zadziałać, dopóki to tu wyglądało tak, jak wyglądało.
+   *
+   * Wszystkie urządzenia idą **jednym** commitem: każdy kolejny to osobna
+   * epoka do uzgodnienia z relayem, a odrzucenie tej drugiej zostawiłoby konto
+   * dodane w połowie — część urządzeń w grupie, część poza nią.
    */
   async addMember(groupId: Uint8Array, username: string): Promise<void> {
     const { devices } = await api.get<{ devices: { deviceId: string }[] }>(
       `/directory/${encodeURIComponent(username)}`,
     );
 
-    const device = devices[0];
-    if (!device) {
+    if (devices.length === 0) {
       throw new Error(`użytkownik ${username} nie ma zarejestrowanych urządzeń`);
     }
 
-    const { keyPackage } = await api.post<{ keyPackage: string }>(
-      `/key-packages/${encodeURIComponent(device.deviceId)}/claim`,
-      {},
-      this.token,
-    );
+    const pakiety = await this.pobierzPakiety(devices);
+    if (pakiety.length === 0) {
+      // Wszystkie urządzenia bez wolnych key packages. Dodanie „zera osób"
+      // zajęłoby epokę bez żadnej zmiany składu, więc lepiej powiedzieć wprost.
+      throw new Error(
+        `żadne urządzenie użytkownika ${username} nie ma wolnych key packages — ` +
+          `niech otworzy aplikację i spróbuj ponownie`,
+      );
+    }
 
-    const pending = this.client.addMember(groupId, fromBase64(keyPackage));
+    const pending = this.client.addMembers(groupId, sklejPakiety(pakiety));
 
     /*
      * Do serwera idzie sam numer epoki.
@@ -314,6 +352,36 @@ export class Messenger {
     if (pending.welcome) {
       await api.deposit(username, encodeEnvelope(groupId, "welcome", pending.welcome));
     }
+  }
+
+  /**
+   * Pobiera po jednym key package na urządzenie.
+   *
+   * Urządzenie bez wolnego zapasu **pomijamy zamiast przerywać całość**.
+   * Zapas bywa wyczerpany zupełnie normalnie: jest jednorazowy, a uzupełnia go
+   * dopiero właściciel, gdy otworzy aplikację. Przerwanie dodawania oznaczałoby,
+   * że jeden zapomniany laptop blokuje rozmowę na wszystkich pozostałych
+   * urządzeniach — a to gorsze niż dołączenie go później.
+   *
+   * Pominięte urządzenie po prostu nie widzi tej rozmowy, dopóki ktoś nie doda
+   * go ponownie. Interfejs musi to umieć pokazać, bo inaczej wygląda jak awaria.
+   */
+  private async pobierzPakiety(
+    devices: readonly { deviceId: string }[],
+  ): Promise<Uint8Array[]> {
+    const wyniki = await Promise.allSettled(
+      devices.map((device) =>
+        api.post<{ keyPackage: string }>(
+          `/key-packages/${encodeURIComponent(device.deviceId)}/claim`,
+          {},
+          this.token,
+        ),
+      ),
+    );
+
+    return wyniki
+      .filter((wynik) => wynik.status === "fulfilled")
+      .map((wynik) => fromBase64(wynik.value.keyPackage));
   }
 
   /**

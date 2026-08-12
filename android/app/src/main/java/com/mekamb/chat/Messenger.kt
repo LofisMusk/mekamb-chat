@@ -223,13 +223,14 @@ class Messenger private constructor(
     /** Zakłada rozmowę z użytkownikiem i zwraca identyfikator grupy. */
     suspend fun startConversation(peerUsername: String): ByteArray = withContext(Dispatchers.IO) {
         val urzadzenia = api.lookupDevices(peerUsername)
-        val urzadzenie = urzadzenia.firstOrNull()
-            ?: error("użytkownik $peerUsername nie ma zarejestrowanych urządzeń")
+        if (urzadzenia.isEmpty()) {
+            error("użytkownik $peerUsername nie ma zarejestrowanych urządzeń")
+        }
 
-        val keyPackage = api.claimKeyPackage(urzadzenie.deviceId)
+        val pakiety = pobierzPakiety(urzadzenia, peerUsername)
 
         val groupId = client.createConversation()
-        val oczekujacy = client.addMember(groupId, keyPackage)
+        val oczekujacy = client.addMembers(groupId, pakiety)
 
         /*
          * Do serwera idzie sam numer epoki.
@@ -253,9 +254,7 @@ class Messenger private constructor(
         // Rozsyłkę commitu robi nadawca — patrz `dodajCzlonka`. Przy zakładaniu
         // rozmowy nie ma jednak komu go wysłać: w grupie jesteśmy my i osoba,
         // którą właśnie zapraszamy, a ona dostaje `welcome`.
-        oczekujacy.welcome?.let { welcome ->
-            wyslij(peerUsername, urzadzenie, welcome)
-        }
+        oczekujacy.welcome?.let { welcome -> wyslijWelcome(peerUsername, welcome) }
 
         groupId
     }
@@ -281,11 +280,13 @@ class Messenger private constructor(
      */
     suspend fun dodajCzlonka(groupId: ByteArray, peerUsername: String): Unit =
         withContext(Dispatchers.IO) {
-            val urzadzenie = api.lookupDevices(peerUsername).firstOrNull()
-                ?: error("użytkownik $peerUsername nie ma zarejestrowanych urządzeń")
+            val urzadzenia = api.lookupDevices(peerUsername)
+            if (urzadzenia.isEmpty()) {
+                error("użytkownik $peerUsername nie ma zarejestrowanych urządzeń")
+            }
 
-            val keyPackage = api.claimKeyPackage(urzadzenie.deviceId)
-            val oczekujacy = client.addMember(groupId, keyPackage)
+            val pakiety = pobierzPakiety(urzadzenia, peerUsername)
+            val oczekujacy = client.addMembers(groupId, pakiety)
 
             val przyjety = api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
 
@@ -313,8 +314,50 @@ class Messenger private constructor(
                 api.deposit(osoba, oczekujacy.commit)
             }
 
-            oczekujacy.welcome?.let { wyslij(peerUsername, urzadzenie, it) }
+            oczekujacy.welcome?.let { wyslijWelcome(peerUsername, it) }
         }
+
+    /**
+     * Pobiera po jednym key package na urządzenie.
+     *
+     * Urządzenie bez wolnego zapasu **pomijamy zamiast przerywać całość**.
+     * Zapas jest jednorazowy, a uzupełnia go dopiero właściciel, gdy otworzy
+     * aplikację — przerwanie oznaczałoby, że jeden zapomniany laptop blokuje
+     * rozmowę na wszystkich pozostałych urządzeniach. Pominięte urządzenie nie
+     * widzi tej rozmowy, dopóki ktoś nie doda go ponownie.
+     */
+    private suspend fun pobierzPakiety(
+        urzadzenia: List<Api.Device>,
+        peerUsername: String,
+    ): List<ByteArray> {
+        val pakiety = urzadzenia.mapNotNull { urzadzenie ->
+            runCatching { api.claimKeyPackage(urzadzenie.deviceId) }.getOrNull()
+        }
+
+        if (pakiety.isEmpty()) {
+            // Dodanie „zera urządzeń" zajęłoby epokę bez zmiany składu, więc
+            // rdzeń i tak by to odrzucił — lepiej powiedzieć wprost, co robić.
+            error(
+                "żadne urządzenie użytkownika $peerUsername nie ma wolnych key packages — " +
+                    "niech otworzy aplikację i spróbuj ponownie",
+            )
+        }
+
+        return pakiety
+    }
+
+    /**
+     * Wysyła Welcome **skrzynką**, nigdy wprost.
+     *
+     * Welcome musi dotrzeć do **każdego** nowo dodanego urządzenia, a dostarczenie
+     * bezpośrednie trafia z definicji w jedno. Pozostałe siedziałyby wtedy
+     * w drzewie MLS, nie mając czym otworzyć grupy: są członkami, których nikt
+     * nie wpuścił. Skrzynka jest jedyną drogą, która rozchodzi się na wszystkie
+     * urządzenia odbiorcy.
+     */
+    private suspend fun wyslijWelcome(peerUsername: String, welcome: ByteArray) {
+        wyslij(peerUsername, urzadzenie = null, koperta = welcome)
+    }
 
     /**
      * Szyfruje i wysyła wiadomość tekstową.
@@ -334,7 +377,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = api.lookupDevices(recipient).firstOrNull()
+        val urzadzenie = drogaBezposrednia(recipient)
         WyslanaWiadomosc(
             sposob = wyslij(recipient, urzadzenie, zapakowana.koperta),
             messageId = zapakowana.messageId,
@@ -365,7 +408,7 @@ class Messenger private constructor(
 
         vault.saveState(client.exportState())
 
-        val urzadzenie = api.lookupDevices(recipient).firstOrNull()
+        val urzadzenie = drogaBezposrednia(recipient)
         wyslij(recipient, urzadzenie, koperta)
     }
 
@@ -423,7 +466,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = api.lookupDevices(recipient).firstOrNull()
+        val urzadzenie = drogaBezposrednia(recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         WyslanyZalacznik(
@@ -478,9 +521,28 @@ class Messenger private constructor(
         // wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = api.lookupDevices(target).firstOrNull()
+        val urzadzenie = drogaBezposrednia(target)
         wyslij(target, urzadzenie, koperta)
     }
+
+    /**
+     * Urządzenie, do którego wolno dostarczyć **wprost** — albo `null`.
+     *
+     * # Dlaczego przy kilku urządzeniach zawsze skrzynka
+     *
+     * Dostarczenie bezpośrednie trafia z definicji w jedno urządzenie, a koperta
+     * ma dotrzeć do wszystkich urządzeń odbiorcy. Gdyby wysłać ją wprost do
+     * pierwszego z brzegu, pozostałe **nie dostałyby jej nigdy** — bez żadnego
+     * błędu po naszej stronie, dokładnie tak jak wcześniej gubiły się
+     * zaproszenia wysyłane do `devices[0]`.
+     *
+     * Skrzynka jest jedyną drogą, która rozchodzi się na wszystkie urządzenia.
+     * P2P zostaje więc tam, gdzie jest jednoznaczne: odbiorca ma jedno
+     * urządzenie. To świadome oddanie drogi bezpośredniej za poprawność —
+     * interfejs i tak pokazuje, którą drogą poszła wiadomość.
+     */
+    private suspend fun drogaBezposrednia(recipient: String): Api.Device? =
+        api.lookupDevices(recipient).singleOrNull()
 
     /** Poświadczenia STUN/TURN dla rozmowy A/V — token trzyma `Messenger`. */
     suspend fun serweryIce(): List<Api.SerwerIce> = api.iceServers(token)

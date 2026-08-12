@@ -472,11 +472,27 @@ impl MekambClient {
         group_id: Vec<u8>,
         key_package: Vec<u8>,
     ) -> Result<PendingCommit, MekambError> {
+        self.add_members(group_id, vec![key_package])
+    }
+
+    /// Przygotowuje dodanie wielu urządzeń **jednym** commitem.
+    ///
+    /// Jedna osoba ma kilka urządzeń, a członkiem grupy jest urządzenie.
+    /// Dodawanie ich po kolei zajmowałoby osobną epokę na każde i mogło się
+    /// zatrzymać w połowie — patrz `Conversation::stage_add_members`.
+    pub fn add_members(
+        &self,
+        group_id: Vec<u8>,
+        key_packages: Vec<Vec<u8>>,
+    ) -> Result<PendingCommit, MekambError> {
         let mut state = self.lock();
 
         // Weryfikacja podpisu i okresu ważności dzieje się TUTAJ — key package
         // pochodzi z serwera, który nie jest zaufanym źródłem.
-        let package = mekamb_core::group::deserialize_key_package(&state.provider, &key_package)?;
+        let packages = key_packages
+            .iter()
+            .map(|bajty| mekamb_core::group::deserialize_key_package(&state.provider, bajty))
+            .collect::<mekamb_core::error::Result<Vec<_>>>()?;
 
         let ClientState {
             identity,
@@ -490,7 +506,7 @@ impl MekambClient {
                     powod: "nie ma takiej rozmowy".into(),
                 })?;
 
-        let pending = conversation.stage_add_member(provider, identity, &package)?;
+        let pending = conversation.stage_add_members(provider, identity, &packages)?;
 
         Ok(PendingCommit {
             commit: Envelope::new(&group_id, EnvelopeKind::Commit, pending.commit).encode_to_vec(),

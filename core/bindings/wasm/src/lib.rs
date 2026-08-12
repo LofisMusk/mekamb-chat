@@ -250,9 +250,33 @@ impl MekambClient {
         group_id: &[u8],
         key_package: &[u8],
     ) -> Result<PendingCommitJs, JsError> {
+        self.add_members(group_id, &sklej_pakiety(&[key_package]))
+    }
+
+    /// Przygotowuje dodanie wielu urządzeń **jednym** commitem.
+    ///
+    /// Jedna osoba ma kilka urządzeń, a członkiem grupy jest urządzenie.
+    /// Dodawanie ich po kolei zajmowałoby osobną epokę na każde i mogło się
+    /// zatrzymać w połowie — patrz `Conversation::stage_add_members`.
+    ///
+    /// `key_packages` to sklejone pakiety, każdy poprzedzony swoją długością
+    /// (`u32` big-endian). `wasm_bindgen` nie przenosi tablicy tablic bajtów,
+    /// a to samo ramkowanie z długością z przodu jest już w `storage.rs`
+    /// i w zrzucie przeniesienia konta. Składa je `sklejPakiety`
+    /// w `web/src/lib/messenger.ts`.
+    #[wasm_bindgen(js_name = addMembers)]
+    pub fn add_members(
+        &mut self,
+        group_id: &[u8],
+        key_packages: &[u8],
+    ) -> Result<PendingCommitJs, JsError> {
         // Weryfikacja podpisu i okresu ważności dzieje się TUTAJ. Key package
         // pochodzi z serwera, który nie jest zaufanym źródłem.
-        let package = mekamb_core::group::deserialize_key_package(&self.provider, key_package)
+        let packages = rozetnij_pakiety(key_packages)
+            .map_err(to_js)?
+            .iter()
+            .map(|bajty| mekamb_core::group::deserialize_key_package(&self.provider, bajty))
+            .collect::<mekamb_core::error::Result<Vec<_>>>()
             .map_err(to_js)?;
 
         let Self {
@@ -262,7 +286,7 @@ impl MekambClient {
         } = self;
 
         let pending = pobierz_mut(conversations, group_id)?
-            .stage_add_member(provider, identity, &package)
+            .stage_add_members(provider, identity, &packages)
             .map_err(to_js)?;
 
         Ok(PendingCommitJs {
@@ -616,6 +640,44 @@ fn pobierz_mut<'a>(
     conversations
         .get_mut(group_id)
         .ok_or_else(|| JsError::new("nie ma takiej rozmowy w tym kliencie"))
+}
+
+/// Skleja pakiety, każdy poprzedzony długością (`u32` big-endian).
+///
+/// Odpowiednik `sklejPakiety` po stronie TypeScriptu. Istnieje wyłącznie po to,
+/// żeby `addMember` mógł być cienką nakładką na `addMembers` i nie powielać
+/// logiki dodawania.
+fn sklej_pakiety(pakiety: &[&[u8]]) -> Vec<u8> {
+    let mut wynik = Vec::with_capacity(pakiety.iter().map(|p| 4 + p.len()).sum());
+    for pakiet in pakiety {
+        wynik.extend_from_slice(&(pakiet.len() as u32).to_be_bytes());
+        wynik.extend_from_slice(pakiet);
+    }
+    wynik
+}
+
+/// Rozcina sklejone pakiety.
+///
+/// Bufor pochodzi z JavaScriptu, więc jest wrogi z założenia: każda długość
+/// jest sprawdzana względem tego, co zostało, zamiast ufać nagłówkowi.
+fn rozetnij_pakiety(bufor: &[u8]) -> mekamb_core::error::Result<Vec<&[u8]>> {
+    let bledny = || mekamb_core::Error::Group("uszkodzona lista key packages".into());
+
+    let mut pakiety = Vec::new();
+    let mut pozycja = 0usize;
+
+    while pozycja < bufor.len() {
+        let naglowek = bufor.get(pozycja..pozycja + 4).ok_or_else(bledny)?;
+        let dlugosc = u32::from_be_bytes(naglowek.try_into().map_err(|_| bledny())?) as usize;
+
+        let koniec = pozycja.checked_add(4).and_then(|p| p.checked_add(dlugosc));
+        let koniec = koniec.filter(|k| *k <= bufor.len()).ok_or_else(bledny)?;
+
+        pakiety.push(&bufor[pozycja + 4..koniec]);
+        pozycja = koniec;
+    }
+
+    Ok(pakiety)
 }
 
 fn zdarzenie(kind: &str) -> IncomingMessage {

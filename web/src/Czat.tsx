@@ -11,6 +11,7 @@ import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/a
 import {
   type PozycjaListy,
   type Wiadomosc,
+  type ZapisRozmowy,
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
@@ -57,6 +58,11 @@ function godzina(czas: number): string {
  * świadomie nie pokazujemy, bo bywa nią data i model aparatu.
  */
 function zapowiedz(w: Wiadomosc): string {
+  if (w.rozmowa) {
+    if (w.rozmowa.sekundy === undefined) return "Nieodebrana rozmowa";
+    return w.rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa";
+  }
+
   if (w.tresc) return w.tresc;
   if (!w.zalacznik) return "";
 
@@ -109,12 +115,22 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [zadanieRozmowy, setZadanieRozmowy] = useState<ZadanieRozmowy | null>(null);
 
   /*
-   * Inspektor na wąskim ekranie jest schowany, dopóki ktoś o niego nie poprosi.
+   * Inspektor: na szerokim ekranie otwarty od razu, na wąskim schowany.
    *
-   * Na szerokim stoi obok wątku i nic nie zasłania — tam zostaje widoczny
-   * zawsze, o co dba arkusz stylów.
+   * Szerokość czytamy RAZ, przy pierwszym złożeniu, i to jest jedyne miejsce
+   * w tym pliku, gdzie w ogóle o nią pytamy. Wolno tu, bo to nie jest stan
+   * wyliczany z szerokości — to stan przełączany przez użytkownika, któremu
+   * szerokość podpowiada tylko wartość POCZĄTKOWĄ. Przełącznik listy i wątku
+   * jest inny i dlatego siedzi w arkuszu: tam stan musiałby gonić za każdym
+   * obrotem telefonu.
+   *
+   * Wcześniej to pole było zawsze `false`, a na szerokim ekranie panel i tak
+   * się pokazywał, bo arkusz trzymał go jako stałą kolumnę. Krzyżyk nie miał
+   * więc czego zamknąć.
    */
-  const [inspektorOtwarty, setInspektorOtwarty] = useState(false);
+  const [inspektorOtwarty, setInspektorOtwarty] = useState(
+    () => typeof matchMedia === "function" && matchMedia("(min-width: 78.01rem)").matches,
+  );
 
   /*
    * Trwałość magazynu pokazujemy w panelu konta, a nie tylko w ostrzeżeniu
@@ -901,12 +917,30 @@ function Watek({
       </header>
 
       {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
-          najważniejszą rzeczą na ekranie. */}
+          najważniejszą rzeczą na ekranie.
+
+          Ślad po niej idzie do tej samej listy co wiadomości. Osobna lista
+          „zdarzeń" wymagałaby scalania dwóch porządków czasowych przy każdym
+          rysowaniu wątku — a rozmowa i wiadomość dzieją się w tej samej osi
+          czasu i mają się w niej przeplatać. */}
       <Rozmowa
         messenger={messenger}
         groupId={groupId}
         sygnal={sygnalRozmowy}
         zadanie={zadanieRozmowy}
+        onZdarzenie={(zapis) =>
+          setWiadomosci((p) => [
+            ...p,
+            {
+              id: crypto.randomUUID(),
+              autor: zapis.wychodzaca ? "Ty" : rozmowca,
+              tresc: "",
+              czas: Date.now(),
+              wlasna: zapis.wychodzaca,
+              rozmowa: zapis,
+            },
+          ])
+        }
         onBlad={onBlad}
       />
 
@@ -931,14 +965,22 @@ function Watek({
               {pozycja.etykieta}
             </li>
           ) : (
-            <Dymek
-              key={pozycja.klucz}
-              messenger={messenger}
-              wiadomosc={pozycja.wiadomosc}
-              ciag={pozycja.ciag}
-              stan={stanyWysylki.get(pozycja.wiadomosc.id)}
-              onBlad={onBlad}
-            />
+            pozycja.wiadomosc.rozmowa ? (
+              <ZdarzenieRozmowy
+                key={pozycja.klucz}
+                wiadomosc={pozycja.wiadomosc}
+                rozmowa={pozycja.wiadomosc.rozmowa}
+              />
+            ) : (
+              <Dymek
+                key={pozycja.klucz}
+                messenger={messenger}
+                wiadomosc={pozycja.wiadomosc}
+                ciag={pozycja.ciag}
+                stan={stanyWysylki.get(pozycja.wiadomosc.id)}
+                onBlad={onBlad}
+              />
+            )
           ),
         )}
       </ol>
@@ -993,6 +1035,55 @@ function Watek({
       </p>
     </div>
   );
+}
+
+/**
+ * Ślad po rozmowie A/V w wątku.
+ *
+ * # Dlaczego to nie jest dymek
+ *
+ * Bo nikt tego nie powiedział. Dymek — z bokiem, ogonkiem i godziną przy
+ * własnej krawędzi — mówi „ta osoba napisała to zdanie". Rozmowa się wydarzyła,
+ * a nie została wysłana, więc stoi na środku, tak samo jak rozdzielacz dnia.
+ *
+ * Ikona jest DOKŁADNIE ta, którą się w tę rozmowę weszło: słuchawka przy
+ * głosowej, kamera przy wideo. Inny piktogram w podsumowaniu niż na przycisku
+ * kazałby się domyślać, że to o tym samym.
+ */
+function ZdarzenieRozmowy({
+  wiadomosc,
+  rozmowa,
+}: {
+  wiadomosc: Wiadomosc;
+  rozmowa: ZapisRozmowy;
+}) {
+  const odbyta = rozmowa.sekundy !== undefined;
+
+  // Nieodebrana wychodząca to „nikt nie odebrał", przychodząca — „nie odebrałeś".
+  // To dwie różne rzeczy i tylko druga jest czymś, co się przegapiło.
+  const opis = odbyta
+    ? `${rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa"} · ${trwanieRozmowy(rozmowa.sekundy ?? 0)}`
+    : rozmowa.wychodzaca
+      ? "Nikt nie odebrał"
+      : `Nieodebrana rozmowa ${rozmowa.wideo ? "wideo" : "głosowa"}`;
+
+  return (
+    <li className={odbyta ? "zdarzenie" : "zdarzenie nieodebrane"}>
+      <Ikona nazwa={rozmowa.wideo ? "kamera" : "sluchawka"} rozmiar={14} />
+      <span>{opis}</span>
+      <span className="czas-zdarzenia">{godzina(wiadomosc.czas)}</span>
+    </li>
+  );
+}
+
+/** Czas trwania jako `m:ss`; godziny dopiero wtedy, gdy są. */
+function trwanieRozmowy(sekundy: number): string {
+  const s = Math.max(0, Math.floor(sekundy));
+  const minuty = Math.floor(s / 60);
+  const reszta = String(s % 60).padStart(2, "0");
+
+  if (minuty < 60) return `${minuty}:${reszta}`;
+  return `${Math.floor(minuty / 60)}:${String(minuty % 60).padStart(2, "0")}:${reszta}`;
 }
 
 function Dymek({

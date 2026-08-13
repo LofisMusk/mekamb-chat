@@ -213,7 +213,26 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+/*
+ * Dokument NIE PRZEWIJA SIĘ. Przewija się zawartość w środku.
+ *
+ * `height: 100%` samo w sobie tego nie załatwia: dokument dalej jest
+ * przewijalny, a Safari na iPhonie robi z tego trzy rzeczy naraz —
+ * odbija stronę sprężynowo na krańcu, chowa i pokazuje pasek adresu
+ * (co przy każdym ruchu zmienia wysokość widoku), i ciągnie za sobą
+ * wszystko, co jest `position: fixed`. Stąd pasek nawigacji zjeżdżający
+ * na dół i przewijanie w miejscach, w których nie ma czego przewijać.
+ *
+ * `overscroll-behavior: none` tego nie naprawia i to była poprzednia pomyłka:
+ * ono zatrzymuje ŁAŃCUCH przewijania (żeby przewinięcie listy nie ruszyło
+ * strony pod spodem), ale własnego odbicia dokumentu nie dotyczy.
+ *
+ * Dlatego `body` jest przypięty do widoku i nie ma czego przewijać. Wszystko,
+ * co ma się przewijać, robi to we własnym pudełku — lista rozmów, wątek,
+ * panel konta. Dzięki temu pasek dolny może być zwykłym elementem układu,
+ * a nie `position: fixed`, i nie ma fizycznej możliwości, żeby odjechał.
+ */
+html { height: 100%; }
 
 /*
  * Wcięć bezpiecznych NIE ma na `<body>`.
@@ -229,6 +248,11 @@ html, body { height: 100%; }
  * Cokolwiek by nie wynosiły, powłoka nie może być wyższa od widoku.
  */
 body {
+  /* Przypięty do widoku — patrz wyżej. `inset: 0` zamiast `height: 100%`,
+     bo tylko wtedy dokument NIE MA obszaru przewijania w ogóle. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
   margin: 0;
   padding: 0;
   background: var(--tlo);
@@ -237,8 +261,7 @@ body {
      dokładamy: kilkaset kilobajtów na wagę wizualnej różnicy bliskiej zeru. */
   font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
-  /* Odbicie sprężynowe na krańcu listy przewija CAŁĄ stronę pod spodem
-     i odsłania pasek tła — na iPhonie wygląda to jak odklejający się interfejs. */
+  /* Przewinięcie listy do końca nie ma ruszać niczego pod spodem. */
   overscroll-behavior: none;
   transition: background-color var(--wolno), color var(--wolno);
 }
@@ -591,6 +614,19 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   font-size: .875rem;
   font-weight: 500;
   text-transform: uppercase;
+  /*
+   * `line-height: 1`, inaczej litera siedzi za wysoko.
+   *
+   * `place-items: center` centruje PUDEŁKO WIERSZA, a nie literę. Pudełko
+   * dziedziczy z `body` wysokość 1,5em, więc ma sporo powietrza pod spodem
+   * (miejsce na ogonki „g", „ą"), a wielka litera zajmuje tylko górną część.
+   * Wyśrodkowane pudełko z literą przy jego górnej krawędzi daje literę
+   * widocznie powyżej środka kółka — dokładnie to widać na awatarze.
+   *
+   * Przy 1 pudełko jest wysokie mniej więcej tyle co litera, więc środek
+   * pudełka i środek litery to prawie to samo miejsce.
+   */
+  line-height: 1;
 }
 .awatar.maly { width: 1.75rem; height: 1.75rem; font-size: .7rem; }
 
@@ -613,7 +649,10 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .aplikacja {
   max-width: 34rem;
   margin: 0 auto;
-  min-height: var(--wysokosc-okna);
+  /* Skoro dokument nie przewija się, ekran wejścia musi robić to sam —
+     inaczej przy otwartej klawiaturze nie da się dojść do dolnego pola. */
+  height: var(--wysokosc-okna);
+  overflow-y: auto;
   padding:
     calc(var(--odstep-8) + var(--bezpiecznie-gora))
     calc(var(--odstep-6) + var(--bezpiecznie-prawo))
@@ -713,7 +752,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   flex: 1;
   min-height: 0;
 }
-.uklad:has(.inspektor) {
+.uklad:has(.inspektor.otwarty) {
   grid-template-columns: var(--kol-nawigacja) var(--kol-lista) minmax(0, 1fr) var(--kol-inspektor);
 }
 
@@ -802,6 +841,16 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * jednocześnie na rozmowę — schowany pod wiadomościami wymagał przewinięcia
  * na sam dół, czyli odejścia od tego, co się właśnie sprawdza.
  */
+/*
+ * Zamknięty znaczy zamknięty — na każdej szerokości.
+ *
+ * Wcześniej ta reguła obowiązywała wyłącznie poniżej 78rem, więc na szerokim
+ * ekranie panel był stałą kolumną siatki: krzyżyk zmieniał stan, którego nikt
+ * nie czytał, i nie dawało się go zamknąć. Przycisk obiecywał coś, czego nie
+ * potrafił zrobić — a to gorsze niż brak przycisku.
+ */
+.inspektor:not(.otwarty) { display: none; }
+
 .inspektor {
   display: flex;
   flex-direction: column;
@@ -978,7 +1027,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * Bez tego dziedziczy tło, obrys i promienie dymka — i data wygląda jak
  * wiadomość wysłana przez nikogo.
  */
-.wiadomosci li:not(.dzien) {
+.wiadomosci li:not(.dzien):not(.zdarzenie) {
   background: var(--babel);
   border: 1px solid var(--linia);
   border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
@@ -1050,6 +1099,43 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 
 /* Pusty wątek zajmuje całą wysokość listy, żeby stanąć w jej środku. */
 .wiadomosci li.pusto-watku { flex: 1; align-self: stretch; }
+
+/*
+ * Ślad po rozmowie A/V — na środku, jak rozdzielacz dnia.
+ *
+ * Rozmowa się WYDARZYŁA, a nie została wysłana: nie ma nadawcy, więc nie ma
+ * strony, po której miałaby stanąć. Dymek przypisałby ją komuś, a przy rozmowie
+ * grupowej temu komuś nieprawdziwie.
+ */
+.wiadomosci li.zdarzenie {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  margin: var(--odstep-2) 0;
+  padding: var(--odstep-2) var(--odstep-4);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  color: var(--tekst-drugi);
+  font-size: .8125rem;
+  max-width: 100%;
+}
+.wiadomosci li.zdarzenie .ikona { color: var(--tekst-trzeci); }
+.wiadomosci li.zdarzenie .czas-zdarzenia {
+  color: var(--tekst-trzeci);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Nieodebrana świeci alarmem, bo jest jedyną z nich, z którą trzeba coś zrobić:
+ * oddzwonić. Odbyta rozmowa jest tylko zapisem w kronice.
+ */
+.wiadomosci li.zdarzenie.nieodebrane {
+  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
+  color: var(--alarm);
+}
+.wiadomosci li.zdarzenie.nieodebrane .ikona { color: var(--alarm); }
 
 /* Rozdzielacz dni — data w linii, nie nad wiadomością. */
 .dzien {
@@ -1573,7 +1659,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * cztery nieczytelne paski zamiast czterech paneli.
  */
 @media (max-width: 78rem) {
-  .uklad:has(.inspektor) { grid-template-columns: 14rem 21rem minmax(0, 1fr); }
+  .uklad:has(.inspektor.otwarty) { grid-template-columns: 14rem 21rem minmax(0, 1fr); }
 
   .inspektor {
     position: fixed;
@@ -1591,7 +1677,6 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
       var(--odstep-6);
     z-index: 20;
   }
-  .inspektor:not(.otwarty) { display: none; }
 }
 
 /*
@@ -1606,7 +1691,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * ekran), a stan komponentu musiałby za nią nadążać.
  */
 @media (max-width: 60rem) {
-  .uklad, .uklad:has(.inspektor) { grid-template-columns: 14rem minmax(0, 1fr); }
+  .uklad, .uklad:has(.inspektor.otwarty) { grid-template-columns: 14rem minmax(0, 1fr); }
 
   .uklad.rozmowa-otwarta .panel-listy { display: none; }
   .panel-listy { border-right: none; padding-right: 0; }
@@ -1644,20 +1729,38 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
       max(var(--odstep-4), var(--bezpiecznie-lewo));
   }
 
-  .uklad, .uklad:has(.inspektor) { grid-template-columns: minmax(0, 1fr); }
+  /*
+   * Na telefonie układ jest KOLUMNĄ, nie siatką z pływającym paskiem.
+   *
+   * Pasek nawigacji był wcześniej `position: fixed` i to jest dokładnie ta
+   * decyzja, przez którą zjeżdżał: element przypięty do widoku jest na łasce
+   * tego, co Safari robi z widokiem przy przewijaniu. Teraz jest zwykłym
+   * ostatnim wierszem kolumny o twardej wysokości — nie ma się względem czego
+   * przesunąć, bo jest częścią układu, a nie czymś nałożonym na niego.
+   *
+   * Przy okazji znika kompensacja `padding-bottom` pod paskiem: skoro pasek
+   * zajmuje własne miejsce, nie trzeba zgadywać, ile go zasłania.
+   */
+  .uklad, .uklad:has(.inspektor.otwarty) {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
 
-  /* Nawigacja schodzi na dół, gdzie sięga kciuk. */
+  /* Treść pierwsza, nawigacja pod nią — mimo że w kodzie jest odwrotnie.
+     Kolejność w dokumencie jest właściwa dla czytnika ekranu i klawiatury:
+     nawigacja przed treścią. Wzrok na telefonie chce jej na dole, przy kciuku. */
+  .panel-listy, .ekran, .inspektor { order: 1; flex: 1; min-height: 0; }
+
   .sidebar {
-    position: fixed;
-    inset: auto 0 0 0;
+    order: 2;
+    flex: none;
     flex-direction: row;
     justify-content: space-around;
     gap: 0;
-    background: color-mix(in srgb, var(--tlo) 92%, transparent);
-    backdrop-filter: blur(12px);
+    background: var(--tlo);
     border-top: 1px solid var(--linia);
     padding: var(--odstep-2) var(--odstep-2) calc(var(--odstep-2) + var(--bezpiecznie-dol));
-    z-index: 10;
   }
   .marka, .stopka-sidebara { display: none; }
 
@@ -1689,16 +1792,39 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     transform: translateX(.4rem);
   }
 
-  /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości ani pola. */
-  .panel-listy, .ekran { padding-bottom: calc(3.5rem + var(--bezpiecznie-dol)); }
-
-  .wiadomosci li:not(.dzien) { max-width: 86%; }
+  .wiadomosci li:not(.dzien):not(.zdarzenie) { max-width: 86%; }
   .siatka-konta { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
 @media (min-width: 46.01rem) {
   .pasek-watku .wstecz { display: none; }
+}
+
+/* --- Pola na dotyku ------------------------------------------------------ */
+
+/*
+ * Na dotyku pole ma co najmniej 16 px i to nie jest kwestia gustu.
+ *
+ * Safari na iPhonie PRZYBLIŻA stronę przy wejściu w pole, którego tekst jest
+ * mniejszy niż 16 px — i sam z niej nie odjeżdża. To była przyczyna „aplikacja
+ * sama się zoomuje": `.9375rem` to 15 px, czyli o jeden piksel za mało.
+ *
+ * Alternatywą było zablokowanie powiększania w `<meta viewport>`, ale to
+ * odbiera je także tym, którzy naprawdę go potrzebują — czyli leczy objaw
+ * cudzym kosztem. Gęstość przy myszy zostaje: warunek dotyczy wyłącznie
+ * wskaźnika zgrubnego.
+ *
+ * Blok stoi na KOŃCU arkusza celowo. Pola z własnym rozmiarem (`.szukanie
+ * input`, `.dodaj-osobe input`) mają wyższą specyficzność niż sam `input`,
+ * więc reguła postawiona wyżej przegrywałaby z nimi — i akurat te dwa pola
+ * dalej powiększałyby ekran.
+ */
+@media (pointer: coarse) {
+  input, textarea, select,
+  .szukanie input, .dodaj-osobe input, .pisanie textarea {
+    font-size: 1rem;
+  }
 }
 
 /* --- Paski przewijania --------------------------------------------------- */

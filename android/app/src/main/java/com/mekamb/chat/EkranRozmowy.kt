@@ -157,7 +157,12 @@ fun EkranRozmowy(
             items(uklad, key = { it.klucz }) { pozycja ->
                 when (pozycja) {
                     is PozycjaWatku.Dzien -> RozdzielaczDnia(pozycja.etykieta)
-                    is PozycjaWatku.Dymek -> Babel(pozycja.wiadomosc, pozycja.ciag)
+                    is PozycjaWatku.Dymek ->
+                        // Ślad po rozmowie nie jest dymkiem — nikt go nie
+                        // powiedział, więc nie ma strony, po której miałby stanąć.
+                        pozycja.wiadomosc.rozmowa
+                            ?.let { ZdarzenieRozmowy(pozycja.wiadomosc, it) }
+                            ?: Babel(pozycja.wiadomosc, pozycja.ciag)
                 }
             }
 
@@ -346,6 +351,66 @@ private fun PasekRozmowy(
  * który czyta się bez etykiet. Szerokość ograniczona do 78%, żeby strona
  * pozostała widoczna także przy długiej treści.
  */
+/**
+ * Ślad po rozmowie A/V — na środku wątku, jak rozdzielacz dnia.
+ *
+ * Ikona jest DOKŁADNIE ta, którą się w rozmowę weszło: słuchawka przy głosowej,
+ * kamera przy wideo. Inny piktogram w podsumowaniu niż na przycisku kazałby się
+ * domyślać, że mowa o tym samym.
+ *
+ * Nieodebrana świeci alarmem, bo jest jedyną, z którą trzeba coś zrobić —
+ * oddzwonić. Odbyta jest wyłącznie zapisem w kronice.
+ */
+@Composable
+private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
+    val odbyta = rozmowa.sekundy != null
+
+    val opis = when {
+        odbyta -> {
+            val s = rozmowa.sekundy ?: 0L
+            val rodzaj = if (rozmowa.wideo) "Rozmowa wideo" else "Rozmowa głosowa"
+            "%s · %d:%02d".format(rodzaj, s / 60, s % 60)
+        }
+        rozmowa.wychodzaca -> "Nikt nie odebrał"
+        else -> if (rozmowa.wideo) "Nieodebrana rozmowa wideo" else "Nieodebrana rozmowa głosowa"
+    }
+
+    val kolor = if (odbyta) Nocturne.kolory.tekstDrugi else Nocturne.kolory.alarm
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Odstep.xs),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .border(
+                    1.dp,
+                    if (odbyta) Nocturne.kolory.linia else Nocturne.kolory.alarm.copy(alpha = 0.45f),
+                    RoundedCornerShape(14.dp),
+                )
+                .padding(horizontal = Odstep.l, vertical = Odstep.s),
+            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (rozmowa.wideo) Ikony.Kamera else Ikony.Sluchawka,
+                contentDescription = null,
+                tint = kolor,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(opis, style = MaterialTheme.typography.bodySmall, color = kolor)
+            Text(
+                GODZINA.format(Date(wiadomosc.czas)),
+                style = MaterialTheme.typography.labelSmall,
+                color = Nocturne.kolory.tekstTrzeci,
+            )
+        }
+    }
+}
+
 @Composable
 private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
     val wlasna = wiadomosc.wlasna

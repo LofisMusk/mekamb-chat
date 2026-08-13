@@ -40,13 +40,19 @@ export function pilnujWysokosci(okno: Window = window): () => void {
 
   const odswiez = () => {
     /*
-     * Do wysokości doliczamy `offsetTop`.
+     * Sama `height`, bez doliczania `offsetTop`.
      *
-     * Safari po otwarciu klawiatury potrafi przesunąć widok wizualny w górę
-     * zamiast go skrócić. Sama `height` zwraca wtedy liczbę mniejszą, niż
-     * naprawdę widać, i na górze ekranu zostaje pasek gołego tła.
+     * `offsetTop` mówi, o ile widok wizualny jest przesunięty w obrębie widoku
+     * układu — a to zdarza się wtedy, gdy dokument da się przewinąć albo
+     * uszczypnąć. Odkąd `body` jest przypięty (`position: fixed`, patrz
+     * `styles.css`), dokument nie ma jak się przesunąć i `offsetTop` zostaje
+     * zerem poza powiększeniem szczypaniem.
+     *
+     * Doliczanie go byłoby więc w najlepszym razie zerem, a przy powiększeniu
+     * dawałoby powłokę WYŻSZĄ niż ekran — czyli wracałoby dokładnie do usterki,
+     * przez którą pole pisania schodziło pod krawędź.
      */
-    korzen.style.setProperty(TOKEN, `${widok.height + widok.offsetTop}px`);
+    korzen.style.setProperty(TOKEN, `${widok.height}px`);
   };
 
   odswiez();

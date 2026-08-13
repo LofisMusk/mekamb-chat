@@ -20,6 +20,34 @@ import { loadHistory, saveHistory } from "./vault";
  * oznacza utratę rozmów. To założenie z pierwszego dnia, nie niedopatrzenie.
  */
 
+/**
+ * Ślad po rozmowie audio/wideo w wątku.
+ *
+ * # Dlaczego to jest zapis LOKALNY, a nie wiadomość MLS
+ *
+ * „Nieodebrana" jest faktem o TYM urządzeniu, nie o rozmowie. Dzwoniący widzi
+ * „nikt nie odebrał", odbierający „nie odebrałeś", a trzecie urządzenie tej
+ * samej osoby nie widzi nic, bo nic się przy nim nie wydarzyło. Wysyłanie tego
+ * kanałem MLS znaczyłoby uzgadnianie czegoś, co z każdej strony wygląda inaczej
+ * i z żadnej nie jest nieprawdą.
+ *
+ * Przy okazji: rozmowa, która się nie zestawiła, nie ma czym wysłać wiadomości
+ * — więc „nieodebrana" musiałaby i tak powstać lokalnie.
+ */
+export interface ZapisRozmowy {
+  /** Czy szła z obrazem. Decyduje o ikonie — tej samej co przy dzwonieniu. */
+  wideo: boolean;
+  /**
+   * Ile trwała, w sekundach. Brak znaczy, że nie doszła do skutku.
+   *
+   * Zero i brak to nie to samo: zero byłoby rozmową odebraną i natychmiast
+   * przerwaną, a brak — taką, której nikt nie odebrał.
+   */
+  sekundy?: number;
+  /** Czy to my dzwoniliśmy. Rozstrzyga między „nieodebrana" a „odrzucona". */
+  wychodzaca: boolean;
+}
+
 /** Wiadomość w postaci pokazywanej użytkownikowi. */
 export interface Wiadomosc {
   id: string;
@@ -28,6 +56,9 @@ export interface Wiadomosc {
   czas: number;
   wlasna: boolean;
   zalacznik?: ReceivedAttachment;
+
+  /** Obecne, gdy wpis jest śladem po rozmowie, a nie wiadomością. */
+  rozmowa?: ZapisRozmowy;
 
   /**
    * Dokąd doszła własna wiadomość.
@@ -52,27 +83,30 @@ const LIMIT_WIADOMOSCI = 500;
  * Wersja formatu.
  *
  * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania, 4 załącznik po stronie
- * Androida, 5 stan wysyłki własnej wiadomości. Każda podnoszona po obu stronach
- * naraz: przy wersji 2 klient Androida dostał nowe pole, ale ZOSTAWIŁ numer 1 —
+ * Androida, 5 stan wysyłki własnej wiadomości, 6 ślad po rozmowie A/V. Każda
+ * podnoszona po obu stronach naraz: przy wersji 2 klient Androida dostał nowe
+ * pole, ale ZOSTAWIŁ numer 1 —
  * przez chwilę oba klienty deklarowały ten sam numer przy niezgodnych
  * kształtach, więc przeniesienie konta między nimi dałoby historię nie do
  * odczytania. Numer wersji ma odróżniać układy, nie datę zmiany.
  */
-const WERSJA = 5;
+const WERSJA = 6;
 
 /**
  * Wersje, które umiemy wczytać.
  *
  * 3 różni się od 4 wyłącznie tym, że Android nie zapisywał wtedy załączników,
- * a 4 od 5 brakiem stanu wysyłki — pole jest opcjonalne, a jego brak znaczy
- * „wysłana". Kształt pozostałych pól jest ten sam, więc odczyt jest bezstratny.
+ * 4 od 5 brakiem stanu wysyłki, a 5 od 6 brakiem śladu po rozmowie A/V. Każde
+ * z tych pól jest opcjonalne, a jego brak jest nieodróżnialny od pustej
+ * wartości — „wysłana" i „to nie jest rozmowa". Kształt pozostałych pól jest
+ * ten sam, więc odczyt jest bezstratny.
  *
  * Odrzucenie starszego zapisu byłoby tu **skasowaniem historii użytkownika**:
  * `wczytajWszystko` zwraca przy niezgodnym numerze pustkę, a serwer nie ma
  * kopii. Reguła „numer odróżnia układy" zostaje, ale od odrzucania jest
  * niezgodny układ, nie każdy inny numer.
  */
-const CZYTANE_WERSJE = new Set([3, 4, WERSJA]);
+const CZYTANE_WERSJE = new Set([3, 4, 5, WERSJA]);
 
 /**
  * Zapisana rozmowa.

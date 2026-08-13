@@ -1274,15 +1274,15 @@ pub struct OdbiornikOptyczny {
 
 #[uniffi::export]
 impl OdbiornikOptyczny {
+    /// Bez klucza: zbieranie ramek go nie potrzebuje.
+    ///
+    /// Przy parowaniu klucz uzgadnia się z materiałem przychodzącym tą samą
+    /// kamerą, więc odbiornik musi umieć zacząć zbierać, zanim go pozna.
     #[uniffi::constructor]
-    pub fn new(klucz: Vec<u8>) -> Result<Self, MekambError> {
-        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
-            powod: "klucz transferu musi mieć 32 bajty".into(),
-        })?;
-
-        Ok(OdbiornikOptyczny {
-            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::OdbiornikOptyczny::nowy(klucz)),
-        })
+    pub fn new() -> Self {
+        OdbiornikOptyczny {
+            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::OdbiornikOptyczny::nowy()),
+        }
     }
 
     /// Przyjmuje ramkę odczytaną z kamery.
@@ -1317,8 +1317,12 @@ impl OdbiornikOptyczny {
     }
 
     /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
-    pub fn zloz(&self) -> Result<Vec<u8>, MekambError> {
-        Ok(self.wnetrze.lock().expect("zatruty zamek").odbierz()?)
+    pub fn zloz(&self, klucz: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: "klucz transferu musi mieć 32 bajty".into(),
+        })?;
+
+        Ok(self.wnetrze.lock().expect("zatruty zamek").odbierz(&klucz)?)
     }
 }
 

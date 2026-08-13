@@ -1113,15 +1113,15 @@ pub struct OpticalReceiver {
 
 #[wasm_bindgen]
 impl OpticalReceiver {
+    /// Bez klucza: zbieranie ramek go nie potrzebuje.
+    ///
+    /// Przy parowaniu klucz uzgadnia się z materiałem przychodzącym tą samą
+    /// kamerą, więc odbiornik musi umieć zacząć zbierać, zanim go pozna.
     #[wasm_bindgen(constructor)]
-    pub fn new(key: &[u8]) -> Result<OpticalReceiver, JsError> {
-        let klucz: [u8; 32] = key
-            .try_into()
-            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
-
-        Ok(OpticalReceiver {
-            wnetrze: mekamb_core::optyka::OdbiornikOptyczny::nowy(klucz),
-        })
+    pub fn new() -> OpticalReceiver {
+        OpticalReceiver {
+            wnetrze: mekamb_core::optyka::OdbiornikOptyczny::nowy(),
+        }
     }
 
     /// Przyjmuje ramkę odczytaną z kamery.
@@ -1156,9 +1156,13 @@ impl OpticalReceiver {
 
     /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
     #[wasm_bindgen(js_name = finish)]
-    pub fn finish(&self) -> Result<Vec<u8>, JsError> {
+    pub fn finish(&self, key: &[u8]) -> Result<Vec<u8>, JsError> {
+        let klucz: [u8; 32] = key
+            .try_into()
+            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
+
         self.wnetrze
-            .odbierz()
+            .odbierz(&klucz)
             .map_err(|e| JsError::new(&e.to_string()))
     }
 }

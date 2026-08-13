@@ -278,8 +278,15 @@ pub enum Postep {
 }
 
 /// Zbiera ramki i odtwarza z nich całość.
+///
+/// # Dlaczego klucz podaje się dopiero przy składaniu
+///
+/// Zbieranie ramek go nie potrzebuje — potrzebuje go wyłącznie ostatni krok.
+/// Ma to znaczenie praktyczne przy parowaniu: klucz uzgadnia się z materiałem,
+/// który przychodzi tą samą kamerą co ramki, więc odbiornik musi umieć
+/// **zacząć zbierać, zanim pozna klucz**. Trzymanie klucza w konstruktorze
+/// zmuszałoby do wyrzucenia wszystkiego, co złapano do tej pory.
 pub struct OdbiornikOptyczny {
-    klucz: [u8; 32],
     naglowek: Option<Opis>,
     bloki: Vec<Option<Vec<u8>>>,
     /// Ramki, których jeszcze nie da się rozwiązać: nierozstrzygnięte indeksy
@@ -302,9 +309,8 @@ struct Opis {
 }
 
 impl OdbiornikOptyczny {
-    pub fn nowy(klucz: [u8; 32]) -> Self {
+    pub fn nowy() -> Self {
         OdbiornikOptyczny {
-            klucz,
             naglowek: None,
             bloki: Vec::new(),
             oczekujace: Vec::new(),
@@ -434,7 +440,7 @@ impl OdbiornikOptyczny {
     /// Suma liczona jest z **szyfrogramu**, więc niezgodność wychodzi przed
     /// deszyfrowaniem — a to znaczy, że uszkodzony transfer nie dociera nawet
     /// do AES-a.
-    pub fn odbierz(&self) -> Result<Vec<u8>> {
+    pub fn odbierz(&self, klucz: &[u8; 32]) -> Result<Vec<u8>> {
         let opis = self
             .naglowek
             .as_ref()
@@ -457,7 +463,7 @@ impl OdbiornikOptyczny {
             return Err(Error::MessageRejected);
         }
 
-        let szyfr = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.klucz));
+        let szyfr = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(klucz));
         let spakowane = szyfr
             .decrypt(Nonce::from_slice(&opis.nonce), szyfrogram.as_ref())
             .map_err(|_| Error::MessageRejected)?;
@@ -539,7 +545,7 @@ mod tests {
     fn pelny_obieg_odtwarza_dane() {
         let zrodlo = dane(50_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 512).unwrap();
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         loop {
             if odbiornik.dodaj_ramke(&nadajnik.nastepna_ramka()) == Postep::Gotowe {
@@ -547,7 +553,7 @@ mod tests {
             }
         }
 
-        assert_eq!(odbiornik.odbierz().unwrap(), zrodlo);
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
     }
 
     /// Czyste ujęcie ma kosztować **dokładnie** K klatek — po to pierwsze K
@@ -558,14 +564,14 @@ mod tests {
         let zrodlo = dane(20_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 512).unwrap();
         let k = nadajnik.ile_blokow();
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         for _ in 0..k {
             odbiornik.dodaj_ramke(&nadajnik.nastepna_ramka());
         }
 
         assert_eq!(odbiornik.odzyskane(), k);
-        assert_eq!(odbiornik.odbierz().unwrap(), zrodlo);
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
     }
 
     /// Sedno kodów fountain: aparat gubi klatki i to ma być **tanie**.
@@ -575,7 +581,7 @@ mod tests {
         let zrodlo = dane(40_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 512).unwrap();
         let k = nadajnik.ile_blokow();
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         assert!(k >= 10, "wzorzec za mały, test niczego nie sprawdza: k={k}");
 
@@ -596,7 +602,7 @@ mod tests {
             assert!(wyslane < k * 10, "dekoder utknął");
         }
 
-        assert_eq!(odbiornik.odbierz().unwrap(), zrodlo);
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
 
         // Narzut liczymy wobec PRZYJĘTYCH ramek: sam kod fountain nie powinien
         // potrzebować dużo ponad K, niezależnie od tego, ile przepadło po
@@ -617,14 +623,14 @@ mod tests {
         let mut ramki: Vec<Vec<u8>> = (0..k * 2).map(|_| nadajnik.nastepna_ramka()).collect();
         ramki.reverse();
 
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
         for ramka in &ramki {
             if odbiornik.dodaj_ramke(ramka) == Postep::Gotowe {
                 break;
             }
         }
 
-        assert_eq!(odbiornik.odbierz().unwrap(), zrodlo);
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
     }
 
     /// Powtórzona ramka jest normalna: nadajnik chodzi w kółko, a aparat
@@ -633,7 +639,7 @@ mod tests {
     fn powtorzone_ramki_nie_psuja_odbioru() {
         let zrodlo = dane(8_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 300).unwrap();
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         loop {
             let ramka = nadajnik.nastepna_ramka();
@@ -643,7 +649,7 @@ mod tests {
             }
         }
 
-        assert_eq!(odbiornik.odbierz().unwrap(), zrodlo);
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
     }
 
     /// Aparat skierowany na inny ekran nie może zanieczyścić transferu.
@@ -652,18 +658,21 @@ mod tests {
         let mut pierwszy = NadajnikOptyczny::nowy(&dane(5_000), &KLUCZ, 300).unwrap();
         let mut drugi = NadajnikOptyczny::nowy(&dane(6_000), &KLUCZ, 300).unwrap();
 
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
         odbiornik.dodaj_ramke(&pierwszy.nastepna_ramka());
 
         assert_eq!(odbiornik.dodaj_ramke(&drugi.nastepna_ramka()), Postep::Obca);
     }
 
     /// Zły klucz ma odpaść na AES-ie, a nie wydać śmieci.
+    ///
+    /// Ramki zbiera się bez klucza, więc pomyłka wychodzi dopiero tutaj —
+    /// i ma wyjść jako błąd, nie jako historia pełna znaków zastępczych.
     #[test]
     fn zly_klucz_nie_odszyfrowuje() {
         let zrodlo = dane(4_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 300).unwrap();
-        let mut odbiornik = OdbiornikOptyczny::nowy([9u8; 32]);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         loop {
             if odbiornik.dodaj_ramke(&nadajnik.nastepna_ramka()) == Postep::Gotowe {
@@ -671,7 +680,10 @@ mod tests {
             }
         }
 
-        assert!(odbiornik.odbierz().is_err());
+        assert!(odbiornik.odbierz(&[9u8; 32]).is_err());
+        // Ten sam komplet ramek z właściwym kluczem musi się złożyć — inaczej
+        // test dowodziłby tylko tego, że transfer jest zepsuty.
+        assert_eq!(odbiornik.odbierz(&KLUCZ).unwrap(), zrodlo);
     }
 
     /// Uszkodzony ładunek ma zostać wykryty przez sumę, zanim ruszy AES.
@@ -679,7 +691,7 @@ mod tests {
     fn przekrecony_bajt_wykrywa_suma() {
         let zrodlo = dane(4_000);
         let mut nadajnik = NadajnikOptyczny::nowy(&zrodlo, &KLUCZ, 300).unwrap();
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         // Same ramki systematyczne, więc przekręcenie trafia wprost w blok
         // i nie da się go naprawić inną ramką.
@@ -692,13 +704,13 @@ mod tests {
             odbiornik.dodaj_ramke(&ramka);
         }
 
-        assert!(odbiornik.odbierz().is_err());
+        assert!(odbiornik.odbierz(&KLUCZ).is_err());
     }
 
     /// Śmieci z aparatu są normalne: rozpoznany kod QR bywa fałszywy.
     #[test]
     fn smieci_sa_odrzucane_bez_paniki() {
-        let mut odbiornik = OdbiornikOptyczny::nowy(KLUCZ);
+        let mut odbiornik = OdbiornikOptyczny::nowy();
 
         assert_eq!(odbiornik.dodaj_ramke(&[]), Postep::Niepoprawna);
         assert_eq!(odbiornik.dodaj_ramke(&[0u8; 10]), Postep::Niepoprawna);

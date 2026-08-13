@@ -5,6 +5,7 @@ import { Rozmowa, type SygnalRozmowy, type ZadanieRozmowy } from "./Rozmowa";
 import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
 import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { Urzadzenia } from "./Parowanie";
 import { PrzeniesStad } from "./Przeniesienie";
 import { api } from "./lib/api";
 import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
@@ -1411,6 +1412,8 @@ function Konto({
           </p>
           <WyborMotywuUI />
         </div>
+
+        <Urzadzenia messenger={messenger} onBlad={onBlad} />
 
         <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
 

@@ -1198,3 +1198,126 @@ pub fn token_odslon(
         odslonione: token.odslonione.to_vec(),
     })
 }
+
+// ---------------------------------------------------------------------------
+// Transfer optyczny
+// ---------------------------------------------------------------------------
+
+/// Jak poszło przyjęcie ramki.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PostepOptyczny {
+    /// Przyjęta; brakuje jeszcze bloków.
+    Trwa,
+    /// Komplet — można wołać `zloz`.
+    Gotowe,
+    /// Ramka z **innego** transferu: aparat patrzy na inny ekran.
+    Obca,
+    /// Nieczytelna albo w nieznanej wersji formatu.
+    Niepoprawna,
+}
+
+/// Nadajnik animowanego kodu QR.
+///
+/// Jedna implementacja dla obu klientów — format ramki, kody fountain i sam
+/// generator QR siedzą w [`mekamb_core::optyka`]. Druga implementacja po
+/// drugiej stronie rozjechałaby się z pierwszą, a objawem byłby transfer,
+/// który nigdy się nie kończy: ramki widać, tylko nie składają się w całość.
+#[derive(uniffi::Object)]
+pub struct NadajnikOptyczny {
+    wnetrze: std::sync::Mutex<mekamb_core::optyka::NadajnikOptyczny>,
+}
+
+#[uniffi::export]
+impl NadajnikOptyczny {
+    /// `dane` idą przez kompresję i AES-GCM, potem w bloki.
+    #[uniffi::constructor]
+    pub fn new(dane: Vec<u8>, klucz: Vec<u8>) -> Result<Self, MekambError> {
+        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: "klucz transferu musi mieć 32 bajty".into(),
+        })?;
+
+        // Rozmiar bloku dobrany pod największy kod QR przy korekcji L —
+        // wołający nie ma jak tego policzyć, bo zna tylko wynik.
+        let rozmiar = mekamb_core::qr::maks_bajtow(mekamb_core::qr::Korekcja::L)
+            - mekamb_core::optyka::NAGLOWEK;
+
+        Ok(NadajnikOptyczny {
+            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::NadajnikOptyczny::nowy(
+                &dane, &klucz, rozmiar,
+            )?),
+        })
+    }
+
+    /// Ile bloków ma transfer — tyle klatek wystarczy przy czystym ujęciu.
+    pub fn ile_blokow(&self) -> u32 {
+        self.wnetrze.lock().expect("zatruty zamek").ile_blokow()
+    }
+
+    /// Kolejna klatka, gotowa do narysowania. Strumień jest nieskończony.
+    pub fn nastepna_klatka(&self) -> Result<KodQr, MekambError> {
+        let ramka = self.wnetrze.lock().expect("zatruty zamek").nastepna_ramka();
+
+        let macierz = mekamb_core::qr::qr_matrix_bajty(&ramka, mekamb_core::qr::Korekcja::L)?;
+
+        Ok(KodQr {
+            bok: macierz.len() as u32,
+            moduly: macierz.into_iter().flatten().collect(),
+        })
+    }
+}
+
+/// Odbiornik animowanego kodu QR.
+#[derive(uniffi::Object)]
+pub struct OdbiornikOptyczny {
+    wnetrze: std::sync::Mutex<mekamb_core::optyka::OdbiornikOptyczny>,
+}
+
+#[uniffi::export]
+impl OdbiornikOptyczny {
+    #[uniffi::constructor]
+    pub fn new(klucz: Vec<u8>) -> Result<Self, MekambError> {
+        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: "klucz transferu musi mieć 32 bajty".into(),
+        })?;
+
+        Ok(OdbiornikOptyczny {
+            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::OdbiornikOptyczny::nowy(klucz)),
+        })
+    }
+
+    /// Przyjmuje ramkę odczytaną z kamery.
+    pub fn dodaj_ramke(&self, ramka: Vec<u8>) -> PostepOptyczny {
+        use mekamb_core::optyka::Postep;
+
+        match self
+            .wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .dodaj_ramke(&ramka)
+        {
+            Postep::Trwa { .. } => PostepOptyczny::Trwa,
+            Postep::Gotowe => PostepOptyczny::Gotowe,
+            Postep::Obca => PostepOptyczny::Obca,
+            Postep::Niepoprawna => PostepOptyczny::Niepoprawna,
+        }
+    }
+
+    /// Ile bloków już odzyskano.
+    pub fn odzyskane(&self) -> u32 {
+        self.wnetrze.lock().expect("zatruty zamek").odzyskane()
+    }
+
+    /// Ile bloków ma transfer; zero, dopóki nie przyszła żadna ramka.
+    pub fn wszystkich(&self) -> u32 {
+        self.wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .wszystkich()
+            .unwrap_or(0)
+    }
+
+    /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
+    pub fn zloz(&self) -> Result<Vec<u8>, MekambError> {
+        Ok(self.wnetrze.lock().expect("zatruty zamek").odbierz()?)
+    }
+}

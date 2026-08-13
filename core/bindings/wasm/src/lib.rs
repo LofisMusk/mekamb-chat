@@ -1040,3 +1040,125 @@ pub fn token_unblind(
         unblinded: token.odslonione.to_vec(),
     })
 }
+
+// ---------------------------------------------------------------------------
+// Transfer optyczny
+// ---------------------------------------------------------------------------
+
+/// Nadajnik animowanego kodu QR.
+///
+/// Jedna implementacja dla obu klientów — format ramki, kody fountain i sam
+/// generator QR siedzą w [`mekamb_core::optyka`]. Druga implementacja po
+/// drugiej stronie rozjechałaby się z pierwszą, a objawem byłby transfer,
+/// który nigdy się nie kończy: ramki widać, tylko nie składają się w całość.
+#[wasm_bindgen]
+pub struct OpticalSender {
+    wnetrze: mekamb_core::optyka::NadajnikOptyczny,
+}
+
+#[wasm_bindgen]
+impl OpticalSender {
+    /// `data` idzie przez kompresję i AES-GCM, potem w bloki.
+    #[wasm_bindgen(constructor)]
+    pub fn new(data: &[u8], key: &[u8]) -> Result<OpticalSender, JsError> {
+        let klucz: [u8; 32] = key
+            .try_into()
+            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
+
+        // Rozmiar bloku dobrany pod największy kod QR przy korekcji L —
+        // wołający nie ma jak tego policzyć, bo zna tylko wynik.
+        let rozmiar = mekamb_core::qr::maks_bajtow(mekamb_core::qr::Korekcja::L)
+            - mekamb_core::optyka::NAGLOWEK;
+
+        Ok(OpticalSender {
+            wnetrze: mekamb_core::optyka::NadajnikOptyczny::nowy(data, &klucz, rozmiar)
+                .map_err(|e| JsError::new(&e.to_string()))?,
+        })
+    }
+
+    /// Ile bloków ma transfer — tyle klatek wystarczy przy czystym ujęciu.
+    #[wasm_bindgen(js_name = blockCount)]
+    pub fn block_count(&self) -> u32 {
+        self.wnetrze.ile_blokow()
+    }
+
+    /// Kolejna klatka, gotowa do narysowania. Strumień jest nieskończony.
+    #[wasm_bindgen(js_name = nextFrame)]
+    pub fn next_frame(&mut self) -> Result<QrCode, JsError> {
+        let ramka = self.wnetrze.nastepna_ramka();
+        let macierz = mekamb_core::qr::qr_matrix_bajty(&ramka, mekamb_core::qr::Korekcja::L)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        Ok(QrCode {
+            side: macierz.len() as u32,
+            // Bajty, nie `bool`: `wasm_bindgen` nie przenosi `Vec<bool>`,
+            // a `Uint8Array` po stronie JS i tak rysuje się szybciej.
+            modules: macierz.into_iter().flatten().map(u8::from).collect(),
+        })
+    }
+}
+
+/// Macierz kodu QR: `side × side` modułów, `true` znaczy ciemny.
+#[wasm_bindgen(getter_with_clone)]
+pub struct QrCode {
+    pub side: u32,
+    pub modules: Vec<u8>,
+}
+
+/// Odbiornik animowanego kodu QR.
+#[wasm_bindgen]
+pub struct OpticalReceiver {
+    wnetrze: mekamb_core::optyka::OdbiornikOptyczny,
+}
+
+#[wasm_bindgen]
+impl OpticalReceiver {
+    #[wasm_bindgen(constructor)]
+    pub fn new(key: &[u8]) -> Result<OpticalReceiver, JsError> {
+        let klucz: [u8; 32] = key
+            .try_into()
+            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
+
+        Ok(OpticalReceiver {
+            wnetrze: mekamb_core::optyka::OdbiornikOptyczny::nowy(klucz),
+        })
+    }
+
+    /// Przyjmuje ramkę odczytaną z kamery.
+    ///
+    /// Zwraca `"trwa" | "gotowe" | "obca" | "niepoprawna"`. Napis, a nie liczba:
+    /// po stronie TypeScriptu i tak trafia w `switch`, a literał widać
+    /// w debuggerze bez zaglądania do tabeli kodów.
+    #[wasm_bindgen(js_name = addFrame)]
+    pub fn add_frame(&mut self, frame: &[u8]) -> String {
+        use mekamb_core::optyka::Postep;
+
+        match self.wnetrze.dodaj_ramke(frame) {
+            Postep::Trwa { .. } => "trwa",
+            Postep::Gotowe => "gotowe",
+            Postep::Obca => "obca",
+            Postep::Niepoprawna => "niepoprawna",
+        }
+        .to_string()
+    }
+
+    /// Ile bloków już odzyskano.
+    #[wasm_bindgen(js_name = recovered)]
+    pub fn recovered(&self) -> u32 {
+        self.wnetrze.odzyskane()
+    }
+
+    /// Ile bloków ma transfer; zero, dopóki nie przyszła żadna ramka.
+    #[wasm_bindgen(js_name = total)]
+    pub fn total(&self) -> u32 {
+        self.wnetrze.wszystkich().unwrap_or(0)
+    }
+
+    /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
+    #[wasm_bindgen(js_name = finish)]
+    pub fn finish(&self) -> Result<Vec<u8>, JsError> {
+        self.wnetrze
+            .odbierz()
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+}

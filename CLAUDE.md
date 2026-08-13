@@ -376,10 +376,23 @@ account transfer silently produced empty history. Same rule for the transfer dum
 format in `przeniesienie.ts` / `Przeniesienie.kt`.
 
 **Envelopes are acked only after the client has persisted MLS state.** The
-mailbox deletes on ack, so acking earlier loses messages. A frame that fails
+mailbox retains until ack, so acking earlier loses messages. A frame that fails
 processing is retried a bounded number of times and then acked as dead —
 otherwise it redelivers forever (`web/src/lib/koperty.ts`,
 `android/.../Skrzynka.kt`).
+
+**An ack marks the envelope read for *one device*, never for the account.** One
+mailbox is shared by all of a user's devices (it is named by username). The
+queue is therefore an append-only log and `UserInbox` tracks reads per device
+in `device_reads`; only retention deletes an envelope, because the mailbox does
+not know the group's membership and so cannot know how many devices still owe a
+read. This has already broken once: the queue deleted on the first ack, so
+whichever device processed an envelope first deleted it for the rest — and
+because welcomes and MLS commits travel the same queue, a device that lost one
+never joined the group, so sending and receiving both failed on it with no error
+(`server/src/inbox.ts`). The device identity is taken from the authenticated
+token in `GET /inbox/:userId/connect`, not from client-supplied data, so no one
+can read another device's backlog.
 
 **The inbox connection needs a keepalive and reconnect.** The server answers
 `ping` with `pong`; the client halves are in `web/src/lib/polaczenie.ts` and

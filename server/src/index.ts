@@ -361,7 +361,22 @@ app.get("/inbox/:userId/connect", async (c) => {
   }
 
   const inbox = c.env.USER_INBOX.get(c.env.USER_INBOX.idFromName(skrzynka));
-  const odpowiedz = await inbox.fetch(c.req.raw);
+
+  /*
+   * Tożsamość urządzenia dopisujemy do adresu z TOKENU, nie z danych klienta.
+   *
+   * Skrzynka dzieli jedną kolejkę między wszystkie urządzenia konta i
+   * odnotowuje przeczytania per urządzenie (patrz `inbox.ts`). Bez tego
+   * identyfikatora potwierdzenie jednego urządzenia kasowało kopertę
+   * pozostałym — a że tą drogą idą `welcome` i commity MLS, urządzenie, które
+   * kopertę straciło, nie wchodziło do grupy. Bierzemy go z uwierzytelnionego
+   * tokenu, więc klient nie może podać się za cudze urządzenie i podejrzeć,
+   * czego to urządzenie jeszcze nie odebrało.
+   */
+  const adres = new URL(c.req.raw.url);
+  if (payload.deviceId) adres.searchParams.set("device", payload.deviceId);
+  const zadanie = new Request(adres, c.req.raw);
+  const odpowiedz = await inbox.fetch(zadanie);
 
   // Przeglądarka zrywa połączenie, jeśli serwer nie potwierdzi wybranego
   // podprotokołu. Odsyłamy dokładnie to, co przyszło.

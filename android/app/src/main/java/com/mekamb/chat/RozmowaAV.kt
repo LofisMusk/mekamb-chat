@@ -64,7 +64,22 @@ class RozmowaAV private constructor(
     private val zakres: CoroutineScope,
     private val onZmiana: (StanRozmowyAV) -> Unit,
 ) {
-    private val eglBase: EglBase = EglBase.create()
+    /*
+     * KOLEJNOŚĆ TYCH DWÓCH POLA MA ZNACZENIE — i dlatego oba powstają w `init`.
+     *
+     * Kotlin wykonuje inicjalizatory pól i bloki `init` w kolejności zapisu
+     * w pliku. Wcześniej `EglBase.create()` stało w inicjalizatorze pola nad
+     * blokiem `init`, czyli wykonywało się PRZED
+     * `PeerConnectionFactory.initialize` — a to ono ładuje bibliotekę natywną
+     * WebRTC. Dotknięcie czegokolwiek z `org.webrtc` przed nią to
+     * `UnsatisfiedLinkError`, czyli natychmiastowa i niemożliwa do
+     * przechwycenia śmierć aplikacji w chwili naciśnięcia „Zadzwoń".
+     *
+     * Że działało na części telefonów, niczego nie dowodzi: zależy to od tego,
+     * czy proces zdążył wcześniej załadować bibliotekę przy innej okazji.
+     * Zapisanie tego w `init`, po `initialize`, usuwa pytanie w ogóle.
+     */
+    private val eglBase: EglBase
     private val fabryka: PeerConnectionFactory
     private var audio: AudioTrack? = null
     private var wideo: VideoTrack? = null
@@ -90,10 +105,14 @@ class RozmowaAV private constructor(
         private set
 
     init {
+        // Kontekst aplikacji, nie ekranu: fabryka i tak przeżyje aktywność,
+        // a trzymanie jej referencji byłoby wyciekiem całego okna.
         PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(kontekst)
+            PeerConnectionFactory.InitializationOptions.builder(kontekst.applicationContext)
                 .createInitializationOptions(),
         )
+
+        eglBase = EglBase.create()
 
         fabryka = PeerConnectionFactory.builder()
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true))

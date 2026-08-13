@@ -444,3 +444,89 @@ fn dodanie_osoby_zmienia_safety_number() {
 
     assert_ne!(przed, u_alice.safety_number().unwrap());
 }
+
+/// Oba urządzenia jednej osoby wchodzą do rozmowy **jednym** commitem i oba
+/// odczytują tę samą wiadomość.
+///
+/// Sedno: członkiem grupy jest urządzenie, nie osoba. Jeżeli do rozmowy wejdzie
+/// tylko jedno urządzenie odbiorcy, na pozostałych nie pojawi się nic — i to bez
+/// żadnego błędu po stronie nadawcy. Jeden commit, bo każdy kolejny to osobna
+/// epoka do uzgodnienia z `GroupRelay`, a odrzucenie tej drugiej zostawiłoby
+/// konto dodane w połowie.
+#[test]
+fn oba_urzadzenia_odbiorcy_czytaja_te_sama_wiadomosc() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob_telefon = Uczestnik::nowy("bob", "telefon");
+    let bob_laptop = Uczestnik::nowy("bob", "laptop");
+
+    let pakiety: Vec<_> = [&bob_telefon, &bob_laptop]
+        .into_iter()
+        .map(|urzadzenie| {
+            let bundle =
+                Conversation::create_key_package(&urzadzenie.provider, &urzadzenie.tozsamosc)
+                    .unwrap();
+            deserialize_key_package(
+                &alice.provider,
+                &serialize_key_package(bundle.key_package()).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let mut u_alice = Conversation::create(&alice.provider, &alice.tozsamosc).unwrap();
+    let oczekujacy = u_alice
+        .stage_add_members(&alice.provider, &alice.tozsamosc, &pakiety)
+        .unwrap();
+    u_alice.confirm_pending_commit(&alice.provider).unwrap();
+
+    // Jeden Welcome dla obu liści, nie dwa osobne.
+    let welcome = oczekujacy.welcome.as_ref().unwrap();
+    let mut u_telefonu = Conversation::join_from_welcome(&bob_telefon.provider, welcome).unwrap();
+    let mut u_laptopa = Conversation::join_from_welcome(&bob_laptop.provider, welcome).unwrap();
+
+    assert_eq!(
+        u_alice.members().len(),
+        3,
+        "oba urządzenia mają być w grupie"
+    );
+    assert_eq!(u_alice.epoch(), u_telefonu.epoch());
+    assert_eq!(u_alice.epoch(), u_laptopa.epoch());
+
+    let wyslana = ChatMessage::text("zażółć gęślą jaźń", 1_700_000_000_000);
+    let szyfrogram = u_alice
+        .send(&alice.provider, &alice.tozsamosc, &wyslana)
+        .unwrap();
+
+    // Ten sam szyfrogram, dwa urządzenia — tak właśnie działa fan-out skrzynki:
+    // koperta jest jedna, kopii jest tyle, ile urządzeń.
+    for (urzadzenie, rozmowa) in [
+        (&bob_telefon, &mut u_telefonu),
+        (&bob_laptop, &mut u_laptopa),
+    ] {
+        let odebrane = rozmowa.receive(&urzadzenie.provider, &szyfrogram).unwrap();
+        let Incoming::Message {
+            sender_user_id,
+            message,
+            ..
+        } = odebrane
+        else {
+            panic!("oczekiwano wiadomości");
+        };
+        assert_eq!(sender_user_id, "alice");
+        assert_eq!(message.as_text().unwrap(), "zażółć gęślą jaźń");
+    }
+}
+
+/// Pusta lista to błąd, nie commit bez zmian — inaczej zajęlibyśmy epokę po to,
+/// żeby nic nie zmienić, i wywrócili cudzy commit czekający na tę samą epokę.
+#[test]
+fn dodanie_pustej_listy_urzadzen_jest_bledem() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let mut u_alice = Conversation::create(&alice.provider, &alice.tozsamosc).unwrap();
+
+    assert!(
+        u_alice
+            .stage_add_members(&alice.provider, &alice.tozsamosc, &[])
+            .is_err()
+    );
+}

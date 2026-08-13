@@ -25,9 +25,8 @@
 //! o jego rodzaju. Dopełnianie plików do stałych progów byłoby kosztowne przy
 //! wideo; świadomie tego nie robimy i odnotowujemy w modelu zagrożeń.
 
-use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use rand::{TryRng, rngs::SysRng};
 use zeroize::Zeroize;
 
 use crate::error::{Error, Result};
@@ -70,18 +69,21 @@ pub fn seal_attachment(plaintext: &[u8], mime_type: &str) -> Result<SealedAttach
         )));
     }
 
-    let mut key_bytes = [0u8; ATTACHMENT_KEY_LEN];
-    let mut nonce_bytes = [0u8; ATTACHMENT_NONCE_LEN];
-    SysRng
-        .try_fill_bytes(&mut key_bytes)
-        .and_then(|()| SysRng.try_fill_bytes(&mut nonce_bytes))
-        .expect("systemowy generator losowy musi być dostępny");
+    // Klucz i nonce bierzemy z generatorów samego szyfru, zamiast zerować
+    // bufor i dopiero go wypełniać. Powód jest dwojaki. Po pierwsze wartość
+    // nigdy nie istnieje w stanie „same zera" — w wariancie z buforem dzieli
+    // je od użycia jedno wywołanie, a pominięty błąd wypełniania dałby
+    // powtarzalny nonce, czyli dokładnie tę awarię, przed którą broni się cały
+    // ten moduł. Po drugie długość wynika z typu szyfru, nie z osobnej stałej,
+    // więc nie da się ich rozjechać.
+    let key = Aes256Gcm::generate_key(&mut OsRng);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key_bytes));
+    let cipher = Aes256Gcm::new(&key);
 
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce_bytes),
+            &nonce,
             Payload {
                 msg: plaintext,
                 aad: mime_type.as_bytes(),
@@ -91,8 +93,8 @@ pub fn seal_attachment(plaintext: &[u8], mime_type: &str) -> Result<SealedAttach
 
     Ok(SealedAttachment {
         ciphertext,
-        key: key_bytes,
-        nonce: nonce_bytes,
+        key: key.into(),
+        nonce: nonce.into(),
     })
 }
 

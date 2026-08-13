@@ -10,6 +10,7 @@ import init, {
   stripMetadata,
 } from "../wasm/mekamb_wasm";
 import { api } from "./api";
+import { czyWlasna, zapamietaj } from "./echa";
 import { naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
 import { loadSeed, loadState, saveSeed, saveState } from "./vault";
@@ -343,14 +344,28 @@ export class Messenger {
      * a commitu wprowadzającego ją do grupy nie potrafi przetworzyć.
      */
     const koperta = encodeEnvelope(groupId, "commit", pending.commit);
+    await zapamietaj(koperta);
+
+    /*
+     * Nowa osoba commitu nie dostaje — dla niej jest `welcome`.
+     *
+     * Wyjątkiem jest dodawanie WŁASNEGO urządzenia: nowy członek dzieli wtedy
+     * skrzynkę z nami, więc pominięcie jej odcięłoby od commitu nasze
+     * pozostałe urządzenia i zostałyby w starej epoce. Nowe urządzenie ten
+     * commit po prostu odrzuci — nie zna jeszcze tej rozmowy, więc znacznik
+     * koperty nie pasuje do niczego i `matchEnvelope` zwraca `null`.
+     */
+    const wlasneUrzadzenie = username === this.account.userId;
     await Promise.all(
-      this.recipients(groupId)
-        .filter((osoba) => osoba !== username)
+      this.skrzynkiRozmowy(groupId)
+        .filter((osoba) => wlasneUrzadzenie || osoba !== username)
         .map((osoba) => api.deposit(osoba, koperta)),
     );
 
     if (pending.welcome) {
-      await api.deposit(username, encodeEnvelope(groupId, "welcome", pending.welcome));
+      const zaproszenie = encodeEnvelope(groupId, "welcome", pending.welcome);
+      await zapamietaj(zaproszenie);
+      await api.deposit(username, zaproszenie);
     }
   }
 
@@ -399,9 +414,22 @@ export class Messenger {
     return [...new Set(osoby)];
   }
 
-  /** Uczestnicy rozmowy poza nami — odbiorcy wysyłanych wiadomości. */
-  private recipients(groupId: Uint8Array): string[] {
-    return this.memberUserIds(groupId).filter((osoba) => osoba !== this.account.userId);
+  /**
+   * Skrzynki, do których trafia to, co wysyłamy — **łącznie z naszą własną**.
+   *
+   * # Dlaczego wysyłamy też do siebie
+   *
+   * Bez tego wiadomość wysłana z laptopa nie istnieje dla telefonu. Cudze
+   * wiadomości docierały na wszystkie urządzenia od zawsze, bo skrzynka jest
+   * wspólna — brakowało wyłącznie echa własnych, i to ono sprawiało, że dwa
+   * urządzenia widziały dwie różne historie tej samej rozmowy.
+   *
+   * Koperta wraca wtedy także do nadawcy, który nie potrafi jej odszyfrować
+   * (MLS nie pozwala przetworzyć własnej wiadomości). Rozpoznaje ją
+   * [`echa.ts`] i potwierdza bez przetwarzania.
+   */
+  private skrzynkiRozmowy(groupId: Uint8Array): string[] {
+    return this.memberUserIds(groupId);
   }
 
   /**
@@ -433,8 +461,12 @@ export class Messenger {
    * ze sobą po stronie serwera.
    */
   private async rozeslij(groupId: Uint8Array, envelope: Uint8Array): Promise<void> {
+    // Zapamiętanie MUSI wyprzedzić nadanie: przy podłączonym gnieździe echo
+    // wraca natychmiast i zdążyłoby przyjść przed wpisem do mapy.
+    await zapamietaj(envelope);
+
     await Promise.all(
-      this.recipients(groupId).map((userId) => {
+      this.skrzynkiRozmowy(groupId).map((userId) => {
         const token = wezToken();
         return api.deposit(userId, envelope, token ? naglowekTokenu(token) : undefined);
       }),
@@ -561,10 +593,35 @@ export class Messenger {
    * przykład niosła commit albo zaproszenie do grupy.
    */
   async handleEnvelope(bytes: Uint8Array): Promise<ReceivedMessage | null> {
+    /*
+     * Własne echo odsiewamy PRZED czymkolwiek innym.
+     *
+     * Wysyłamy także do własnej skrzynki, żeby wiadomość z laptopa dotarła na
+     * telefon — więc koperta wraca do nadawcy, a MLS nie pozwala przetworzyć
+     * własnej wiadomości. Bez tego wpadłaby w ponawianie z `koperty.ts`
+     * i wisiała w kolejce przez trzy połączenia.
+     */
+    if (await czyWlasna(bytes)) return null;
+
     const envelope = decodeEnvelope(bytes);
 
     if (envelope.kind === "welcome") {
-      this.client.joinFromWelcome(envelope.payload);
+      /*
+       * Zaproszenie trafia do całej skrzynki, więc przy kilku własnych
+       * urządzeniach dostaną je także te, które już są w grupie.
+       *
+       * Dawniej nieudane `joinFromWelcome` znaczyło realną awarię i miało
+       * prawo przejść ścieżką ponawiania. Odkąd jedna osoba ma wiele urządzeń,
+       * powtórka jest normalna — ale zostawiamy ślad w konsoli, bo
+       * niedoręczone zaproszenie zepsuło już kiedyś doręczanie po cichu
+       * i nie chcemy drugi raz zgadywać.
+       */
+      try {
+        this.client.joinFromWelcome(envelope.payload);
+      } catch (blad) {
+        console.warn("zaproszenie odrzucone (zapewne już jesteśmy w grupie)", blad);
+        return null;
+      }
       await this.persist();
       return null;
     }

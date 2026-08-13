@@ -812,6 +812,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * rozmówcy z przeglądarki, a interfejs pokazuje na tej podstawie, czy
      * rozmowa jest bezpośrednia.
      */
+    /**
+     * Czy to przyszło z DRUGIEGO NASZEGO urządzenia.
+     *
+     * Odkąd wysyłamy także do własnej skrzynki, telefon dostaje to, co
+     * napisaliśmy na laptopie. Bez tego sprawdzenia wiadomość stanęłaby po
+     * lewej stronie, podpisana naszym własnym identyfikatorem, jak wypowiedź
+     * obcej osoby.
+     *
+     * Rozstrzyga `senderUserId` z credentiala MLS — jedyne wiarygodne źródło,
+     * bo pola spoza kanału MLS można podmienić po drodze.
+     */
+    private fun czyOdNas(senderUserId: String): Boolean =
+        messenger?.account?.userId == senderUserId
+
     private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
         stan = when (zdarzenie) {
             /*
@@ -823,10 +837,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
              * w historii drugiej, bez śladu, że coś poszło nie tak.
              */
             is IncomingEvent.Message -> {
+                val wlasna = czyOdNas(zdarzenie.senderUserId)
                 val wiadomosc = Wiadomosc(
-                    autor = zdarzenie.senderUserId,
+                    autor = if (wlasna) "Ty" else zdarzenie.senderUserId,
                     tresc = zdarzenie.text,
-                    wlasna = false,
+                    wlasna = wlasna,
                     id = zdarzenie.messageId,
                 )
 
@@ -834,7 +849,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // „Dostarczono" jest twierdzeniem o kopercie, nie o uwadze
                 // odbiorcy — i tak nie dokłada osobnego zdarzenia w czasie,
                 // bo koperta właśnie przyszła.
-                zakolejkujPotwierdzenie(zdarzenie.groupId, ReceiptKind.DELIVERED, zdarzenie.messageId)
+                //
+                // Za własną wiadomość z drugiego urządzenia nie potwierdzamy:
+                // rozmówca dostałby „dostarczono" na wiadomość, której nie
+                // wysłał — bezużyteczny ruch zdradzający, ile mamy urządzeń.
+                if (!wlasna) {
+                    zakolejkujPotwierdzenie(
+                        zdarzenie.groupId,
+                        ReceiptKind.DELIVERED,
+                        zdarzenie.messageId,
+                    )
+                }
 
                 if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
                     stan.copy(
@@ -850,10 +875,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             is IncomingEvent.Attachment -> {
+                val wlasna = czyOdNas(zdarzenie.senderUserId)
                 val wiadomosc = Wiadomosc(
-                    autor = zdarzenie.senderUserId,
+                    autor = if (wlasna) "Ty" else zdarzenie.senderUserId,
                     tresc = zdarzenie.fileName ?: opisTypu(zdarzenie.mimeType),
-                    wlasna = false,
+                    wlasna = wlasna,
                     zalacznik = Zalacznik(
                         blobId = zdarzenie.blobId,
                         klucz = zdarzenie.decryptionKey,
@@ -865,7 +891,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     id = zdarzenie.messageId,
                 )
 
-                zakolejkujPotwierdzenie(zdarzenie.groupId, ReceiptKind.DELIVERED, zdarzenie.messageId)
+                if (!wlasna) {
+                    zakolejkujPotwierdzenie(
+                        zdarzenie.groupId,
+                        ReceiptKind.DELIVERED,
+                        zdarzenie.messageId,
+                    )
+                }
 
                 if (stan.groupId?.contentEquals(zdarzenie.groupId) == true) {
                     stan.copy(wiadomosci = stan.wiadomosci + wiadomosc, trybPolaczenia = tryb)
@@ -886,7 +918,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             is IncomingEvent.Receipt -> {
                 val czytamy = PotwierdzeniaOdczytu.wlaczone(getApplication())
 
-                if (zdarzenie.kind == ReceiptKind.READ && !czytamy) {
+                if (czyOdNas(zdarzenie.senderUserId)) {
+                    // Potwierdzenie od nas samych nie mówi nic o rozmówcy, za to
+                    // mówi wszystko o drugim naszym urządzeniu: przeczytane na
+                    // laptopie ma znaczyć przeczytane również tutaj.
+                    if (zdarzenie.kind == ReceiptKind.READ) {
+                        przenieRoznacznikOdczytu(zdarzenie.groupId, zdarzenie.messageIds)
+                        stan.copy(rozmowy = historia.lista())
+                    } else {
+                        stan
+                    }
+                } else if (zdarzenie.kind == ReceiptKind.READ && !czytamy) {
                     stan
                 } else {
                     val nowy = if (zdarzenie.kind == ReceiptKind.READ) {
@@ -1230,6 +1272,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Bez tej drugiej ścieżki ptaszek pojawiałby się tylko w rozmowie akurat
      * oglądanej, a po wejściu w inną wracałby do „wysłano".
      */
+    /**
+     * Przenosi znacznik przeczytania z drugiego własnego urządzenia.
+     *
+     * Chwilę bierzemy z najnowszej **wymienionej** wiadomości, a nie z „teraz":
+     * potwierdzenia wychodzą z losowym opóźnieniem do 30 s (`Potwierdzenia.kt`),
+     * więc bieżący czas oznaczyłby jako przeczytane także to, co przyszło
+     * w międzyczasie.
+     */
+    private fun przenieRoznacznikOdczytu(groupId: ByteArray, identyfikatory: List<ByteArray>) {
+        val szukane = identyfikatory.map { it.hex() }.toSet()
+
+        runCatching {
+            val najnowsza = historia.wczytaj(groupId)
+                .filter { it.id.hex() in szukane }
+                .maxOfOrNull { it.czas }
+                ?: return
+
+            historia.oznaczPrzeczytane(groupId, najnowsza)
+        }
+    }
+
     private fun nanieStan(
         groupId: ByteArray,
         identyfikatory: List<ByteArray>,

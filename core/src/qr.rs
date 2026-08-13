@@ -1,4 +1,4 @@
-//! Generator kodów QR — ISO/IEC 18004, tryb bajtowy, korekcja poziomu M.
+//! Generator kodów QR — ISO/IEC 18004, tryb bajtowy, korekcja L albo M.
 //!
 //! # Dlaczego to jest tutaj, a nie w kliencie
 //!
@@ -19,16 +19,29 @@
 //!
 //! # Zakres
 //!
-//! Wersje 1–10 przy korekcji M, czyli do 216 bajtów. Większe wejście jest
-//! błędem, a nie cichym przejściem na słabszą korekcję: kod pokazywany
-//! z ekranu przed aparatem musi znieść odbicia i krzywe ujęcie.
+//! Wersje 1–40, poziom korekcji L albo M. Przepełnienie jest **błędem**,
+//! a nie cichym przejściem na słabszą korekcję: kod pokazywany z ekranu przed
+//! aparatem musi znieść odbicia i krzywe ujęcie, więc o poziomie decyduje
+//! wołający świadomie, a nie generator pod naciskiem danych.
+//!
+//! Do wersji 10 przy korekcji M było tu przez długi czas — 216 bajtów wystarcza
+//! na klucz przeniesienia i sekret TOTP. Transfer optyczny historii potrzebuje
+//! czegoś zupełnie innego: przy 40-L mieści się **2953 bajty na ramkę**, czyli
+//! blisko czternaście razy więcej. Przy dziesięciu klatkach na sekundę to
+//! różnica między dziewięcioma sekundami a dwiema minutami trzymania telefonu
+//! nad ekranem.
+//!
+//! Poprawność wszystkich 80 kombinacji wersja × poziom sprawdza test wobec
+//! niezależnej biblioteki `qrcode` — tablice bloków mają 80 wierszy
+//! przepisanych z normy, a literówka w którymkolwiek daje kod, który zwykle
+//! nadal się skanuje, bo korekcja błędów naprawia go w locie.
 
 use crate::error::{Error, Result};
 
 /// Największa obsługiwana wersja.
-const MAX_VERSION: usize = 10;
+const MAX_VERSION: usize = 40;
 
-/// Bajty korekcji na blok oraz podział na grupy, dla korekcji M.
+/// Bajty korekcji na blok oraz podział na grupy.
 ///
 /// Grupy różnią się liczbą bajtów danych: przy niektórych wersjach dane nie
 /// dzielą się równo, więc część bloków jest o jeden bajt dłuższa.
@@ -37,7 +50,211 @@ struct Bloki {
     grupy: &'static [(usize, usize)],
 }
 
-const BLOKI: [Bloki; MAX_VERSION] = [
+/// Poziom korekcji błędów.
+///
+/// Dwa poziomy, nie cztery. `M` obowiązuje kody pokazywane z ekranu przed
+/// aparatem: muszą znieść odbicia i krzywe ujęcie. `L` istnieje wyłącznie dla
+/// transferu optycznego, gdzie o poprawność dba warstwa wyżej — kody fountain
+/// w `optyka.rs` odtwarzają całość z dowolnego podzbioru ramek, więc gubiona
+/// ramka kosztuje ułamek sekundy, a każdy bajt korekcji zabrany danym
+/// spowalnia transfer na stałe.
+///
+/// Q i H nie mają tu zastosowania i nie ma po co utrzymywać ich tablic.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Korekcja {
+    /// Około 7% odzysku — najwięcej danych na ramkę.
+    L,
+    /// Około 15% odzysku — domyślny dla kodów statycznych.
+    M,
+}
+
+impl Korekcja {
+    /// Bity poziomu w informacji o formacie.
+    ///
+    /// Kolejność jest z normy i **nie** jest naturalna: L to 01, M to 00.
+    /// Zamiana miejscami daje kod, który wygląda poprawnie i nie skanuje się
+    /// wcale, bo dekoder próbuje odczytać go inną korekcją.
+    fn bity(self) -> u32 {
+        match self {
+            Korekcja::L => 0b01,
+            Korekcja::M => 0b00,
+        }
+    }
+
+    fn tablica(self) -> &'static [Bloki; MAX_VERSION] {
+        match self {
+            Korekcja::L => &BLOKI_L,
+            Korekcja::M => &BLOKI_M,
+        }
+    }
+}
+
+/// Bloki i korekcja przy poziomie L, dla wersji 1–40.
+const BLOKI_L: [Bloki; MAX_VERSION] = [
+    Bloki {
+        ec: 7,
+        grupy: &[(1, 19)],
+    },
+    Bloki {
+        ec: 10,
+        grupy: &[(1, 34)],
+    },
+    Bloki {
+        ec: 15,
+        grupy: &[(1, 55)],
+    },
+    Bloki {
+        ec: 20,
+        grupy: &[(1, 80)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(1, 108)],
+    },
+    Bloki {
+        ec: 18,
+        grupy: &[(2, 68)],
+    },
+    Bloki {
+        ec: 20,
+        grupy: &[(2, 78)],
+    },
+    Bloki {
+        ec: 24,
+        grupy: &[(2, 97)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(2, 116)],
+    },
+    Bloki {
+        ec: 18,
+        grupy: &[(2, 68), (2, 69)],
+    },
+    Bloki {
+        ec: 20,
+        grupy: &[(4, 81)],
+    },
+    Bloki {
+        ec: 24,
+        grupy: &[(2, 92), (2, 93)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(4, 107)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(3, 115), (1, 116)],
+    },
+    Bloki {
+        ec: 22,
+        grupy: &[(5, 87), (1, 88)],
+    },
+    Bloki {
+        ec: 24,
+        grupy: &[(5, 98), (1, 99)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(1, 107), (5, 108)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(5, 120), (1, 121)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(3, 113), (4, 114)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(3, 107), (5, 108)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(4, 116), (4, 117)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(2, 111), (7, 112)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(4, 121), (5, 122)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(6, 117), (4, 118)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(8, 106), (4, 107)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(10, 114), (2, 115)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(8, 122), (4, 123)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(3, 117), (10, 118)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(7, 116), (7, 117)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(5, 115), (10, 116)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(13, 115), (3, 116)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(17, 115)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(17, 115), (1, 116)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(13, 115), (6, 116)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(12, 121), (7, 122)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(6, 121), (14, 122)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(17, 122), (4, 123)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(4, 122), (18, 123)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(20, 117), (4, 118)],
+    },
+    Bloki {
+        ec: 30,
+        grupy: &[(19, 118), (6, 119)],
+    },
+];
+
+/// Bloki i korekcja przy poziomie M, dla wersji 1–40.
+const BLOKI_M: [Bloki; MAX_VERSION] = [
     Bloki {
         ec: 10,
         grupy: &[(1, 16)],
@@ -78,6 +295,126 @@ const BLOKI: [Bloki; MAX_VERSION] = [
         ec: 26,
         grupy: &[(4, 43), (1, 44)],
     },
+    Bloki {
+        ec: 30,
+        grupy: &[(1, 50), (4, 51)],
+    },
+    Bloki {
+        ec: 22,
+        grupy: &[(6, 36), (2, 37)],
+    },
+    Bloki {
+        ec: 22,
+        grupy: &[(8, 37), (1, 38)],
+    },
+    Bloki {
+        ec: 24,
+        grupy: &[(4, 40), (5, 41)],
+    },
+    Bloki {
+        ec: 24,
+        grupy: &[(5, 41), (5, 42)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(7, 45), (3, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(10, 46), (1, 47)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(9, 43), (4, 44)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(3, 44), (11, 45)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(3, 41), (13, 42)],
+    },
+    Bloki {
+        ec: 26,
+        grupy: &[(17, 42)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(17, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(4, 47), (14, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(6, 45), (14, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(8, 47), (13, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(19, 46), (4, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(22, 45), (3, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(3, 45), (23, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(21, 45), (7, 46)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(19, 47), (10, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(2, 46), (29, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(10, 46), (23, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(14, 46), (21, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(14, 46), (23, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(12, 47), (26, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(6, 47), (34, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(29, 46), (14, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(13, 46), (32, 47)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(40, 47), (7, 48)],
+    },
+    Bloki {
+        ec: 28,
+        grupy: &[(18, 47), (31, 48)],
+    },
 ];
 
 /// Środki wzorów wyrównania. Wersja 1 ich nie ma.
@@ -92,6 +429,36 @@ const WYROWNANIE: [&[usize]; MAX_VERSION] = [
     &[6, 24, 42],
     &[6, 26, 46],
     &[6, 28, 50],
+    &[6, 30, 54],
+    &[6, 32, 58],
+    &[6, 34, 62],
+    &[6, 26, 46, 66],
+    &[6, 26, 48, 70],
+    &[6, 26, 50, 74],
+    &[6, 30, 54, 78],
+    &[6, 30, 56, 82],
+    &[6, 30, 58, 86],
+    &[6, 34, 62, 90],
+    &[6, 28, 50, 72, 94],
+    &[6, 26, 50, 74, 98],
+    &[6, 30, 54, 78, 102],
+    &[6, 28, 54, 80, 106],
+    &[6, 32, 58, 84, 110],
+    &[6, 30, 58, 86, 114],
+    &[6, 34, 62, 90, 118],
+    &[6, 26, 50, 74, 98, 122],
+    &[6, 30, 54, 78, 102, 126],
+    &[6, 26, 52, 78, 104, 130],
+    &[6, 30, 56, 82, 108, 134],
+    &[6, 34, 60, 86, 112, 138],
+    &[6, 30, 58, 86, 114, 142],
+    &[6, 34, 62, 90, 118, 146],
+    &[6, 30, 54, 78, 102, 126, 150],
+    &[6, 24, 50, 76, 102, 128, 154],
+    &[6, 28, 54, 80, 106, 132, 158],
+    &[6, 32, 58, 84, 110, 136, 162],
+    &[6, 26, 54, 82, 110, 138, 166],
+    &[6, 30, 58, 86, 114, 142, 170],
 ];
 
 // ---------------------------------------------------------------------------
@@ -174,22 +541,39 @@ impl Galois {
 // Kodowanie danych
 // ---------------------------------------------------------------------------
 
-/// Ile bajtów danych mieści wersja przy korekcji M.
-fn pojemnosc(wersja: usize) -> usize {
-    BLOKI[wersja - 1]
+/// Ile bajtów danych mieści wersja przy danym poziomie korekcji.
+fn pojemnosc(wersja: usize, korekcja: Korekcja) -> usize {
+    korekcja.tablica()[wersja - 1]
         .grupy
         .iter()
         .map(|(ile, dlugosc)| ile * dlugosc)
         .sum()
 }
 
+/// Ile bajtów mieści konkretna wersja przy danym poziomie korekcji.
+///
+/// Nagłówek to 4 bity trybu i licznik długości — 8 bitów do wersji 9, 16 od 10.
+fn maks_bajtow_wersji(wersja: usize, korekcja: Korekcja) -> usize {
+    let naglowek = if wersja < 10 { 12 } else { 20 };
+    (pojemnosc(wersja, korekcja) * 8 - naglowek) / 8
+}
+
+/// Ile bajtów zmieści największy kod QR przy danym poziomie korekcji.
+///
+/// Liczone z tablic, nie wpisane ręcznie: wpisana liczba rozjechałaby się
+/// z tablicą przy pierwszej pomyłce, a objawem byłby kod odrzucony dopiero
+/// u użytkownika. Nadajnik optyczny dobiera po tym rozmiar bloku.
+pub fn maks_bajtow(korekcja: Korekcja) -> usize {
+    maks_bajtow_wersji(MAX_VERSION, korekcja)
+}
+
 /// Najmniejsza wersja mieszcząca dane.
 ///
 /// Nagłówek to 4 bity trybu i licznik długości — 8 bitów do wersji 9, 16 od 10.
-fn dobierz_wersje(ile_bajtow: usize) -> Result<usize> {
+fn dobierz_wersje(ile_bajtow: usize, korekcja: Korekcja) -> Result<usize> {
     for wersja in 1..=MAX_VERSION {
         let naglowek = if wersja < 10 { 12 } else { 20 };
-        if (naglowek + ile_bajtow * 8).div_ceil(8) <= pojemnosc(wersja) {
+        if (naglowek + ile_bajtow * 8).div_ceil(8) <= pojemnosc(wersja, korekcja) {
             return Ok(wersja);
         }
     }
@@ -199,8 +583,8 @@ fn dobierz_wersje(ile_bajtow: usize) -> Result<usize> {
 }
 
 /// Składa strumień danych: nagłówek, treść, terminator i wypełnienie.
-fn uloz_dane(bajty: &[u8], wersja: usize) -> Vec<u8> {
-    let pojemnosc_bajtow = pojemnosc(wersja);
+fn uloz_dane(bajty: &[u8], wersja: usize, korekcja: Korekcja) -> Vec<u8> {
+    let pojemnosc_bajtow = pojemnosc(wersja, korekcja);
     let mut bity: Vec<u8> = Vec::with_capacity(pojemnosc_bajtow * 8);
 
     let dopisz = |bity: &mut Vec<u8>, wartosc: u32, ile: u32| {
@@ -254,8 +638,8 @@ fn uloz_dane(bajty: &[u8], wersja: usize) -> Vec<u8> {
 ///
 /// Przeplot daje kodowi odporność na uszkodzenia: sąsiadujące moduły należą do
 /// różnych bloków, więc plama rozkłada się na wszystkie zamiast zniszczyć jeden.
-fn przeplec(gf: &Galois, dane: &[u8], wersja: usize) -> Vec<u8> {
-    let Bloki { ec, grupy } = &BLOKI[wersja - 1];
+fn przeplec(gf: &Galois, dane: &[u8], wersja: usize, korekcja: Korekcja) -> Vec<u8> {
+    let Bloki { ec, grupy } = &korekcja.tablica()[wersja - 1];
 
     let mut bloki_danych: Vec<&[u8]> = Vec::new();
     let mut pozycja = 0;
@@ -337,8 +721,8 @@ fn info_wersji(wersja: usize) -> u32 {
 }
 
 /// BCH(15,5) dla poziomu korekcji i maski, z obowiązkową maską 0x5412.
-fn info_formatu(maska: u8) -> u32 {
-    let dane = maska as u32; // poziom M to 00 na starszych bitach
+fn info_formatu(maska: u8, korekcja: Korekcja) -> u32 {
+    let dane = (korekcja.bity() << 3) | maska as u32;
     let mut reszta = dane << 10;
     for i in 0..5 {
         if (reszta >> (14 - i)) & 1 != 0 {
@@ -423,9 +807,9 @@ fn wzory_stale(m: &mut Macierz, wersja: usize) {
     }
 }
 
-fn wpisz_format(m: &mut Macierz, maska: u8) {
+fn wpisz_format(m: &mut Macierz, maska: u8, korekcja: Korekcja) {
     let rozmiar = m.bok;
-    let bity = info_formatu(maska);
+    let bity = info_formatu(maska, korekcja);
     let bit = |i: u32| (bity >> i) & 1 == 1;
 
     // Kolejność bitów jest w każdej z dwóch kopii inna i nie da się jej zgadnąć
@@ -575,14 +959,18 @@ fn kara(m: &[Vec<bool>]) -> u32 {
 }
 
 /// Kod z narzuconą maską — wyłącznie do porównań w testach.
-fn macierz_z_maska(gf: &Galois, tekst: &str, maska: u8) -> Result<Vec<Vec<bool>>> {
-    let bajty = tekst.as_bytes();
-    let wersja = dobierz_wersje(bajty.len())?;
-    let dane = przeplec(gf, &uloz_dane(bajty, wersja), wersja);
+fn macierz_z_maska(
+    gf: &Galois,
+    bajty: &[u8],
+    maska: u8,
+    korekcja: Korekcja,
+) -> Result<Vec<Vec<bool>>> {
+    let wersja = dobierz_wersje(bajty.len(), korekcja)?;
+    let dane = przeplec(gf, &uloz_dane(bajty, wersja, korekcja), wersja, korekcja);
 
     let mut m = Macierz::nowa(wersja * 4 + 17);
     wzory_stale(&mut m, wersja);
-    wpisz_format(&mut m, maska);
+    wpisz_format(&mut m, maska, korekcja);
     wpisz_dane(&mut m, &dane, maska);
 
     Ok((0..m.bok)
@@ -590,18 +978,24 @@ fn macierz_z_maska(gf: &Galois, tekst: &str, maska: u8) -> Result<Vec<Vec<bool>>
         .collect())
 }
 
-/// Buduje macierz kodu QR. `true` znaczy moduł ciemny.
+/// Buduje macierz kodu QR z dowolnych bajtów. `true` znaczy moduł ciemny.
 ///
 /// Maska wybierana jest tak, jak każe norma: liczymy karę dla wszystkich ośmiu
 /// i bierzemy najniższą.
-pub fn qr_matrix(tekst: &str) -> Result<Vec<Vec<bool>>> {
+///
+/// # Dlaczego bajty, a nie tekst
+///
+/// Tryb bajtowy koduje bajty — wymaganie `&str` było ograniczeniem API, nie
+/// formatu. Ramka transferu optycznego jest binarna, więc przepuszczenie jej
+/// przez base64 kosztowałoby **jedną trzecią przepustowości** za nic.
+pub fn qr_matrix_bajty(bajty: &[u8], korekcja: Korekcja) -> Result<Vec<Vec<bool>>> {
     let gf = Galois::new();
 
-    let mut najlepsza = macierz_z_maska(&gf, tekst, 0)?;
+    let mut najlepsza = macierz_z_maska(&gf, bajty, 0, korekcja)?;
     let mut najnizsza = kara(&najlepsza);
 
     for maska in 1..8u8 {
-        let gotowa = macierz_z_maska(&gf, tekst, maska)?;
+        let gotowa = macierz_z_maska(&gf, bajty, maska, korekcja)?;
         let wynik = kara(&gotowa);
         if wynik < najnizsza {
             najnizsza = wynik;
@@ -610,6 +1004,15 @@ pub fn qr_matrix(tekst: &str) -> Result<Vec<Vec<bool>>> {
     }
 
     Ok(najlepsza)
+}
+
+/// Buduje macierz kodu QR z tekstu, przy korekcji M.
+///
+/// Poziom jest tu zaszyty celowo: kod pokazywany z ekranu przed aparatem musi
+/// znieść odbicia i krzywe ujęcie, a wołający nie ma powodu o tym decydować.
+/// Słabszą korekcję wybiera się świadomie, przez [`qr_matrix_bajty`].
+pub fn qr_matrix(tekst: &str) -> Result<Vec<Vec<bool>>> {
+    qr_matrix_bajty(tekst.as_bytes(), Korekcja::M)
 }
 
 #[cfg(test)]
@@ -645,7 +1048,7 @@ mod tests {
             let bok: usize = czesci[2].parse().unwrap();
             let oczekiwane = czesci[3];
 
-            let nasza = macierz_z_maska(&gf, &tekst, maska).unwrap();
+            let nasza = macierz_z_maska(&gf, tekst.as_bytes(), maska, Korekcja::M).unwrap();
             assert_eq!(nasza.len(), bok, "inny rozmiar dla „{tekst}” maska {maska}");
 
             let plaska: String = nasza
@@ -664,9 +1067,152 @@ mod tests {
         );
     }
 
+    /// Sumy kontrolne macierzy dla wszystkich 40 wersji i obu poziomów.
+    ///
+    /// Format: wersja, poziom, maska, ziarno, bok, SHA-256 modułów.
+    const SUMY: &str = include_str!("../testy/qr-sumy.tsv");
+
+    /// Pełne macierze dla wersji 1 i 10 — przy niezgodnej sumie jest po czym
+    /// zobaczyć, **co** się rozjechało.
+    ///
+    /// Format: ziarno, maska, poziom, bok, moduły jako ciąg 0/1.
+    const DUZE: &str = include_str!("../testy/qr-wzorce-duze.tsv");
+
+    /// Generator danych testowych — ten sam co w skrypcie, który wytworzył
+    /// wzorce. Rozjazd wywala wszystkie 80 naraz, więc nie da się go przeoczyć.
+    fn tresc(ile: usize, ziarno: u32) -> Vec<u8> {
+        let mut x = ziarno;
+        (0..ile)
+            .map(|_| {
+                x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+                (x >> 24) as u8
+            })
+            .collect()
+    }
+
+    fn poziom(nazwa: &str) -> Korekcja {
+        match nazwa {
+            "L" => Korekcja::L,
+            "M" => Korekcja::M,
+            inne => panic!("nieznany poziom korekcji: {inne}"),
+        }
+    }
+
+    fn plasko(m: &[Vec<bool>]) -> String {
+        m.iter()
+            .flatten()
+            .map(|&c| if c { '1' } else { '0' })
+            .collect()
+    }
+
+    /// Wszystkie 80 kombinacji wersja × poziom, wobec **niezależnej**
+    /// implementacji (biblioteka `qrcode` z npm).
+    ///
+    /// Tablice bloków mają 80 wierszy przepisanych z ISO/IEC 18004. Literówka
+    /// w którymkolwiek daje kod, który zwykle nadal się skanuje — korekcja
+    /// błędów naprawia go w locie — więc „zeskanowało się" niczego tu nie
+    /// dowodzi. Dowodzi dopiero zgodność co do modułu z cudzym generatorem.
+    ///
+    /// Sumy zamiast pełnych macierzy, bo komplet wszystkich 80 to ponad
+    /// megabajt wzorców w repozytorium.
+    #[test]
+    fn zgadza_sie_z_biblioteka_qrcode_na_wszystkich_wersjach() {
+        use sha2::{Digest, Sha256};
+
+        let gf = Galois::new();
+        let mut sprawdzonych = 0;
+
+        for wiersz in SUMY.lines().filter(|w| !w.trim().is_empty()) {
+            let c: Vec<&str> = wiersz.split('\t').collect();
+            assert_eq!(c.len(), 6, "zły format wiersza sum");
+
+            let wersja: usize = c[0].parse().unwrap();
+            let korekcja = poziom(c[1]);
+            let maska: u8 = c[2].parse().unwrap();
+            let ziarno: u32 = c[3].parse().unwrap();
+            let bok: usize = c[4].parse().unwrap();
+
+            let bajty = tresc(maks_bajtow_wersji(wersja, korekcja), ziarno);
+
+            // Wejście dobrane na maksimum wersji, więc `dobierz_wersje` musi
+            // trafić dokładnie w nią — inaczej porównujemy nie to co trzeba.
+            assert_eq!(
+                dobierz_wersje(bajty.len(), korekcja).unwrap(),
+                wersja,
+                "zła wersja dla {wersja}-{}",
+                c[1]
+            );
+
+            let nasza = macierz_z_maska(&gf, &bajty, maska, korekcja).unwrap();
+            assert_eq!(nasza.len(), bok, "zły bok dla {wersja}-{}", c[1]);
+
+            let suma = hex::encode(Sha256::digest(plasko(&nasza).as_bytes()));
+            assert_eq!(suma, c[5], "różnica dla wersji {wersja}, poziom {}", c[1]);
+            sprawdzonych += 1;
+        }
+
+        assert_eq!(sprawdzonych, 80, "wczytano za mało wzorców");
+    }
+
+    /// To samo, ale z pełną macierzą — żeby niezgodność dało się obejrzeć.
+    #[test]
+    fn pelne_macierze_zgadzaja_sie_z_biblioteka() {
+        let gf = Galois::new();
+        let mut sprawdzonych = 0;
+
+        for wiersz in DUZE.lines().filter(|w| !w.trim().is_empty()) {
+            let c: Vec<&str> = wiersz.split('\t').collect();
+            assert_eq!(c.len(), 5, "zły format wzorca");
+
+            let ziarno: u32 = c[0].parse().unwrap();
+            let maska: u8 = c[1].parse().unwrap();
+            let korekcja = poziom(c[2]);
+            let bok: usize = c[3].parse().unwrap();
+
+            let wersja = (bok - 17) / 4;
+            let bajty = tresc(maks_bajtow_wersji(wersja, korekcja), ziarno);
+
+            let nasza = macierz_z_maska(&gf, &bajty, maska, korekcja).unwrap();
+            assert_eq!(plasko(&nasza), c[4], "różnica dla wersji {wersja}");
+            sprawdzonych += 1;
+        }
+
+        assert_eq!(sprawdzonych, 4);
+    }
+
+    /// Przepełnienie ma być **błędem**, a nie cichym przejściem na słabszą
+    /// korekcję: kod czytany z ekranu przed aparatem musi znieść odbicia.
     #[test]
     fn dane_za_duze_sa_odrzucane() {
-        assert!(qr_matrix(&"A".repeat(300)).is_err());
+        assert!(qr_matrix(&"A".repeat(maks_bajtow(Korekcja::M) + 1)).is_err());
+        assert!(qr_matrix_bajty(&vec![b'A'; maks_bajtow(Korekcja::L) + 1], Korekcja::L).is_err());
+    }
+
+    /// Największe wejście musi jeszcze wchodzić — inaczej granica jest o jeden
+    /// za nisko i nikt tego nie zauważy, bo błąd wygląda tak samo jak
+    /// przepełnienie.
+    #[test]
+    fn najwieksze_dopuszczalne_wejscie_przechodzi() {
+        let m = qr_matrix_bajty(&vec![b'A'; maks_bajtow(Korekcja::L)], Korekcja::L).unwrap();
+        assert_eq!(m.len(), 177, "wersja 40 ma bok 177 modułów");
+    }
+
+    /// Poziom L musi mieścić wyraźnie więcej niż M — po to został dołożony.
+    /// Bez tego testu literówka w tablicy bloków dałaby kod, który się skanuje,
+    /// tylko transfer optyczny byłby wolniejszy, niż powinien.
+    #[test]
+    fn poziom_l_miesci_wiecej_niz_m() {
+        assert_eq!(maks_bajtow(Korekcja::L), 2953);
+        assert_eq!(maks_bajtow(Korekcja::M), 2331);
+    }
+
+    /// Bajty zerowe i spoza ASCII przechodzą tą samą drogą co tekst —
+    /// ramka transferu optycznego jest binarna i nie jest poprawnym UTF-8.
+    #[test]
+    fn dowolne_bajty_przechodza() {
+        let bajty: Vec<u8> = (0..=255u8).chain(0..=255u8).collect();
+        let m = qr_matrix_bajty(&bajty, Korekcja::L).unwrap();
+        assert!(m.len() >= 21);
     }
 
     #[test]

@@ -319,8 +319,25 @@ pub fn client_login_finish(
 mod tests {
     use super::*;
 
-    const HASLO: &str = "poprawne-konie-bateria-zszywka";
     const UZYTKOWNIK: &str = "alicja";
+
+    /// Hasło testowe, losowane przy każdym przebiegu.
+    ///
+    /// Stała w źródle wyglądałaby jak zapisany sekret — i dokładnie tak czyta
+    /// ją skaner bezpieczeństwa, bo z samego kodu nie da się odróżnić atrapy
+    /// od prawdziwego hasła. Przy okazji utrwalałaby jedną wartość w testach,
+    /// które bronią własności prawdziwych dla **dowolnego** hasła: przy
+    /// losowaniu przypadkowa zależność od konkretnego ciągu ujawni się jako
+    /// niestabilny test, zamiast siedzieć cicho.
+    fn haslo() -> String {
+        use rand::{Rng, distributions::Alphanumeric};
+
+        rand::rngs::OsRng
+            .sample_iter(&Alphanumeric)
+            .take(24)
+            .map(char::from)
+            .collect()
+    }
 
     /// Przechodzi pełną rejestrację i zwraca rekord konta.
     fn zarejestruj(key: &ServerKey, username: &str, password: &str) -> Vec<u8> {
@@ -349,9 +366,10 @@ mod tests {
     #[test]
     fn poprawne_haslo_daje_wspolny_klucz_sesji() {
         let key = ServerKey::generate();
-        let rekord = zarejestruj(&key, UZYTKOWNIK, HASLO);
+        let haslo_konta = haslo();
+        let rekord = zarejestruj(&key, UZYTKOWNIK, &haslo_konta);
 
-        let (klient, serwer) = zaloguj(&key, UZYTKOWNIK, Some(&rekord), HASLO).unwrap();
+        let (klient, serwer) = zaloguj(&key, UZYTKOWNIK, Some(&rekord), &haslo_konta).unwrap();
 
         // Zgodność kluczy jest dowodem, że klient znał hasło — a serwer
         // nigdy go nie zobaczył.
@@ -362,9 +380,11 @@ mod tests {
     #[test]
     fn zle_haslo_nie_przechodzi() {
         let key = ServerKey::generate();
-        let rekord = zarejestruj(&key, UZYTKOWNIK, HASLO);
+        let haslo_konta = haslo();
+        let inne_haslo = haslo();
+        let rekord = zarejestruj(&key, UZYTKOWNIK, &haslo_konta);
 
-        assert!(zaloguj(&key, UZYTKOWNIK, Some(&rekord), "ZUPELNIE-INNE-haslo").is_err());
+        assert!(zaloguj(&key, UZYTKOWNIK, Some(&rekord), &inne_haslo).is_err());
     }
 
     /// Ochrona przed enumeracją kont: nieistniejąca nazwa musi przejść tę samą
@@ -372,9 +392,10 @@ mod tests {
     #[test]
     fn nieistniejace_konto_daje_odpowiedz_tej_samej_dlugosci() {
         let key = ServerKey::generate();
-        let rekord = zarejestruj(&key, UZYTKOWNIK, HASLO);
+        let haslo_konta = haslo();
+        let rekord = zarejestruj(&key, UZYTKOWNIK, &haslo_konta);
 
-        let start = client_login_start(HASLO).unwrap();
+        let start = client_login_start(&haslo_konta).unwrap();
         let istniejace =
             server_login_start(&key, UZYTKOWNIK, Some(&rekord), &start.request).unwrap();
         let nieistniejace =
@@ -387,25 +408,27 @@ mod tests {
         );
 
         // Logowanie na nieistniejące konto musi odpaść tak samo jak złe hasło.
-        assert!(zaloguj(&key, "nie-ma-takiego", None, HASLO).is_err());
+        assert!(zaloguj(&key, "nie-ma-takiego", None, &haslo_konta).is_err());
     }
 
     /// Sedno całej konstrukcji: hasła nie ma w niczym, co idzie do serwera.
     #[test]
     fn haslo_nie_wystepuje_w_zadnym_komunikacie() {
         let key = ServerKey::generate();
+        let haslo_konta = haslo();
 
-        let start = client_registration_start(HASLO).unwrap();
+        let start = client_registration_start(&haslo_konta).unwrap();
         let response = server_registration_start(&key, UZYTKOWNIK, &start.request).unwrap();
         let finish =
-            client_registration_finish(&start.state, HASLO, UZYTKOWNIK, &response).unwrap();
+            client_registration_finish(&start.state, &haslo_konta, UZYTKOWNIK, &response).unwrap();
         let rekord = server_registration_finish(&finish.upload).unwrap();
 
-        let logowanie = client_login_start(HASLO).unwrap();
+        let logowanie = client_login_start(&haslo_konta).unwrap();
         let serwer =
             server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
         let klient =
-            client_login_finish(&logowanie.state, HASLO, UZYTKOWNIK, &serwer.response).unwrap();
+            client_login_finish(&logowanie.state, &haslo_konta, UZYTKOWNIK, &serwer.response)
+                .unwrap();
 
         for (nazwa, dane) in [
             ("żądanie rejestracji", &start.request),
@@ -417,8 +440,8 @@ mod tests {
         ] {
             assert!(
                 !dane
-                    .windows(HASLO.len())
-                    .any(|okno| okno == HASLO.as_bytes()),
+                    .windows(haslo_konta.len())
+                    .any(|okno| okno == haslo_konta.as_bytes()),
                 "hasło znalezione w: {nazwa}"
             );
         }
@@ -427,12 +450,14 @@ mod tests {
     #[test]
     fn sekret_serwera_przezywa_zapis_i_odczyt() {
         let key = ServerKey::generate();
-        let rekord = zarejestruj(&key, UZYTKOWNIK, HASLO);
+        let haslo_konta = haslo();
+        let rekord = zarejestruj(&key, UZYTKOWNIK, &haslo_konta);
 
         // Worker jest bezstanowy i odtwarza sekret przy każdym starcie.
         let odtworzony = ServerKey::from_bytes(&key.to_bytes()).unwrap();
 
-        let (klient, serwer) = zaloguj(&odtworzony, UZYTKOWNIK, Some(&rekord), HASLO).unwrap();
+        let (klient, serwer) =
+            zaloguj(&odtworzony, UZYTKOWNIK, Some(&rekord), &haslo_konta).unwrap();
         assert_eq!(klient, serwer);
     }
 
@@ -440,28 +465,31 @@ mod tests {
     #[test]
     fn inny_sekret_serwera_uniewaznia_konta() {
         let stary = ServerKey::generate();
-        let rekord = zarejestruj(&stary, UZYTKOWNIK, HASLO);
+        let haslo_konta = haslo();
+        let rekord = zarejestruj(&stary, UZYTKOWNIK, &haslo_konta);
 
         let nowy = ServerKey::generate();
 
-        assert!(zaloguj(&nowy, UZYTKOWNIK, Some(&rekord), HASLO).is_err());
+        assert!(zaloguj(&nowy, UZYTKOWNIK, Some(&rekord), &haslo_konta).is_err());
     }
 
     #[test]
     fn klucz_eksportowy_jest_powtarzalny_i_zalezy_od_hasla() {
         let key = ServerKey::generate();
+        let haslo_konta = haslo();
 
-        let start = client_registration_start(HASLO).unwrap();
+        let start = client_registration_start(&haslo_konta).unwrap();
         let response = server_registration_start(&key, UZYTKOWNIK, &start.request).unwrap();
         let rejestracja =
-            client_registration_finish(&start.state, HASLO, UZYTKOWNIK, &response).unwrap();
+            client_registration_finish(&start.state, &haslo_konta, UZYTKOWNIK, &response).unwrap();
         let rekord = server_registration_finish(&rejestracja.upload).unwrap();
 
-        let logowanie = client_login_start(HASLO).unwrap();
+        let logowanie = client_login_start(&haslo_konta).unwrap();
         let serwer =
             server_login_start(&key, UZYTKOWNIK, Some(&rekord), &logowanie.request).unwrap();
         let klient =
-            client_login_finish(&logowanie.state, HASLO, UZYTKOWNIK, &serwer.response).unwrap();
+            client_login_finish(&logowanie.state, &haslo_konta, UZYTKOWNIK, &serwer.response)
+                .unwrap();
 
         // Ten sam klucz przy rejestracji i przy każdym logowaniu — na tym opiera
         // się możliwość szyfrowania kopii, których serwer nie odczyta.
@@ -472,14 +500,15 @@ mod tests {
     #[test]
     fn spreparowane_komunikaty_nie_powoduja_paniki() {
         let key = ServerKey::generate();
+        let haslo_konta = haslo();
 
         for smiec in [vec![], vec![0u8; 1], vec![0xFFu8; 64], vec![0xABu8; 512]] {
             let _ = server_registration_start(&key, UZYTKOWNIK, &smiec);
             let _ = server_registration_finish(&smiec);
             let _ = server_login_start(&key, UZYTKOWNIK, None, &smiec);
             let _ = server_login_finish(&smiec, UZYTKOWNIK, &smiec);
-            let _ = client_registration_finish(&smiec, HASLO, UZYTKOWNIK, &smiec);
-            let _ = client_login_finish(&smiec, HASLO, UZYTKOWNIK, &smiec);
+            let _ = client_registration_finish(&smiec, &haslo_konta, UZYTKOWNIK, &smiec);
+            let _ = client_login_finish(&smiec, &haslo_konta, UZYTKOWNIK, &smiec);
             let _ = ServerKey::from_bytes(&smiec);
         }
     }

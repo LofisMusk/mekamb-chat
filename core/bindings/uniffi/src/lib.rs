@@ -1321,3 +1321,33 @@ impl OdbiornikOptyczny {
         Ok(self.wnetrze.lock().expect("zatruty zamek").odbierz()?)
     }
 }
+
+/// Efemeryczna para kluczy do sparowania drugiego urządzenia.
+///
+/// Klucz publiczny jedzie w kodzie QR pokazanym przez **nowe** urządzenie.
+/// Kierunek nie jest dowolny: filmujący ekran starego urządzenia — tego, które
+/// nadaje historię — nie widział tamtego kodu, więc nie zna sekretu.
+#[derive(uniffi::Object)]
+pub struct ParaParowania {
+    wnetrze: mekamb_core::parowanie::ParaParowania,
+}
+
+#[uniffi::export]
+impl ParaParowania {
+    #[uniffi::constructor]
+    pub fn new() -> Result<Self, MekambError> {
+        Ok(ParaParowania {
+            wnetrze: mekamb_core::parowanie::ParaParowania::nowa()?,
+        })
+    }
+
+    /// Klucz publiczny — to on trafia do kodu QR.
+    pub fn publiczny(&self) -> Vec<u8> {
+        self.wnetrze.publiczny().to_vec()
+    }
+
+    /// Uzgadnia klucz transferu z kluczem publicznym drugiej strony.
+    pub fn klucz_transferu(&self, obcy_publiczny: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        Ok(self.wnetrze.klucz_transferu(&obcy_publiczny)?.to_vec())
+    }
+}

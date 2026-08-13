@@ -38,6 +38,7 @@ pub mod identity;
 pub mod media;
 pub mod media_video;
 pub mod optyka;
+pub mod parowanie;
 pub mod qr;
 pub mod safety;
 pub mod storage;

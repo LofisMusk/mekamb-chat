@@ -1162,3 +1162,39 @@ impl OpticalReceiver {
             .map_err(|e| JsError::new(&e.to_string()))
     }
 }
+
+/// Efemeryczna para kluczy do sparowania drugiego urządzenia.
+///
+/// Klucz publiczny jedzie w kodzie QR pokazanym przez **nowe** urządzenie.
+/// Kierunek nie jest dowolny: filmujący ekran starego urządzenia — tego, które
+/// nadaje historię — nie widział tamtego kodu, więc nie zna sekretu.
+#[wasm_bindgen]
+pub struct PairingKeys {
+    wnetrze: mekamb_core::parowanie::ParaParowania,
+}
+
+#[wasm_bindgen]
+impl PairingKeys {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<PairingKeys, JsError> {
+        Ok(PairingKeys {
+            wnetrze: mekamb_core::parowanie::ParaParowania::nowa().map_err(to_js)?,
+        })
+    }
+
+    /// Klucz publiczny — to on trafia do kodu QR.
+    #[wasm_bindgen(js_name = publicKey)]
+    pub fn public_key(&self) -> Vec<u8> {
+        self.wnetrze.publiczny().to_vec()
+    }
+
+    /// Uzgadnia klucz transferu z kluczem publicznym drugiej strony.
+    #[wasm_bindgen(js_name = transferKey)]
+    pub fn transfer_key(&self, peer_public_key: &[u8]) -> Result<Vec<u8>, JsError> {
+        Ok(self
+            .wnetrze
+            .klucz_transferu(peer_public_key)
+            .map_err(to_js)?
+            .to_vec())
+    }
+}

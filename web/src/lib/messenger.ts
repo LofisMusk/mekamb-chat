@@ -303,6 +303,44 @@ export class Messenger {
       );
     }
 
+    await this.wprowadzCzlonkow(groupId, pakiety, username);
+  }
+
+  /**
+   * Wprowadza WŁASNE, świeżo sparowane urządzenie do rozmowy.
+   *
+   * # Czemu nie zwykłe `addMember` z własną nazwą
+   *
+   * Bo tamto pobiera z katalogu **wszystkie** urządzenia i dodaje je hurtem —
+   * łącznie z tymi, które już w grupie są. MLS odrzuciłby taki commit, a przy
+   * kilku rozmowach zostawiłby konto dodane w połowie.
+   *
+   * Urządzenie już będące w grupie pomijamy po cichu: przy powtórzonym
+   * parowaniu albo wznowieniu po zerwaniu to jest normalny stan, nie awaria.
+   */
+  async dodajWlasneUrzadzenie(groupId: Uint8Array, deviceId: string): Promise<void> {
+    const tozsamosc = `${this.account.userId}:${deviceId}`;
+    if (this.client.members(groupId).includes(tozsamosc)) return;
+
+    const pakiety = await this.pobierzPakiety([{ deviceId }]);
+    if (pakiety.length === 0) {
+      throw new Error(
+        "nowe urządzenie nie ma wolnych key packages — otwórz na nim aplikację i spróbuj ponownie",
+      );
+    }
+
+    // Welcome idzie na NASZĄ nazwę: nowe urządzenie dzieli z nami skrzynkę.
+    await this.wprowadzCzlonkow(groupId, pakiety, this.account.userId);
+  }
+
+  /**
+   * Zajmuje epokę, scala commit i rozsyła go — wspólne dla obu dróg dodawania.
+   */
+  private async wprowadzCzlonkow(
+    groupId: Uint8Array,
+    pakiety: Uint8Array[],
+    username: string,
+  ): Promise<void> {
     const pending = this.client.addMembers(groupId, sklejPakiety(pakiety));
 
     /*

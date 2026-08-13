@@ -115,6 +115,20 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [zadanieRozmowy, setZadanieRozmowy] = useState<ZadanieRozmowy | null>(null);
 
   /*
+   * Grupa, w której toczy się rozmowa A/V — osobno od tej otwartej na ekranie.
+   *
+   * To dwie różne rzeczy i wcześniej były jedną. Rozmowa przychodząca musi
+   * dojść niezależnie od tego, co użytkownik ma akurat przed sobą: może być
+   * w innym wątku, w Kontaktach albo na Koncie. Sklejenie ich znaczyło albo
+   * gubienie połączeń, albo przerzucanie kogoś do innej rozmowy w chwili,
+   * w której ktoś zadzwonił.
+   */
+  const [grupaRozmowy, setGrupaRozmowy] = useState<Uint8Array | null>(null);
+
+  /** Czy rozmowa A/V zajmuje ekran — wtedy reszty układu nie ma. */
+  const [rozmowaNaEkranie, setRozmowaNaEkranie] = useState(false);
+
+  /*
    * Inspektor: na szerokim ekranie otwarty od razu, na wąskim schowany.
    *
    * Szerokość czytamy RAZ, przy pierwszym złożeniu, i to jest jedyne miejsce
@@ -303,10 +317,19 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             nanieStan(odebrana.receipt.messageIds, stanZPotwierdzenia(odebrana.receipt.kind));
           }
         } else if (odebrana?.call) {
-          // Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia —
-          // trafia do komponentu rozmowy.
+          /*
+           * Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia — trafia
+           * do ekranu rozmowy.
+           *
+           * Grupa rozmowy jest ZAWSZE ta z koperty, także wtedy, gdy otwarty
+           * jest inny wątek albo zupełnie inna gałąź. Wcześniej ustawiał ją
+           * tylko warunek „jeśli nic nie jest otwarte", więc telefon dzwoniący
+           * w czasie czytania innej rozmowy nie dzwonił nigdzie: sygnał szedł
+           * do komponentu przypiętego do CUDZEJ grupy, który go odrzucał jako
+           * nieswój — i nikt się nie dowiadywał, że ktoś dzwonił.
+           */
+          setGrupaRozmowy(odebrana.groupId);
           setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
-          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
         } else if (odebrana) {
           dodaj(odebrana);
           if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
@@ -500,8 +523,68 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     }
   };
 
+  /*
+   * Ekran rozmowy A/V stoi PONAD układem, a nie w środku wątku.
+   *
+   * Składnik rysuje się zawsze — to on wie, czy jest co pokazywać, i mówi to
+   * przez `onAktywnosc`. Odmontowywanie go, gdy nie ma rozmowy, kasowałoby
+   * kolejkę sygnałów i trwającą negocjację przy każdym przejściu między
+   * gałęziami.
+   *
+   * Grupa: ta z sygnału, a gdy dzwonimy sami — ta otwarta. Bez żadnej z nich
+   * nie ma do kogo dzwonić i składnik nie ma czego rysować.
+   */
+  const grupaDlaRozmowy = grupaRozmowy ?? groupId;
+
+  const ekranRozmowy = grupaDlaRozmowy && (
+    <Rozmowa
+      messenger={messenger}
+      groupId={grupaDlaRozmowy}
+      sygnal={sygnalRozmowy}
+      zadanie={zadanieRozmowy}
+      onAktywnosc={setRozmowaNaEkranie}
+      onZdarzenie={(zapis) => {
+        /*
+         * Ślad po rozmowie trafia do WĄTKU, w którym się odbyła.
+         *
+         * Gdy rozmowa toczyła się w innej grupie niż otwarta, dopisanie go do
+         * `wiadomosci` wstawiłoby zdarzenie do cudzej historii — i tam
+         * zostałoby zapisane na dysku. Do stanu ekranu dokładamy je więc tylko
+         * wtedy, gdy to naprawdę ta sama rozmowa.
+         */
+        const wpis: Wiadomosc = {
+          id: crypto.randomUUID(),
+          autor: zapis.wychodzaca ? "Ty" : rozmowca,
+          tresc: "",
+          czas: Date.now(),
+          wlasna: zapis.wychodzaca,
+          rozmowa: zapis,
+        };
+
+        if (groupId && kluczRozmowy(groupId) === kluczRozmowy(grupaDlaRozmowy)) {
+          setWiadomosci((p) => [...p, wpis]);
+        } else {
+          // Cudzy wątek dopisujemy prosto na dysk i odświeżamy listę: nie ma go
+          // na ekranie, więc nie ma czego przerysować poza wierszem listy.
+          void wczytajRozmowe(grupaDlaRozmowy)
+            .then((zapisane) => zapiszRozmowe(grupaDlaRozmowy, "", [...zapisane, wpis]))
+            .then(() => listaRozmow())
+            .then(setRozmowy)
+            .catch(() => {});
+        }
+      }}
+      onBlad={onBlad}
+    />
+  );
+
+  // Rozmowa zajmuje ekran w całości: gdy trwa, jest jedyną rzeczą, którą
+  // użytkownik chce widzieć — i jedyną, którą wolno mu pomylić z czymś innym.
+  if (rozmowaNaEkranie) return <>{ekranRozmowy}</>;
+
   return (
     <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
+      {ekranRozmowy}
+
       <Nawigacja
         galaz={galaz}
         onGalaz={setGalaz}
@@ -545,9 +628,13 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             tresc={tresc}
             setTresc={setTresc}
             stanSieci={stanSieci}
-            sygnalRozmowy={sygnalRozmowy}
-            zadanieRozmowy={zadanieRozmowy}
-            setZadanieRozmowy={setZadanieRozmowy}
+            // Dzwonimy z otwartego wątku, więc rozmowa toczy się w JEGO grupie.
+            // Bez tego ekran rozmowy zostałby przy grupie z poprzedniego
+            // połączenia przychodzącego.
+            setZadanieRozmowy={(z) => {
+              setGrupaRozmowy(groupId);
+              setZadanieRozmowy(z);
+            }}
             inspektorOtwarty={inspektorOtwarty}
             setInspektorOtwarty={setInspektorOtwarty}
             onBlad={onBlad}
@@ -761,8 +848,6 @@ function Watek({
   tresc,
   setTresc,
   stanSieci,
-  sygnalRozmowy,
-  zadanieRozmowy,
   setZadanieRozmowy,
   inspektorOtwarty,
   setInspektorOtwarty,
@@ -778,8 +863,6 @@ function Watek({
   tresc: string;
   setTresc: (t: string) => void;
   stanSieci: StanPolaczenia;
-  sygnalRozmowy: SygnalRozmowy | null;
-  zadanieRozmowy: ZadanieRozmowy | null;
   setZadanieRozmowy: (z: ZadanieRozmowy) => void;
   inspektorOtwarty: boolean;
   setInspektorOtwarty: (o: boolean | ((o: boolean) => boolean)) => void;
@@ -916,33 +999,10 @@ function Watek({
         </div>
       </header>
 
-      {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
-          najważniejszą rzeczą na ekranie.
-
-          Ślad po niej idzie do tej samej listy co wiadomości. Osobna lista
-          „zdarzeń" wymagałaby scalania dwóch porządków czasowych przy każdym
-          rysowaniu wątku — a rozmowa i wiadomość dzieją się w tej samej osi
-          czasu i mają się w niej przeplatać. */}
-      <Rozmowa
-        messenger={messenger}
-        groupId={groupId}
-        sygnal={sygnalRozmowy}
-        zadanie={zadanieRozmowy}
-        onZdarzenie={(zapis) =>
-          setWiadomosci((p) => [
-            ...p,
-            {
-              id: crypto.randomUUID(),
-              autor: zapis.wychodzaca ? "Ty" : rozmowca,
-              tresc: "",
-              czas: Date.now(),
-              wlasna: zapis.wychodzaca,
-              rozmowa: zapis,
-            },
-          ])
-        }
-        onBlad={onBlad}
-      />
+      {/* Rozmowy A/V tu NIE MA — jest osobnym ekranem ponad układem (`Czat`).
+          Ślad po niej idzie do tej samej listy co wiadomości: rozmowa
+          i wiadomość dzieją się w tej samej osi czasu i mają się w niej
+          przeplatać. */}
 
       <ol
         className="wiadomosci"

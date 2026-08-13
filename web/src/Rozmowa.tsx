@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Ikona } from "./Ikony";
 import { Call } from "./lib/calls";
@@ -53,6 +53,7 @@ export function Rozmowa({
   sygnal,
   zadanie,
   onZdarzenie,
+  onAktywnosc,
   onBlad,
 }: {
   messenger: Messenger;
@@ -61,6 +62,14 @@ export function Rozmowa({
   zadanie: ZadanieRozmowy | null;
   /** Zgłasza ślad po rozmowie do wątku — patrz `ZapisRozmowy` w `historia.ts`. */
   onZdarzenie: (zapis: ZapisRozmowy) => void;
+  /**
+   * Mówi wyżej, czy rozmowa zajmuje ekran.
+   *
+   * Rozmowa jest OSOBNYM ekranem, a nie paskiem doklejonym nad wątkiem —
+   * więc ktoś musi wiedzieć, że reszty układu nie należy w tej chwili rysować.
+   * Ta wiedza jest tutaj (tu powstaje rozmowa), a decyzja o układzie wyżej.
+   */
+  onAktywnosc: (aktywna: boolean) => void;
   onBlad: (e: unknown) => void;
 }) {
   const [call, setCall] = useState<Call | null>(null);
@@ -103,6 +112,27 @@ export function Rozmowa({
    */
   const wychodzaca = useRef(true);
 
+  /**
+   * Czy rozmowa doszła do skutku — choćby na sekundę, choćby z jedną osobą.
+   *
+   * Zapalane raz i nigdy nie gaszone przed końcem rozmowy: rozłączenie czyta
+   * je już po tym, jak wszystkie połączenia są zamknięte, więc odczyt bieżącego
+   * stanu odpowiadałby zawsze „nikogo nie było".
+   */
+  const zestawiona = useRef(false);
+
+  /**
+   * Przyjmuje migawkę rozmowy i zapala znacznik zestawienia.
+   *
+   * Jedno miejsce dla obu dróg wejścia w rozmowę — dzwonienia i odbierania.
+   * Osobne zapalanie w każdej z nich byłoby tą samą regułą napisaną dwa razy,
+   * a różnica między kopiami ujawniałaby się tylko po jednej stronie łącza.
+   */
+  const zapamietajStan = (migawka: CallState) => {
+    if (migawka.uczestnicy.some((u) => u.faza === "trwa")) zestawiona.current = true;
+    setStan(migawka);
+  };
+
   const zapamietajStrumien = (username: string, stream: MediaStream) => {
     setStrumienie((poprzednie) => {
       // Ten sam strumień przychodzi ponownie przy każdej renegocjacji (np. gdy
@@ -113,6 +143,41 @@ export function Rozmowa({
     });
   };
 
+  /**
+   * Sygnały, które przyszły, zanim ktokolwiek odebrał.
+   *
+   * # Dlaczego bez tego rozmowa się nie zestawiała
+   *
+   * Dzwoniący wysyła ofertę i NATYCHMIAST zaczyna sypać kandydatami ICE —
+   * `onicecandidate` odzywa się zaraz po `setLocalDescription`, a nie po
+   * odebraniu. Po tej stronie przez te kilka sekund `call` jest jeszcze `null`,
+   * bo na ekranie stoi pytanie „odebrać?". Wcześniejsze `call?.przyjmijSygnal`
+   * po cichu wyrzucało więc do kosza KAŻDEGO kandydata dzwoniącego.
+   *
+   * Gdy w końcu ktoś odebrał, dzwoniący miał już zebrane wszystko, co miał do
+   * zebrania, i nie nadawał tego drugi raz. Zostawało połączenie znające
+   * kandydatów tylko jednej strony — czyli takie, które nigdy się nie zestawi.
+   * Z zewnątrz wyglądało to dokładnie jak „dzwonienie nie działa": rozmowa
+   * ruszała, licznik szedł, i nikt nikogo nie słyszał.
+   *
+   * Kolejka jest w referencji, nie w stanie: dołożenie kandydata nie ma powodu
+   * przerysowywać ekranu, a przerysowanie nie ma prawa jej zgubić.
+   */
+  const oczekujace = useRef<SygnalRozmowy[]>([]);
+
+  const przekaz = useCallback(
+    (rozmowa: Call, s: SygnalRozmowy) =>
+      rozmowa.przyjmijSygnal(
+        s.nadawca,
+        s.kind,
+        s.callId,
+        s.payload,
+        s.dtlsFingerprint,
+        s.target,
+      ),
+    [],
+  );
+
   useEffect(() => {
     if (!sygnal) return;
 
@@ -122,17 +187,20 @@ export function Rozmowa({
       return;
     }
 
-    void call
-      ?.przyjmijSygnal(
-        sygnal.nadawca,
-        sygnal.kind,
-        sygnal.callId,
-        sygnal.payload,
-        sygnal.dtlsFingerprint,
-        sygnal.target,
-      )
-      .catch(onBlad);
-  }, [sygnal, call, onBlad]);
+    // Wszystko inne przed odebraniem czeka w kolejce. Rozłączenie jest
+    // wyjątkiem: dzwoniący się rozmyślił i nie ma już czego odbierać.
+    if (!call) {
+      if (sygnal.kind === "hangup") {
+        oczekujace.current = [];
+        setPrzychodzace(null);
+      } else {
+        oczekujace.current.push(sygnal);
+      }
+      return;
+    }
+
+    void przekaz(call, sygnal).catch(onBlad);
+  }, [sygnal, call, przekaz, onBlad]);
 
   /*
    * Prośba z nagłówka uruchamia rozmowę.
@@ -163,13 +231,15 @@ export function Rozmowa({
 
   const zadzwon = async (wideo: boolean) => {
     wychodzaca.current = true;
+    zestawiona.current = false;
+    oczekujace.current = [];
     try {
       const nowa = await Call.rozpocznij(
         messenger,
         groupId,
         messenger.accessToken,
         wideo,
-        setStan,
+        zapamietajStan,
         zapamietajStrumien,
       );
       setCall(nowa);
@@ -186,6 +256,7 @@ export function Rozmowa({
     const zaproszenie = przychodzace;
     setPrzychodzace(null);
     wychodzaca.current = false;
+    zestawiona.current = false;
 
     try {
       const nowa = await Call.odbierz(
@@ -194,7 +265,7 @@ export function Rozmowa({
         messenger.accessToken,
         zaproszenie.callId,
         wideo,
-        setStan,
+        zapamietajStan,
         zapamietajStrumien,
       );
       setCall(nowa);
@@ -203,14 +274,25 @@ export function Rozmowa({
       setObraz(true);
 
       // Ofertę, która nas obudziła, trzeba przetworzyć po zestawieniu rozmowy.
-      await nowa.przyjmijSygnal(
-        zaproszenie.nadawca,
-        zaproszenie.kind,
-        zaproszenie.callId,
-        zaproszenie.payload,
-        zaproszenie.dtlsFingerprint,
-        zaproszenie.target,
-      );
+      await przekaz(nowa, zaproszenie);
+
+      /*
+       * Dopiero teraz kandydaci, którzy przyszli w trakcie dzwonienia.
+       *
+       * Kolejność ma znaczenie: kandydat przed opisem zdalnym trafiłby do
+       * drugiej kolejki, tej w `PeerLink`. Działałoby, ale przechodzenie przez
+       * dwie kolejki po to, żeby wyjść w tym samym miejscu, jest okrężną drogą
+       * do stanu, w którym i tak trzeba mieć ofertę przetworzoną najpierw.
+       *
+       * Błąd na pojedynczym kandydacie nie może przerwać reszty — jeden
+       * nieprzydatny adres to nie powód, żeby zerwać rozmowę.
+       */
+      const zalegle = oczekujace.current;
+      oczekujace.current = [];
+
+      for (const s of zalegle) {
+        await przekaz(nowa, s).catch(() => {});
+      }
     } catch (err) {
       // Najczęstsza przyczyna: odcisk certyfikatu nie zgadza się z tym,
       // który przyszedł zaszyfrowanym kanałem.
@@ -228,8 +310,16 @@ export function Rozmowa({
    * Rozmowa, której nikt nie odebrał, nie ma czasu trwania — i to jest różnica
    * między brakiem a zerem: zero znaczyłoby „odebrana i natychmiast przerwana".
    */
-  const rozlacz = () => {
-    const ktos = (stan?.uczestnicy ?? []).some((u) => u.faza === "trwa");
+  const rozlacz = (powiadom = true) => {
+    /*
+     * „Czy ktoś odebrał" musi być pamiętane, a nie odczytane w chwili końca.
+     *
+     * Gdy to DRUGA strona się rozłącza, w chwili sprzątania wszyscy uczestnicy
+     * są już `zakonczona` — pytanie „czy ktoś jest w trakcie" odpowiada wtedy
+     * „nie" na rozmowę, która właśnie trwała kwadrans. W wątku zostawałoby po
+     * niej „Nikt nie odebrał", co jest po prostu nieprawdą.
+     */
+    const ktos = zestawiona.current;
 
     onZdarzenie({
       wideo: stan?.wideo ?? false,
@@ -237,13 +327,57 @@ export function Rozmowa({
       wychodzaca: wychodzaca.current,
     });
 
-    call?.zakoncz();
+    call?.zakoncz(powiadom);
     setCall(null);
     setStan(null);
     setOdKiedy(null);
     setSekundy(0);
     setStrumienie(new Map());
+    oczekujace.current = [];
   };
+
+  /*
+   * Rozłączenie przez DRUGĄ stronę też kończy rozmowę.
+   *
+   * `hangup` docierał dotąd tylko do `PeerLink`, który zamykał swoje
+   * połączenie — i na tym się kończyło. Ekran rozmowy zostawał na wierzchu
+   * z licznikiem lecącym dalej, bo nikt nie powiedział mu, że nie ma już z kim
+   * rozmawiać. Wyjściem był przycisk „Rozłącz", czyli rozłączanie się
+   * z rozmowy, która dawno się skończyła.
+   *
+   * Warunek jest o WSZYSTKICH uczestnikach, nie o pierwszym z brzegu: w mesh
+   * odejście jednej osoby z trzech nie kończy rozmowy pozostałym. Pusta lista
+   * nie liczy się jako „wszyscy wyszli" — tak wygląda rozmowa tuż po
+   * zestawieniu, zanim pojawi się w niej ktokolwiek.
+   *
+   * Rozłączenia nie odsyłamy z powrotem: druga strona właśnie je przysłała.
+   */
+  const wszyscyOdeszli =
+    stan !== null &&
+    stan.uczestnicy.length > 0 &&
+    stan.uczestnicy.every((u) => u.faza === "zakonczona");
+
+  useEffect(() => {
+    if (wszyscyOdeszli) rozlaczRef.current(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wszyscyOdeszli]);
+
+  // Przez referencję, żeby efekt wyżej nie musiał zależeć od funkcji
+  // odtwarzanej przy każdym renderze — inaczej zamykałby rozmowę w kółko.
+  const rozlaczRef = useRef(rozlacz);
+  rozlaczRef.current = rozlacz;
+
+  /*
+   * Rozmowa na ekranie znaczy, że reszty układu nie ma.
+   *
+   * Zgłaszamy to w efekcie, a nie w trakcie renderowania: zmiana stanu rodzica
+   * podczas własnego renderu jest ostrzeżeniem Reacta i w trybie ścisłym
+   * potrafi zapętlić przerysowanie.
+   */
+  const naEkranie = call !== null || przychodzace !== null;
+  useEffect(() => {
+    onAktywnosc(naEkranie);
+  }, [naEkranie, onAktywnosc]);
 
   /** Gasi albo zapala ścieżki danego rodzaju w lokalnym strumieniu. */
   const przelacz = (rodzaj: "audio" | "video", wlaczone: boolean) => {
@@ -280,14 +414,43 @@ export function Rozmowa({
     }
   };
 
+  /**
+   * Odrzucenie MÓWI dzwoniącemu, że to odmowa.
+   *
+   * Wcześniej gasiliśmy tylko własny ekran, a po drugiej stronie telefon
+   * dzwonił dalej, aż ktoś się poddał — nie do odróżnienia od „nie ma go przy
+   * telefonie". Rozłączenie jest jedynym sygnałem, jakim można powiedzieć „nie
+   * teraz", więc musi wyjść.
+   */
+  const odrzuc = () => {
+    if (przychodzace) {
+      void messenger
+        .sendCallSignal(groupId, "hangup", przychodzace.callId, "", "", przychodzace.nadawca)
+        .catch(() => {
+          // Nieudana odmowa nie może zatrzymać zamknięcia ekranu: dzwoniący
+          // najwyżej doczeka swojego, a użytkownik i tak już odmówił.
+        });
+    }
+
+    // Odrzucona rozmowa zostaje w wątku. Zniknięcie bez śladu znaczy, że po
+    // odłożeniu telefonu nie da się już sprawdzić, kto dzwonił.
+    onZdarzenie({ wideo: false, wychodzaca: false });
+    setPrzychodzace(null);
+    oczekujace.current = [];
+  };
+
   if (przychodzace) {
     return (
-      <section className="przychodzaca">
-        <div className="rozmowa-stan">
-          <strong>{przychodzace.nadawca} dzwoni</strong>
+      <section className="ekran-rozmowy dzwoni" aria-label="Rozmowa przychodząca">
+        <div className="rozmowa-kto">
+          <span className="awatar duzy" aria-hidden="true">
+            {przychodzace.nadawca.slice(0, 1)}
+          </span>
+          <strong>{przychodzace.nadawca}</strong>
+          <span className="rozmowa-podpis">dzwoni</span>
         </div>
 
-        <div className="rzad-przyciskow">
+        <div className="rozmowa-przyciski">
           <button className="glowny" onClick={() => void odbierz(false)}>
             <Ikona nazwa="sluchawka" rozmiar={16} />
             Odbierz
@@ -296,15 +459,7 @@ export function Rozmowa({
             <Ikona nazwa="kamera" rozmiar={16} />
             Z obrazem
           </button>
-          <button
-            className="niszczacy"
-            onClick={() => {
-              // Odrzucona rozmowa zostaje w wątku. Zniknięcie bez śladu znaczy,
-              // że po odłożeniu telefonu nie da się już sprawdzić, kto dzwonił.
-              onZdarzenie({ wideo: false, wychodzaca: false });
-              setPrzychodzace(null);
-            }}
-          >
+          <button className="niszczacy" onClick={odrzuc}>
             <Ikona nazwa="rozlacz" rozmiar={16} />
             Odrzuć
           </button>
@@ -329,55 +484,26 @@ export function Rozmowa({
    */
   const maObraz = stan?.wideo ?? false;
 
+  /*
+   * Rozmowa jest OSOBNYM ekranem, nie paskiem nad wątkiem.
+   *
+   * Pasek doklejony nad wiadomościami stawiał obok siebie dwie rzeczy o różnej
+   * pilności: rozmowę, która dzieje się TERAZ, i historię, która poczeka.
+   * Wygrywała ta, która zajmowała więcej miejsca — czyli historia. Przyciski
+   * rozmowy ściskały się w jednym rzędzie u góry, a przy otwartej klawiaturze
+   * potrafiły wyjechać poza widok razem z całym wątkiem.
+   *
+   * Ekran zabiera cały układ (patrz `Czat`) i ma jedno zadanie. Wyjście z niego
+   * jest jedno: rozłączenie.
+   */
   return (
-    <section aria-label="Trwająca rozmowa">
-      <div className="rozmowa-pasek">
+    <section className="ekran-rozmowy" aria-label="Trwająca rozmowa">
+      <div className="rozmowa-naglowek">
         <Ikona nazwa={maObraz ? "kamera" : "sluchawka"} rozmiar={17} />
 
         <span className="rozmowa-stan">
           <strong>{opisRozmowy(uczestnicy)}</strong>
           <span className="czas">{trwanie(sekundy)}</span>
-        </span>
-
-        <span className="rozmowa-akcje">
-          <button
-            className={mikrofon ? undefined : "aktywny"}
-            title={mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
-            aria-pressed={!mikrofon}
-            onClick={() => {
-              przelacz("audio", !mikrofon);
-              setMikrofon((m) => !m);
-            }}
-          >
-            <Ikona nazwa={mikrofon ? "mikrofon" : "mikrofonWyciszony"} rozmiar={17} />
-            <span className="tylko-dla-czytnika">
-              {mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
-            </span>
-          </button>
-
-          {/*
-            Przycisk kamery jest ZAWSZE, także w rozmowie głosowej.
-
-            Wcześniej pojawiał się tylko wtedy, gdy rozmowa zaczęła się
-            z obrazem — czyli decyzja podjęta w chwili dzwonienia była
-            ostateczna, mimo że sprzęt pozwala ją zmienić w każdej sekundzie.
-          */}
-          <button
-            className={maObraz ? undefined : "aktywny"}
-            title={maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
-            aria-pressed={!maObraz}
-            onClick={() => void przelaczKamere()}
-          >
-            <Ikona nazwa={maObraz ? "kamera" : "kameraWylaczona"} rozmiar={17} />
-            <span className="tylko-dla-czytnika">
-              {maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
-            </span>
-          </button>
-
-          <button className="rozlacz" title="Rozłącz" onClick={rozlacz}>
-            <Ikona nazwa="rozlacz" rozmiar={17} />
-            <span className="tylko-dla-czytnika">Rozłącz</span>
-          </button>
         </span>
       </div>
 
@@ -420,6 +546,55 @@ export function Rozmowa({
           z pozostałymi trwa dalej.
         </p>
       )}
+
+      {/*
+        Przyciski POD obrazem, nie nad nim.
+
+        Kciuk sięga dołu ekranu, a „Rozłącz" jest tu jedynym wyjściem — więc
+        stoi tam, gdzie w każdym innym telefonie. Nad obrazem, w rzędzie razem
+        z nazwą rozmówcy, były trzema małymi celami obok siebie, z których
+        jedna kończyła rozmowę.
+      */}
+      <div className="rozmowa-przyciski">
+        <button
+          className={mikrofon ? "ikonowy" : "ikonowy aktywny"}
+          title={mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
+          aria-pressed={!mikrofon}
+          onClick={() => {
+            przelacz("audio", !mikrofon);
+            setMikrofon((m) => !m);
+          }}
+        >
+          <Ikona nazwa={mikrofon ? "mikrofon" : "mikrofonWyciszony"} rozmiar={20} />
+          <span className="tylko-dla-czytnika">
+            {mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
+          </span>
+        </button>
+
+        {/*
+          Przycisk kamery jest ZAWSZE, także w rozmowie głosowej.
+
+          Wcześniej pojawiał się tylko wtedy, gdy rozmowa zaczęła się z obrazem —
+          czyli decyzja podjęta w chwili dzwonienia była ostateczna, mimo że
+          sprzęt pozwala ją zmienić w każdej sekundzie.
+        */}
+        <button
+          className={maObraz ? "ikonowy" : "ikonowy aktywny"}
+          title={maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
+          aria-pressed={!maObraz}
+          onClick={() => void przelaczKamere()}
+        >
+          <Ikona nazwa={maObraz ? "kamera" : "kameraWylaczona"} rozmiar={20} />
+          <span className="tylko-dla-czytnika">
+            {maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
+          </span>
+        </button>
+
+        <button className="rozlacz" title="Rozłącz" onClick={() => rozlacz()}>
+          <Ikona nazwa="rozlacz" rozmiar={20} />
+          <span className="tylko-dla-czytnika">Rozłącz</span>
+        </button>
+      </div>
     </section>
   );
 }

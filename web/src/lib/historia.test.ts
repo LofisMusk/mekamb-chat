@@ -5,6 +5,8 @@ import {
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
+  scalHistorie,
+  scalWiadomosci,
   wczytajRozmowe,
   zapiszRozmowe,
 } from "./historia";
@@ -243,5 +245,186 @@ describe("historia rozmów", () => {
   it("różne rozmowy mają różne klucze", () => {
     expect(kluczRozmowy(GRUPA_A)).not.toBe(kluczRozmowy(GRUPA_B));
     expect(kluczRozmowy(new Uint8Array([0x0a, 0xff]))).toBe("0aff");
+  });
+});
+
+/**
+ * Scalanie historii z drugiego urządzenia.
+ *
+ * # Sedno
+ *
+ * Wiadomości są niezmienne i rozłączne, więc to nie jest „merge" w sensie
+ * gita — to suma zbiorów po identyfikatorze. Cała trudność siedzi w kolejności
+ * i w tym, czego scalać NIE wolno.
+ */
+describe("scalanie historii z drugiego urządzenia", () => {
+  beforeEach(() => {
+    dysk = null;
+  });
+
+  function zrzut(rozmowy: Record<string, unknown>, wersja = 6): Uint8Array {
+    return new TextEncoder().encode(JSON.stringify({ wersja, rozmowy }));
+  }
+
+  it("suma zbiorów, bez duplikatów", () => {
+    const nasze = [wiadomosc("a", 1), wiadomosc("b", 2)];
+    const obce = [wiadomosc("b", 2), wiadomosc("c", 3)];
+
+    expect(scalWiadomosci(nasze, obce).map((w) => w.id)).toEqual(["a", "b", "c"]);
+  });
+
+  /**
+   * `czas` to `Date.now()` NADAWCY, więc zegary laptopa i telefonu realnie się
+   * rozjeżdżają. Przy równych znacznikach potrzebny jest rozstrzygnik dający
+   * ten sam wynik po obu stronach — inaczej dwa urządzenia pokazywałyby wątek
+   * inaczej po tym samym scaleniu.
+   */
+  it("kolejność jest ta sama niezależnie od strony scalania", () => {
+    const nasze = [wiadomosc("z", 5), wiadomosc("a", 5)];
+    const obce = [wiadomosc("m", 5), wiadomosc("b", 1)];
+
+    const tam = scalWiadomosci(nasze, obce).map((w) => w.id);
+    const zpowrotem = scalWiadomosci(obce, nasze).map((w) => w.id);
+
+    expect(tam).toEqual(zpowrotem);
+    expect(tam).toEqual(["b", "a", "m", "z"]);
+  });
+
+  /**
+   * „Nieodebrana" jest faktem o TYM urządzeniu — trzecie urządzenie tej samej
+   * osoby nie widzi nic, bo nic się przy nim nie wydarzyło. Przeciąganie tego
+   * przez scalanie wpisywałoby do wątku zdarzenia, których na tym telefonie
+   * nigdy nie było.
+   */
+  it("ślady po rozmowach A/V nie przechodzą z drugiego urządzenia", () => {
+    const nasze = [wiadomosc("a", 1)];
+    const obce = [
+      wiadomosc("b", 2),
+      { ...wiadomosc("c", 3), rozmowa: { wideo: false, wychodzaca: true } },
+    ];
+
+    expect(scalWiadomosci(nasze, obce).map((w) => w.id)).toEqual(["a", "b"]);
+  });
+
+  it("własny ślad po rozmowie zostaje nietknięty", () => {
+    const nasze = [{ ...wiadomosc("a", 1), rozmowa: { wideo: true, wychodzaca: false } }];
+
+    expect(scalWiadomosci(nasze, [wiadomosc("b", 2)]).map((w) => w.id)).toEqual(["a", "b"]);
+  });
+
+  /** Stan idzie tylko w górę — „przeczytane" nie cofa się do „wysłane". */
+  it("stan wysyłki bierze dalszy z dwóch", () => {
+    const nasze = [{ ...wiadomosc("a", 1), stan: "wyslane" as const }];
+    const obce = [{ ...wiadomosc("a", 1), stan: "przeczytane" as const }];
+
+    expect(scalWiadomosci(nasze, obce)[0]?.stan).toBe("przeczytane");
+    expect(scalWiadomosci(obce, nasze)[0]?.stan).toBe("przeczytane");
+  });
+
+  /**
+   * Sedno przycinania: dwa ogony po 500 dają w sumie więcej niż 500. Obcięcie
+   * KAŻDEGO Z OSOBNA przed scaleniem wyrzuca wiadomości, które istnieją tylko
+   * po jednej stronie — a to jest dokładnie to, po co scalamy.
+   */
+  it("przycina po scaleniu, nie przed", () => {
+    const nasze = Array.from({ length: 400 }, (_, i) => wiadomosc(`n${i}`, 1000 + i));
+    const obce = Array.from({ length: 400 }, (_, i) => wiadomosc(`o${i}`, 1000 + i));
+
+    const scalone = scalWiadomosci(nasze, obce);
+
+    expect(scalone).toHaveLength(500);
+    // Zostały najnowsze z OBU zbiorów, a nie 500 z jednego.
+    expect(scalone.some((w) => w.id.startsWith("n"))).toBe(true);
+    expect(scalone.some((w) => w.id.startsWith("o"))).toBe(true);
+  });
+
+  /**
+   * Zapisy sprzed wersji 5 mają pusty `id`. Bez klucza zastępczego cała stara
+   * historia dublowałaby się przy każdym parowaniu.
+   */
+  it("zapisy bez identyfikatora nie mnożą się", () => {
+    const stara = { ...wiadomosc("", 1), tresc: "sprzed wersji 5" };
+
+    expect(scalWiadomosci([stara], [{ ...stara }])).toHaveLength(1);
+  });
+
+  it("wciąga rozmowę, której u nas nie było", async () => {
+    const wynik = await scalHistorie(
+      zrzut({
+        [kluczRozmowy(GRUPA_A)]: { rozmowca: "ala", wiadomosci: [wiadomosc("a", 1)] },
+      }),
+    );
+
+    expect(wynik).toEqual({ rozmow: 1, wiadomosci: 1 });
+    await expect(wczytajRozmowe(GRUPA_A)).resolves.toHaveLength(1);
+  });
+
+  it("dokłada do rozmowy, którą już mamy", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 1)]);
+
+    const wynik = await scalHistorie(
+      zrzut({
+        [kluczRozmowy(GRUPA_A)]: {
+          rozmowca: "ala",
+          wiadomosci: [wiadomosc("a", 1), wiadomosc("b", 2)],
+        },
+      }),
+    );
+
+    expect(wynik).toEqual({ rozmow: 0, wiadomosci: 1 });
+    await expect(wczytajRozmowe(GRUPA_A)).resolves.toHaveLength(2);
+  });
+
+  it("nie rusza rozmów spoza zrzutu", async () => {
+    await zapiszRozmowe(GRUPA_B, "bob", [wiadomosc("x", 1)]);
+
+    await scalHistorie(
+      zrzut({ [kluczRozmowy(GRUPA_A)]: { rozmowca: "ala", wiadomosci: [wiadomosc("a", 1)] } }),
+    );
+
+    await expect(wczytajRozmowe(GRUPA_B)).resolves.toHaveLength(1);
+  });
+
+  it("znacznik przeczytania idzie w górę, nigdy w dół", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 1)]);
+    await oznaczPrzeczytane(GRUPA_A, 5000);
+
+    await scalHistorie(
+      zrzut({
+        [kluczRozmowy(GRUPA_A)]: {
+          rozmowca: "ala",
+          wiadomosci: [wiadomosc("a", 1)],
+          przeczytaneDo: 100,
+        },
+      }),
+    );
+
+    const lista = await listaRozmow();
+    expect(lista[0]?.nieprzeczytane).toBe(0);
+  });
+
+  /**
+   * „Nic nie doszło" i „nie dało się odczytać" to dla kogoś stojącego z dwoma
+   * telefonami zupełnie różne komunikaty — stąd `null`, a nie zerowy wynik.
+   */
+  it("nieczytelny zrzut daje null, a nie pusty wynik", async () => {
+    await expect(scalHistorie(new TextEncoder().encode("to nie jest JSON"))).resolves.toBeNull();
+  });
+
+  it("zrzut w nieznanym układzie jest odrzucany", async () => {
+    const wynik = await scalHistorie(
+      zrzut({ [kluczRozmowy(GRUPA_A)]: { rozmowca: "ala", wiadomosci: [] } }, 99),
+    );
+
+    expect(wynik).toBeNull();
+  });
+
+  /** Nieudane scalenie nie może skasować tego, co już mamy. */
+  it("odrzucony zrzut nie rusza istniejącej historii", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 1)]);
+
+    await scalHistorie(new TextEncoder().encode("śmieci"));
+
+    await expect(wczytajRozmowe(GRUPA_A)).resolves.toHaveLength(1);
   });
 });

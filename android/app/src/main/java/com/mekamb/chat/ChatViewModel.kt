@@ -826,6 +826,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun czyOdNas(senderUserId: String): Boolean =
         messenger?.account?.userId == senderUserId
 
+    /**
+     * Kiedy wiadomość została NADANA, a nie kiedy do nas dotarła.
+     *
+     * # Dlaczego to się zmieniło
+     *
+     * `Wiadomosc.czas` domyślał się chwili odbioru, a klient webowy zapisywał
+     * `sentAtMs` — czyli to samo pole znaczyło na dwóch platformach dwie różne
+     * rzeczy. Dopóki historia nie opuszczała urządzenia, nikt tego nie widział.
+     * Po scaleniu dwóch urządzeń wątek ułożyłby się na każdym inaczej, a przy
+     * odbiorze ze skrzynki po trzech dniach offline wiadomość sprzed trzech dni
+     * wskoczyłaby na koniec listy z dzisiejszą godziną.
+     *
+     * # Czemu ufamy nadawcy
+     *
+     * Bo to jest jego twierdzenie i tak jest opisane w `proto/chat.proto` —
+     * ale to samo twierdzenie widzi rozmówca i drugie nasze urządzenie, więc
+     * wszyscy układają wątek tak samo. Bezsensowny znacznik psuje kolejność
+     * u wszystkich naraz, a nie tworzy rozjazdu między nimi.
+     *
+     * Zero znaczy „nadawca nic nie podał" — wtedy zostaje chwila odbioru, bo
+     * wiadomość z 1970 roku byłaby gorszym kłamstwem niż zaokrąglenie.
+     */
+    private fun czasNadania(sentAtMs: ULong): Long {
+        val podany = sentAtMs.toLong()
+        return if (podany > 0) podany else System.currentTimeMillis()
+    }
+
     private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
         stan = when (zdarzenie) {
             /*
@@ -842,6 +869,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     autor = if (wlasna) "Ty" else zdarzenie.senderUserId,
                     tresc = zdarzenie.text,
                     wlasna = wlasna,
+                    czas = czasNadania(zdarzenie.sentAtMs),
                     id = zdarzenie.messageId,
                 )
 
@@ -880,6 +908,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     autor = if (wlasna) "Ty" else zdarzenie.senderUserId,
                     tresc = zdarzenie.fileName ?: opisTypu(zdarzenie.mimeType),
                     wlasna = wlasna,
+                    czas = czasNadania(zdarzenie.sentAtMs),
                     zalacznik = Zalacznik(
                         blobId = zdarzenie.blobId,
                         klucz = zdarzenie.decryptionKey,

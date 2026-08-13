@@ -127,14 +127,14 @@ fun ZapisanyZalacznik.doModelu(): Zalacznik = Zalacznik(
  * po drugiej stronie rozmowę bez czasu trwania albo bez kierunku.
  */
 @Serializable
-private data class ZapisanaRozmowaAV(
+internal data class ZapisanaRozmowaAV(
     val wideo: Boolean = false,
     val sekundy: Long? = null,
     val wychodzaca: Boolean = false,
 )
 
 @Serializable
-private data class ZapisanaWiadomosc(
+internal data class ZapisanaWiadomosc(
     val autor: String,
     val tresc: String,
     val wlasna: Boolean,
@@ -182,6 +182,84 @@ private data class ZapisanaHistoria(
     /** Klucz to identyfikator rozmowy zapisany szesnastkowo. */
     val rozmowy: Map<String, ZapisanaRozmowa> = emptyMap(),
 )
+
+/** Ile czego doszło przy scalaniu — do pokazania użytkownikowi. */
+data class WynikScalania(val rozmow: Int, val wiadomosci: Int)
+
+/**
+ * Klucz tożsamości wiadomości przy scalaniu.
+ *
+ * `id` pochodzi z rdzenia i jest tym samym po obu stronach rozmowy, więc jako
+ * klucz nadaje się idealnie. Zapisy sprzed wersji 5 mają go **pustego** — dla
+ * nich zostaje treść, autor i czas. To gorszy klucz: dwie identyczne
+ * wiadomości wysłane w tej samej milisekundzie zlałyby się w jedną. Zdarza się
+ * to na tyle rzadko, a alternatywa — zdublowanie całej starej historii przy
+ * każdym parowaniu — jest na tyle gorsza, że wybór nie jest trudny.
+ */
+internal fun kluczWiadomosci(w: ZapisanaWiadomosc): String =
+    if (w.id.isNotEmpty()) "id:${w.id}" else "t:${w.autor} ${w.czas} ${w.tresc}"
+
+/**
+ * Scala dwa zbiory wiadomości tej samej rozmowy.
+ *
+ * # Dlaczego to nie jest „merge" w sensie gita
+ *
+ * Wiadomości są niezmienne i rozłączne — nie ma konfliktów do rozstrzygania,
+ * jest suma zbiorów po identyfikatorze. Cała trudność siedzi w kolejności
+ * i w tym, czego scalać NIE wolno.
+ *
+ * # Kolejność
+ *
+ * Sortowanie po `(czas, id)`, nie po samym czasie. `czas` to chwila nadania
+ * podana przez nadawcę, więc zegary laptopa i telefonu realnie się rozjeżdżają,
+ * a przy równych znacznikach potrzebny jest rozstrzygnik dający **ten sam**
+ * wynik po obu stronach — inaczej dwa urządzenia pokazywałyby wątek inaczej
+ * po tym samym scaleniu.
+ *
+ * # Czego nie scalamy
+ *
+ * Śladów po rozmowach A/V. „Nieodebrana" jest faktem o TYM urządzeniu, nie
+ * o rozmowie — uzasadnienie przy [`ZapisRozmowy`]. Wpisy przychodzące z drugiego
+ * urządzenia są pomijane; własne zostają nietknięte.
+ */
+internal fun scalWiadomosci(
+    nasze: List<ZapisanaWiadomosc>,
+    obce: List<ZapisanaWiadomosc>,
+): List<ZapisanaWiadomosc> {
+    val poKluczu = LinkedHashMap<String, ZapisanaWiadomosc>()
+
+    for (w in nasze) poKluczu[kluczWiadomosci(w)] = w
+
+    for (w in obce) {
+        if (w.rozmowa != null) continue
+
+        val klucz = kluczWiadomosci(w)
+        val juz = poKluczu[klucz]
+        poKluczu[klucz] = if (juz == null) {
+            w
+        } else {
+            juz.copy(
+                // Załącznik mógł nie dojść do jednego z urządzeń.
+                zalacznik = juz.zalacznik ?: w.zalacznik,
+                // Stan idzie tylko w górę: „przeczytane" na laptopie nie ma się
+                // cofać do „wysłane" dlatego, że telefon nie dostał jeszcze
+                // potwierdzenia.
+                stan = when {
+                    juz.stan != null && w.stan != null -> juz.stan.wyzszy(w.stan)
+                    else -> juz.stan ?: w.stan
+                },
+            )
+        }
+    }
+
+    return poKluczu.values
+        .sortedWith(compareBy({ it.czas }, { it.id }))
+        // Przycinamy PO scaleniu, nie przed. Odwrotna kolejność gubi
+        // wiadomości istniejące tylko po jednej stronie: dwa ogony po 500 dają
+        // w sumie więcej niż 500, a obcięcie każdego z osobna wyrzuca to,
+        // czego drugie urządzenie nigdy nie widziało.
+        .takeLast(LIMIT_WIADOMOSCI)
+}
 
 /** Rozmowa w postaci potrzebnej liście. */
 data class PozycjaListy(
@@ -274,6 +352,64 @@ class Historia(private val vault: Vault) {
                 ),
         )
         vault.saveHistory(json.encodeToString(nowe).toByteArray())
+    }
+
+    /**
+     * Wciąga historię z drugiego urządzenia.
+     *
+     * `surowe` to dokładnie to, co po tamtej stronie zwraca odczyt skarbca —
+     * ten sam kształt i ta sama wersja formatu. Przyjmujemy te same numery co
+     * przy zwykłym odczycie: układ jest identyczny, więc odrzucenie znanej
+     * starszej wersji byłoby skasowaniem historii bez powodu.
+     *
+     * Zwraca `null`, gdy zrzut jest nieczytelny albo w nieznanym układzie —
+     * a nie zerowy wynik, bo „nic nie doszło" i „nie dało się odczytać" to dla
+     * kogoś stojącego z dwoma telefonami zupełnie różne komunikaty.
+     *
+     * Odpowiednik `scalHistorie` z `web/src/lib/historia.ts`. Rozjazd między
+     * platformami znaczyłby, że po scaleniu każde urządzenie pokazuje inny
+     * wątek — czyli dokładnie to, czemu scalanie ma zapobiegać.
+     */
+    fun scal(surowe: ByteArray): WynikScalania? {
+        val obca = runCatching { json.decodeFromString<ZapisanaHistoria>(String(surowe)) }
+            .getOrNull()
+            ?: return null
+
+        if (obca.wersja !in CZYTANE_WERSJE) return null
+
+        val zapis = wczytajWszystko()
+        var rozmow = 0
+        var wiadomosci = 0
+        val scalone = zapis.rozmowy.toMutableMap()
+
+        for ((klucz, przychodzaca) in obca.rozmowy) {
+            val nasza = zapis.rozmowy[klucz]
+            val przed = nasza?.wiadomosci?.size ?: 0
+
+            val razem = scalWiadomosci(
+                nasze = nasza?.wiadomosci ?: emptyList(),
+                obce = przychodzaca.wiadomosci,
+            )
+
+            if (nasza == null) rozmow += 1
+            wiadomosci += (razem.size - przed).coerceAtLeast(0)
+
+            scalone[klucz] = ZapisanaRozmowa(
+                // Nazwa rozmówcy z naszej strony, jeśli ją mamy: jest tu od
+                // dawna i mogła zostać poprawiona ręcznie.
+                rozmowca = nasza?.rozmowca?.takeIf { it.isNotEmpty() } ?: przychodzaca.rozmowca,
+                wiadomosci = razem,
+                // Znacznik przeczytania idzie w górę — przeczytane na laptopie
+                // ma znaczyć przeczytane, a nie odczytać się jako nowe.
+                przeczytaneDo = maxOf(
+                    nasza?.przeczytaneDo ?: 0L,
+                    przychodzaca.przeczytaneDo ?: 0L,
+                ).takeIf { it > 0L },
+            )
+        }
+
+        vault.saveHistory(json.encodeToString(zapis.copy(rozmowy = scalone)).toByteArray())
+        return WynikScalania(rozmow = rozmow, wiadomosci = wiadomosci)
     }
 
     /**

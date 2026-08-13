@@ -17,6 +17,7 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpReceiver
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoTrack
@@ -61,7 +62,7 @@ class RozmowaAV private constructor(
     private val groupId: ByteArray,
     private val callId: ByteArray,
     private val zakres: CoroutineScope,
-    private val onZmiana: (List<UczestnikRozmowy>) -> Unit,
+    private val onZmiana: (StanRozmowyAV) -> Unit,
 ) {
     private val eglBase: EglBase = EglBase.create()
     private val fabryka: PeerConnectionFactory
@@ -121,7 +122,7 @@ class RozmowaAV private constructor(
             rozmowcy: List<String>,
             zWideo: Boolean,
             zakres: CoroutineScope,
-            onZmiana: (List<UczestnikRozmowy>) -> Unit,
+            onZmiana: (StanRozmowyAV) -> Unit,
         ): RozmowaAV {
             val rozmowa = RozmowaAV(
                 kontekst,
@@ -167,7 +168,7 @@ class RozmowaAV private constructor(
             oferta: String,
             odcisk: String,
             zakres: CoroutineScope,
-            onZmiana: (List<UczestnikRozmowy>) -> Unit,
+            onZmiana: (StanRozmowyAV) -> Unit,
         ): RozmowaAV {
             val rozmowa = RozmowaAV(kontekst, messenger, groupId, callId, zakres, onZmiana)
             rozmowa.przygotujMedia(zWideo)
@@ -184,43 +185,61 @@ class RozmowaAV private constructor(
     /** Kontekst OpenGL do podglądu — potrzebny widokom rysującym obraz. */
     fun kontekstGl(): EglBase.Context = eglBase.eglBaseContext
 
+    /** Własny obraz — do podglądu na ekranie. `null`, dopóki kamera nie ruszy. */
+    fun wideoLokalne(): VideoTrack? = wideo
+
     private fun przygotujMedia(zWideo: Boolean) {
         val zrodloAudio = fabryka.createAudioSource(MediaConstraints())
         audio = fabryka.createAudioTrack("audio", zrodloAudio)
 
-        if (!zWideo) return
+        if (zWideo) uruchomKamere()
+    }
+
+    /**
+     * Uruchamia kamerę i tworzy z niej ścieżkę.
+     *
+     * Wydzielone z [przygotujMedia], bo kamerę można włączyć także w trakcie
+     * rozmowy zaczętej głosowo — a wtedy nie ma już czego „przygotowywać",
+     * audio dawno gra. Zwraca `false`, gdy urządzenie nie ma kamery albo system
+     * odmówił do niej dostępu; wywołujący nie może wtedy udawać, że obraz idzie.
+     */
+    private fun uruchomKamere(): Boolean {
+        if (wideo != null) return true
 
         val enumerator = Camera2Enumerator(kontekst)
         val nazwa = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
             ?: enumerator.deviceNames.firstOrNull()
-            ?: return
+            ?: return false
 
-        val capturer = enumerator.createCapturer(nazwa, null) ?: return
+        val capturer = enumerator.createCapturer(nazwa, null) ?: return false
         val zrodloWideo = fabryka.createVideoSource(capturer.isScreencast)
         val pomocnik = SurfaceTextureHelper.create("kamera", eglBase.eglBaseContext)
 
-        capturer.initialize(pomocnik, kontekst, zrodloWideo.capturerObserver)
-        capturer.startCapture(1280, 720, 30)
+        // Brak zgody na aparat objawia się dopiero tutaj, wyjątkiem z systemu.
+        val ruszyla = runCatching {
+            capturer.initialize(pomocnik, kontekst, zrodloWideo.capturerObserver)
+            capturer.startCapture(1280, 720, 30)
+        }.isSuccess
+
+        if (!ruszyla) {
+            runCatching { capturer.dispose() }
+            return false
+        }
 
         kamera = capturer
         wideo = fabryka.createVideoTrack("wideo", zrodloWideo)
         kameraWlaczona = true
+        return true
     }
 
-    /** Zestawia połączenie z jedną osobą i wysyła jej ofertę. */
+    /**
+     * Zestawia połączenie z jedną osobą i wysyła jej ofertę.
+     *
+     * Pierwsza oferta i oferta po dołożeniu kamery to ta sama czynność, więc
+     * jest napisana raz — patrz [Polaczenie.wynegocjujPonownie].
+     */
     private fun zaproponuj(rozmowca: String) {
-        val polaczenie = polaczenie(rozmowca) ?: return
-
-        polaczenie.pc.createOffer(
-            object : ProstySdpObserver() {
-                override fun onCreateSuccess(opis: SessionDescription?) {
-                    val oferta = opis ?: return
-                    polaczenie.pc.setLocalDescription(ProstySdpObserver(), oferta)
-                    wyslij(rozmowca, CallSignalKind.OFFER, oferta.description)
-                }
-            },
-            MediaConstraints(),
-        )
+        polaczenie(rozmowca)?.wynegocjujPonownie()
     }
 
     /**
@@ -358,8 +377,41 @@ class RozmowaAV private constructor(
         zglos()
     }
 
-    /** Włącza albo wyłącza obraz z kamery. */
+    /**
+     * Włącza albo wyłącza obraz z kamery.
+     *
+     * # Dlaczego to nie jest samo `setEnabled`
+     *
+     * Rozmowa zaczęta głosowo nie ma ŻADNEJ ścieżki wideo — nie ma czego
+     * włączać, więc dotychczasowe `wideo?.setEnabled(true)` po prostu nie
+     * robiło nic i przycisk milczał. Kamerę trzeba wtedy uruchomić, dołożyć
+     * ścieżkę do każdego istniejącego połączenia i **wynegocjować ją od nowa**:
+     * ścieżka dodana bez nowej oferty nie dociera do nikogo, bo druga strona
+     * nie wie, że ma się jej spodziewać.
+     *
+     * Gdy ścieżka już jest, zostajemy przy `setEnabled(false)`. Zrywanie jej
+     * i zestawianie od nowa kosztowałoby renegocjację z każdym uczestnikiem
+     * przy każdym dotknięciu przycisku — za wyciszenie obrazu na chwilę.
+     */
     fun przelaczKamere() {
+        if (wideo == null) {
+            if (!uruchomKamere()) {
+                // Bez kamery albo bez zgody nie ma co przełączać. Stan zostaje
+                // wyłączony, więc przycisk nie zapala się na kłamstwo.
+                zglos()
+                return
+            }
+
+            val nowa = wideo ?: return
+            polaczenia.values.forEach { polaczenie ->
+                runCatching { polaczenie.pc.addTrack(nowa, listOf("mekamb")) }
+                    .onSuccess { polaczenie.wynegocjujPonownie() }
+            }
+
+            zglos()
+            return
+        }
+
         kameraWlaczona = !kameraWlaczona
         wideo?.setEnabled(kameraWlaczona)
         zglos()
@@ -381,7 +433,14 @@ class RozmowaAV private constructor(
     }
 
     private fun zglos() = onZmiana(
-        polaczenia.map { (nazwa, p) -> UczestnikRozmowy(nazwa, p.faza, p.bezposrednio) },
+        StanRozmowyAV(
+            uczestnicy = polaczenia.map { (nazwa, p) ->
+                UczestnikRozmowy(nazwa, p.faza, p.bezposrednio, p.wideoZdalne)
+            },
+            mikrofonWlaczony = mikrofonWlaczony,
+            kameraWlaczona = kameraWlaczona,
+            wideoLokalne = wideo,
+        ),
     )
 
     /** Jedno połączenie w siatce. */
@@ -389,6 +448,55 @@ class RozmowaAV private constructor(
         lateinit var pc: PeerConnection
         var faza: FazaPolaczenia = FazaPolaczenia.LACZENIE
         var bezposrednio: Boolean = false
+
+        /**
+         * Obraz od tej osoby.
+         *
+         * Trzymany przy połączeniu, a nie w osobnej mapie „nazwa → ścieżka":
+         * ścieżka przychodzi z tego połączenia, gaśnie razem z nim i nie ma
+         * sensu bez niego. Osobna mapa byłaby drugim miejscem, które trzeba
+         * pamiętać, żeby posprzątać — a zapomniana wpisem trzymałaby obraz
+         * rozmówcy, który się rozłączył.
+         */
+        var wideoZdalne: VideoTrack? = null
+
+        /**
+         * Nowa oferta do trwającego połączenia.
+         *
+         * Potrzebna po dołożeniu ścieżki w trakcie rozmowy. Odbiór po drugiej
+         * stronie idzie tą samą drogą co pierwsza oferta — łącznie
+         * z porównaniem odcisku DTLS, bo `wyslij` liczy go z każdego SDP,
+         * a `przyjmij` sprawdza przy każdej ofercie, nie tylko przy pierwszej.
+         */
+        fun wynegocjujPonownie() {
+            /*
+             * Tylko ze stanu STABLE.
+             *
+             * Oferta złożona w trakcie cudzej negocjacji jest przez libwebrtc
+             * odrzucana — a odrzucana po cichu, bo `ProstySdpObserver` nie ma
+             * gdzie tego zgłosić. Zdarza się to wtedy, gdy obie strony włączą
+             * kamerę w tej samej chwili: bez tego warunku obie wysyłają ofertę,
+             * obie odrzucają cudzą i obraz nie pojawia się u nikogo.
+             *
+             * Ustąpienie kosztuje jedno naciśnięcie przycisku więcej i jest
+             * wyjściem uczciwszym niż rozmowa, w której przycisk raz działa,
+             * a raz nie, zależnie od tego, co robi druga strona.
+             */
+            if (::pc.isInitialized && pc.signalingState() != PeerConnection.SignalingState.STABLE) {
+                return
+            }
+
+            pc.createOffer(
+                object : ProstySdpObserver() {
+                    override fun onCreateSuccess(opis: SessionDescription?) {
+                        val oferta = opis ?: return
+                        pc.setLocalDescription(ProstySdpObserver(), oferta)
+                        wyslij(rozmowca, CallSignalKind.OFFER, oferta.description)
+                    }
+                },
+                MediaConstraints(),
+            )
+        }
 
         /** Kandydaci, którzy dotarli przed opisem zdalnym. */
         private val kolejkaIce = mutableListOf<IceCandidate>()
@@ -456,9 +564,38 @@ class RozmowaAV private constructor(
             }
 
             override fun onAddStream(stream: MediaStream?) = zglos()
+
+            /*
+             * Obraz rozmówcy przychodzi TUTAJ i nigdzie indziej.
+             *
+             * Wcześniej ta metoda była pusta, więc WebRTC odbierało wideo,
+             * dekodowało je i wyrzucało: ekran rysował sam awatar, bo nie miał
+             * czego narysować. Ścieżka audio nie potrzebuje niczego — gra sama
+             * przez wyjście dźwiękowe — i to właśnie dlatego brak obrazu nie
+             * wyglądał jak usterka połączenia.
+             */
+            override fun onAddTrack(odbiornik: RtpReceiver?, strumienie: Array<out MediaStream>?) {
+                val sciezka = odbiornik?.track() as? VideoTrack ?: return
+                wideoZdalne = sciezka
+                zglos()
+            }
         }
     }
 }
+
+/**
+ * Migawka trwającej rozmowy — wszystko, co ekran o niej rysuje.
+ *
+ * Jeden obiekt zamiast trzech osobnych wywołań zwrotnych, bo te trzy rzeczy
+ * zmieniają się razem: włączenie kamery zmienia i stan przycisku, i ścieżkę
+ * do narysowania. Rozdzielone dałyby się zaktualizować w połowie.
+ */
+data class StanRozmowyAV(
+    val uczestnicy: List<UczestnikRozmowy>,
+    val mikrofonWlaczony: Boolean,
+    val kameraWlaczona: Boolean,
+    val wideoLokalne: VideoTrack?,
+)
 
 /** Stan jednego rozmówcy — do pokazania na ekranie rozmowy. */
 data class UczestnikRozmowy(
@@ -466,6 +603,18 @@ data class UczestnikRozmowy(
     val faza: FazaPolaczenia,
     /** `true`, gdy media idą wprost — czyli rozmówca zna nasz adres IP. */
     val bezposrednio: Boolean,
+    /**
+     * Obraz od tej osoby, jeśli nadaje.
+     *
+     * Ścieżka WebRTC w `data class` jest tu świadomym wyjątkiem od reguły
+     * „stan jest niemutowalnymi danymi": to uchwyt do sprzętu, a nie wartość.
+     * Alternatywą była osobna mapa `nazwa → VideoTrack` obok listy uczestników
+     * — czyli dwa źródła prawdy o jednej rozmowie, rozjeżdżające się dokładnie
+     * wtedy, gdy ktoś się rozłącza. Równość porównuje ścieżkę przez referencję,
+     * co jest dokładnie tym, czego Compose tu potrzebuje: ta sama ścieżka
+     * znaczy „nie przerysowuj podglądu".
+     */
+    val wideo: VideoTrack? = null,
 )
 
 enum class FazaPolaczenia { LACZENIE, POLACZONA, ZAKONCZONA, ODRZUCONA }

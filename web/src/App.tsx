@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Czat } from "./Czat";
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
-import { OdbierzTutaj } from "./Przeniesienie";
+import { OdbierzTutaj, ZaproszenieDoImportu } from "./Przeniesienie";
 import { PasekBledu, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import {
   confirmRegistration,
@@ -18,6 +18,7 @@ import type { LoginSession } from "./lib/auth";
 import { Messenger } from "./lib/messenger";
 import { pilnujMotywu, wczytajWybor } from "./lib/motyw";
 import { useWstecz } from "./lib/nawigacja";
+import { pilnujWysokosci } from "./lib/okno";
 import { getPasskey, isPasskeySupported } from "./lib/passkey";
 import { opisBledu, ustalRozruch } from "./lib/rozruch";
 import {
@@ -101,6 +102,14 @@ export function App() {
    * wymagałoby przeładowania strony, żeby zaczęło działać.
    */
   useEffect(() => pilnujMotywu(() => wczytajWybor()), []);
+
+  /*
+   * Wysokość widoku razem z klawiaturą — patrz `okno.ts`.
+   *
+   * Obok motywu, bo to ta sama kategoria: rzecz dotycząca `<html>`, nie
+   * poddrzewa Reacta, ustawiana raz na życie aplikacji.
+   */
+  useEffect(() => pilnujWysokosci(), []);
 
   useEffect(() => {
     void (async () => {
@@ -188,6 +197,11 @@ export function App() {
     return (
       <main className="aplikacja">
         {blad && <PasekBledu tekst={blad} onZamknij={() => setBlad(null)} />}
+
+        {/* Nad czatem, bo dotyczy całej aplikacji, a nie pojedynczej rozmowy —
+            i znika sam, gdy jest już jakakolwiek historia. */}
+        <ZaproszenieDoImportu onBlad={zglosBlad} />
+
         <Czat messenger={ekran.messenger} onBlad={zglosBlad} />
       </main>
     );
@@ -197,9 +211,17 @@ export function App() {
     <main className="aplikacja">
       <header className="naglowek-wejscia">
         <ZnakMarki />
+        {/*
+          Pod nazwą nie ma już podtytułu o szyfrowaniu.
+
+          „Szyfrowanie end-to-end. Serwer nie widzi treści." było obietnicą,
+          po której przeczytaniu nikt nie mógł zrobić niczego inaczej — a stało
+          na najbardziej eksponowanym miejscu ekranu wejścia. Zdania, które
+          zostały w aplikacji, mówią o KONSEKWENCJACH: że historii nie da się
+          odzyskać, że rozmówca zna adres IP, że kto zobaczy kod, przejmie konto.
+        */}
         <span className="tresc">
           <h1>mekamb</h1>
-          <p className="podtytul">Szyfrowanie end-to-end. Serwer nie widzi treści.</p>
         </span>
         <WyborMotywuUI />
       </header>
@@ -433,10 +455,12 @@ function FormularzRejestracji({
 
       <SilaHasla haslo={haslo} />
 
+      {/* Zostaje sama konsekwencja. „Serwer nigdy go nie zobaczy" było
+          pochwałą, „nie da się go odzyskać" jest powodem, żeby je zapisać. */}
       <p className="wskazowka-ikona">
         <Ikona nazwa="klucz" rozmiar={14} />
-        Hasło nie opuszcza tego urządzenia. Serwer nigdy go nie zobaczy — ale też nie pomoże Ci
-        go odzyskać.
+        Tego hasła nie da się odzyskać ani zresetować. Zapisz je w menedżerze haseł, zanim
+        przejdziesz dalej.
       </p>
 
       <button className="glowny" disabled={pracuje}>

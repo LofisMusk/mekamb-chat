@@ -384,10 +384,19 @@ export class Messenger {
    * widzi zawartości — nawet przez chwilę. Klucz idzie osobną drogą i nigdy
    * nie przechodzi przez endpoint załączników.
    */
+  /*
+   * Zwracamy też OPIS załącznika, a nie samo `messageId`.
+   *
+   * Bez niego nadawca nie widział własnego zdjęcia. Wątek rysuje obraz tylko
+   * wtedy, gdy wiadomość ma pole `zalacznik`, a to pole miały wyłącznie
+   * wiadomości PRZYCHODZĄCE — własna zostawała napisem „wysłano: zdjęcie.jpg".
+   * Klucz i tak powstaje tutaj, więc nie ma powodu go gubić: ten sam opis
+   * trafia do historii i po odświeżeniu karty zdjęcie wciąż się odszyfrowuje.
+   */
   async sendFile(
     groupId: Uint8Array,
     file: File,
-  ): Promise<{ stripped: boolean; messageId: string }> {
+  ): Promise<{ stripped: boolean; messageId: string; zalacznik: ReceivedAttachment }> {
     if (file.size > maxAttachmentBytes()) {
       throw new Error(
         `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
@@ -441,7 +450,18 @@ export class Messenger {
 
     await this.rozeslij(groupId, encodeEnvelope(groupId, "application", wyslana.ciphertext));
 
-    return { stripped, messageId: idWiadomosci(wyslana.message_id) };
+    return {
+      stripped,
+      messageId: idWiadomosci(wyslana.message_id),
+      zalacznik: {
+        blobId,
+        key: sealed.key,
+        nonce: sealed.nonce,
+        mimeType,
+        sizeBytes: file.size,
+        fileName: file.name || undefined,
+      },
+    };
   }
 
   /**

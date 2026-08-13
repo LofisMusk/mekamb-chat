@@ -18,6 +18,21 @@
  * Ten sam podział ma Android (`android/.../Nocturne.kt`). Zmiana projektu jest
  * przepisaniem tokenów po obu stronach, a nie dobieraniem odcieni od nowa.
  *
+ * # Dlaczego akcent nie jest tym samym odcieniem w obu motywach
+ *
+ * Marką jest cyjan `#06B6D4` i w motywie ciemnym stoi dokładnie taki: na czerni
+ * ma kontrast 8,5:1, czyli linia grubości włosa jest wyraźnie widoczna.
+ *
+ * Na `#F9F7F8` ten sam odcień ma 2,3:1 — poniżej progu 3:1, od którego obrys
+ * przestaje być rozpoznawalny. W Nocturne to nie jest kosmetyka: akcent JEST
+ * obrysem akcji głównej, więc odcień niewidoczny jako linia znaczy ekran,
+ * na którym nie da się odróżnić „Załóż konto" od „Mam już konto". Motyw jasny
+ * bierze więc `#0891B2` — ten sam cyjan o stopień ciemniejszy, 3,6:1.
+ *
+ * Ta sama pułapka złapała poprzednią paletę (fiolet `#9184D9` musiał zejść do
+ * `#5B4FA8`) i złapie każdą następną: jasne tło zawsze wymaga ciemniejszego
+ * akcentu niż ciemne, bo obrys walczy z tłem, a nie z nim współgra.
+ *
  * # Dlaczego paleta jasna jest wpisana dwa razy
  *
  * Bo polityka bezpieczeństwa treści nie dopuszcza skryptów inline (patrz
@@ -37,40 +52,54 @@
 :root {
   color-scheme: dark;
 
-  /* Powierzchnie */
-  --tlo: #161826;
-  --karta: #232532;
-  --karta-hover: #2a2c3b;
-  --wglebienie: #1c1e2b;
+  /*
+   * Powierzchnie stoją na CZYSTEJ czerni.
+   *
+   * Na OLED-zie `#000` nie jest ciemnym pikselem, tylko pikselem zgaszonym:
+   * kontrast robi się nieskończony, a tło przestaje kosztować prąd. Cena jest
+   * realna i trzeba ją zapłacić świadomie — skoro tła nie da się już
+   * przyciemnić, karta nie może odcinać się od niego różnicą jasności tak, jak
+   * odcinała się od `#161826`. Odcina się LINIĄ, a powierzchnie trzymają się
+   * blisko czerni, żeby nie zrobić z nich szarych prostokątów na czarnym polu.
+   */
+  --tlo: #000000;
+  --karta: #0b0f12;
+  --karta-hover: #131a1e;
+  --wglebienie: #05080a;
 
   /* Tekst */
-  --tekst: #e9e9ed;
-  --tekst-drugi: #9397ab;
-  --tekst-trzeci: #75798c;
+  --tekst: #e8eff1;
+  --tekst-drugi: #8b9ca3;
+  --tekst-trzeci: #6a7a81;
 
   /* Linie */
-  --linia: color-mix(in srgb, #e9e9ed 14%, transparent);
-  --linia-mocna: color-mix(in srgb, #e9e9ed 26%, transparent);
+  --linia: color-mix(in srgb, #e8eff1 14%, transparent);
+  --linia-mocna: color-mix(in srgb, #e8eff1 26%, transparent);
 
   /* Akcent — zawsze linia albo tekst, nigdy plama pod akcją */
-  --akcent: #9184d9;
-  --akcent-tekst: #d2cefd;
-  --akcent-tlo: #2b2741;
+  --akcent: #06b6d4;
+  --akcent-tekst: #67e8f9;
+  --akcent-tlo: #052b33;
 
   /* Dymki rozmowy */
-  --babel: #232532;
-  --babel-wlasny: #423a6a;
-  --babel-wlasny-tekst: #f1f0ff;
-  --babel-wlasny-meta: #b5abfc;
+  --babel: #0b0f12;
+  --babel-wlasny: #06323c;
+  --babel-wlasny-tekst: #e0f8fd;
+  --babel-wlasny-meta: #7fd8e9;
 
   /* Stany wymagające reakcji */
   --alarm: #f2b8b5;
   --alarm-tekst: #f9dedc;
-  --alarm-tlo: #4a2330;
+  --alarm-tlo: #3b171c;
 
-  /* Cień. W ciemnym motywie prawie niewidoczny — głębię niesie linia. */
-  --cien: 0 1px 2px rgb(0 0 0 / .35);
-  --cien-panelu: 0 8px 28px rgb(0 0 0 / .45);
+  /*
+   * Cień na czerni nie istnieje — nie ma czego przyciemnić.
+   *
+   * Zostaje jako token, bo motyw jasny go potrzebuje, ale tutaj głębię niesie
+   * wyłącznie linia. Panel wysuwany dostaje zamiast cienia własny obrys.
+   */
+  --cien: none;
+  --cien-panelu: 0 0 0 1px color-mix(in srgb, #e8eff1 12%, transparent);
 }
 
 /*
@@ -80,54 +109,54 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-motyw]) {
     color-scheme: light;
-    --tlo: #f1f1f7;
+    --tlo: #f9f7f8;
     --karta: #ffffff;
-    --karta-hover: #f6f6fb;
-    --wglebienie: #ececf4;
-    --tekst: #1a1b26;
-    --tekst-drugi: #5c5f73;
-    --tekst-trzeci: #7e8296;
-    --linia: color-mix(in srgb, #1a1b26 13%, transparent);
-    --linia-mocna: color-mix(in srgb, #1a1b26 26%, transparent);
-    --akcent: #5b4fa8;
-    --akcent-tekst: #463d86;
-    --akcent-tlo: #edebfa;
+    --karta-hover: #f2eef0;
+    --wglebienie: #efeaec;
+    --tekst: #17191a;
+    --tekst-drugi: #575d60;
+    --tekst-trzeci: #787e82;
+    --linia: color-mix(in srgb, #17191a 13%, transparent);
+    --linia-mocna: color-mix(in srgb, #17191a 26%, transparent);
+    --akcent: #0891b2;
+    --akcent-tekst: #0e7490;
+    --akcent-tlo: #e2f6fa;
     --babel: #ffffff;
-    --babel-wlasny: #e7e4fb;
-    --babel-wlasny-tekst: #241f52;
-    --babel-wlasny-meta: #5b4fa8;
+    --babel-wlasny: #d8f2f8;
+    --babel-wlasny-tekst: #103f49;
+    --babel-wlasny-meta: #0e7490;
     --alarm: #b3261e;
     --alarm-tekst: #601410;
     --alarm-tlo: #fdecea;
-    --cien: 0 1px 2px rgb(26 27 38 / .08);
-    --cien-panelu: 0 8px 28px rgb(26 27 38 / .16);
+    --cien: 0 1px 2px rgb(23 25 26 / .08);
+    --cien-panelu: 0 8px 28px rgb(23 25 26 / .16);
   }
 }
 
 /* Paleta jasna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
 :root[data-motyw="jasny"] {
   color-scheme: light;
-  --tlo: #f1f1f7;
+  --tlo: #f9f7f8;
   --karta: #ffffff;
-  --karta-hover: #f6f6fb;
-  --wglebienie: #ececf4;
-  --tekst: #1a1b26;
-  --tekst-drugi: #5c5f73;
-  --tekst-trzeci: #7e8296;
-  --linia: color-mix(in srgb, #1a1b26 13%, transparent);
-  --linia-mocna: color-mix(in srgb, #1a1b26 26%, transparent);
-  --akcent: #5b4fa8;
-  --akcent-tekst: #463d86;
-  --akcent-tlo: #edebfa;
+  --karta-hover: #f2eef0;
+  --wglebienie: #efeaec;
+  --tekst: #17191a;
+  --tekst-drugi: #575d60;
+  --tekst-trzeci: #787e82;
+  --linia: color-mix(in srgb, #17191a 13%, transparent);
+  --linia-mocna: color-mix(in srgb, #17191a 26%, transparent);
+  --akcent: #0891b2;
+  --akcent-tekst: #0e7490;
+  --akcent-tlo: #e2f6fa;
   --babel: #ffffff;
-  --babel-wlasny: #e7e4fb;
-  --babel-wlasny-tekst: #241f52;
-  --babel-wlasny-meta: #5b4fa8;
+  --babel-wlasny: #d8f2f8;
+  --babel-wlasny-tekst: #103f49;
+  --babel-wlasny-meta: #0e7490;
   --alarm: #b3261e;
   --alarm-tekst: #601410;
   --alarm-tlo: #fdecea;
-  --cien: 0 1px 2px rgb(26 27 38 / .08);
-  --cien-panelu: 0 8px 28px rgb(26 27 38 / .16);
+  --cien: 0 1px 2px rgb(23 25 26 / .08);
+  --cien-panelu: 0 8px 28px rgb(23 25 26 / .16);
 }
 
 /* --- Miary --------------------------------------------------------------- */
@@ -149,6 +178,32 @@
   --dotyk: 3rem;
   --dotyk-ikona: 2.75rem;
 
+  /*
+   * Wysokość widoku, z klawiaturą włącznie.
+   *
+   * `100dvh` to wysokość po schowaniu paska adresu — i o klawiaturze nie wie
+   * nic. Na iPhonie po jej otwarciu widok kurczy się o połowę, a `100dvh`
+   * zostaje takie samo, więc pole pisania ląduje pod klawiaturą.
+   *
+   * Prawdziwą liczbę zna `visualViewport` i to ona ląduje w tym tokenie
+   * (`src/lib/okno.ts`). `100dvh` zostaje jako wartość na czas przed startem
+   * skryptu i dla przeglądarek bez `visualViewport` — jest przybliżeniem,
+   * ale nigdy nie jest większe niż ekran.
+   */
+  --wysokosc-okna: 100dvh;
+
+  /*
+   * Wcięcia bezpieczne, spięte z marginesem treści.
+   *
+   * `max()`, a nie suma: na telefonie bez wcięcia w ekranie zostaje zwykły
+   * margines, a na iPhonie wygrywa wcięcie. Dodawanie jednego do drugiego
+   * dawało na telefonach z wcięciem podwójną ramkę.
+   */
+  --bezpiecznie-gora: env(safe-area-inset-top, 0px);
+  --bezpiecznie-dol: env(safe-area-inset-bottom, 0px);
+  --bezpiecznie-lewo: env(safe-area-inset-left, 0px);
+  --bezpiecznie-prawo: env(safe-area-inset-right, 0px);
+
   /* Jeden czas dla wszystkiego, co reaguje na kursor. */
   --szybko: .12s;
   --wolno: .22s;
@@ -160,17 +215,31 @@
 
 html, body { height: 100%; }
 
+/*
+ * Wcięć bezpiecznych NIE ma na `<body>`.
+ *
+ * Miały je i to był ten błąd: `body` dokładał `env(safe-area-inset-top)`
+ * i `…-bottom`, a leżący w środku układ czatu miał `height: calc(100dvh - …)`.
+ * Na iPhonie z wcięciem dawało to stronę wyższą od ekranu o jakieś 47 px —
+ * dokładnie tyle, żeby pole pisania zeszło pod krawędź i trzeba było przewijać,
+ * żeby cokolwiek napisać. Wcięcie było liczone dwa razy: raz jako margines
+ * strony, raz jako brakująca część `100dvh`.
+ *
+ * Teraz wcięcia bierze POWŁOKA (`.aplikacja`), wewnątrz swojej wysokości.
+ * Cokolwiek by nie wynosiły, powłoka nie może być wyższa od widoku.
+ */
 body {
   margin: 0;
+  padding: 0;
   background: var(--tlo);
   color: var(--tekst);
   /* Inter, jeśli system go ma — projekt go zakłada, ale pliku z krojem nie
      dokładamy: kilkaset kilobajtów na wagę wizualnej różnicy bliskiej zeru. */
   font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
-  /* Wcięcia bezpieczne dla iPhone'ów z wcięciem w ekranie. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
+  /* Odbicie sprężynowe na krańcu listy przewija CAŁĄ stronę pod spodem
+     i odsłania pasek tła — na iPhonie wygląda to jak odklejający się interfejs. */
+  overscroll-behavior: none;
   transition: background-color var(--wolno), color var(--wolno);
 }
 
@@ -260,10 +329,31 @@ h3 { font-size: .9375rem; }
 /* Chevron sekcji: obrócony znaczy „rozłożona". Jeden kształt, dwa stany. */
 .ikona.obrocona { transform: rotate(180deg); transition: transform var(--szybko); }
 
-/* Ikona w linii tekstu — wyrównana do wysokości liter, nie do kratki wiersza. */
-:where(strong, .stopka-dymka, .naglowek-sekcji) > .ikona {
+/*
+ * Ikona w linii tekstu — wyrównana do wysokości liter, nie do kratki wiersza.
+ *
+ * Tylko w `strong`, czyli tam, gdzie ikona naprawdę stoi w zdaniu. Wcześniej
+ * reguła obejmowała też `.stopka-dymka` i `.naglowek-sekcji`, które są
+ * kontenerami elastycznymi — a w takim `vertical-align` nie robi nic, za to
+ * `display: inline-block` psuje wyśrodkowanie robione przez `align-items`.
+ * Stąd ptaszki stanu siedzące o pół piksela za nisko względem godziny.
+ */
+strong > .ikona {
   display: inline-block;
   vertical-align: -.12em;
+}
+
+/*
+ * Pole kontrolki będącej samą ikoną ma być KWADRATOWE i wyśrodkowane układem.
+ *
+ * Wysokość wiersza dziedziczona z `body` (1,5) dokłada do ikony kilka pikseli
+ * u góry i u dołu — przy ikonie 18 px w polu 44 px to widoczne przesunięcie
+ * w dół, tym większe, im mniejsza ikona. Kontrolka z samą ikoną nie ma wiersza
+ * do trzymania, więc go zeruje; kontrolka z tekstem zostaje bez zmian, bo tam
+ * wysokość wiersza jest potrzebna, gdy etykieta się łamie.
+ */
+button.ikonowy, .dolacz-plik, .marka-znak, .wybor-motywu button {
+  line-height: 0;
 }
 
 /* --- Pola ---------------------------------------------------------------- */
@@ -512,14 +602,36 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * Formularz logowania rozciągnięty na 1400 px czyta się źle; trzy panele
  * ściśnięte do 34rem marnują dokładnie tę szerokość, dla której powstały.
  */
+/*
+ * Ekran wejścia PRZEWIJA się, ekran czatu NIE.
+ *
+ * To dwa różne zadania. Formularz z otwartą klawiaturą musi dać się przewinąć
+ * do pola, które jest akurat wypełniane — tam przewijanie jest jedynym
+ * wyjściem. Czat odwrotnie: pole pisania ma być widoczne ZAWSZE, więc powłoka
+ * dostaje twardą wysokość widoku i nic nie może z niej wystać.
+ */
 .aplikacja {
   max-width: 34rem;
   margin: 0 auto;
-  padding: var(--odstep-8) var(--odstep-6) var(--odstep-8);
+  min-height: var(--wysokosc-okna);
+  padding:
+    calc(var(--odstep-8) + var(--bezpiecznie-gora))
+    calc(var(--odstep-6) + var(--bezpiecznie-prawo))
+    calc(var(--odstep-8) + var(--bezpiecznie-dol))
+    calc(var(--odstep-6) + var(--bezpiecznie-lewo));
 }
+
 .aplikacja:has(.uklad) {
   max-width: none;
-  padding: var(--odstep-6);
+  /* Twarda wysokość, nie minimalna: układ w środku bierze `height: 100%`,
+     więc pole pisania nie ma jak zejść pod krawędź ekranu. */
+  height: var(--wysokosc-okna);
+  overflow: hidden;
+  padding:
+    max(var(--odstep-6), var(--bezpiecznie-gora))
+    max(var(--odstep-6), var(--bezpiecznie-prawo))
+    max(var(--odstep-6), var(--bezpiecznie-dol))
+    max(var(--odstep-6), var(--bezpiecznie-lewo));
 }
 
 .naglowek-wejscia {
@@ -583,14 +695,42 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * bo nim było. Kolumna dokłada się więc dokładnie wtedy, gdy inspektor jest
  * na ekranie.
  */
+/*
+ * Wysokość bierze się z powłoki, a nie z `100dvh` liczonego drugi raz.
+ *
+ * Powłoka ma już wysokość widoku pomniejszoną o wcięcia bezpieczne i o własny
+ * margines. Powtórzenie tego rachunku tutaj było źródłem błędu na iPhonie:
+ * dwa niezależne odejmowania od tej samej liczby nigdy nie dawały tego samego
+ * wyniku. Pasek błędu nad układem zabiera swoje, a `flex: 1` oddaje resztę.
+ */
+.aplikacja:has(.uklad) { display: flex; flex-direction: column; gap: var(--odstep-4); }
+
 .uklad {
   display: grid;
-  grid-template-columns: 14rem 21rem minmax(0, 1fr);
+  grid-template-columns: var(--kol-nawigacja) var(--kol-lista) minmax(0, 1fr);
   gap: var(--odstep-6);
   align-items: stretch;
-  height: calc(100dvh - 2 * var(--odstep-6));
+  flex: 1;
+  min-height: 0;
 }
-.uklad:has(.inspektor) { grid-template-columns: 14rem 21rem minmax(0, 1fr) 19rem; }
+.uklad:has(.inspektor) {
+  grid-template-columns: var(--kol-nawigacja) var(--kol-lista) minmax(0, 1fr) var(--kol-inspektor);
+}
+
+/*
+ * Kolumny rosną z oknem, zamiast stać na sztywnych `14rem 21rem`.
+ *
+ * Sztywne działały tylko w oknie, w którym je dobrano. Na laptopie 13" lista
+ * zjadała trzecią część szerokości i wątek łamał się co kilka słów; na monitorze
+ * dwa wąskie paski stały przy wątku rozciągniętym na resztę ekranu. `clamp`
+ * trzyma proporcję w środku i zatrzymuje ją na krańcach, gdzie proporcja
+ * przestaje mieć sens.
+ */
+.uklad {
+  --kol-nawigacja: clamp(12rem, 15vw, 15rem);
+  --kol-lista: clamp(17rem, 24vw, 24rem);
+  --kol-inspektor: clamp(16rem, 20vw, 21rem);
+}
 
 .sidebar {
   display: flex;
@@ -680,9 +820,19 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   display: flex;
   align-items: center;
 }
+/*
+ * Lupa środkowana jawnie, a nie „bo tak wypadnie".
+ *
+ * Element pozycjonowany bezwzględnie wypada z układu elastycznego, więc
+ * `align-items: center` rodzica przestaje go dotyczyć — a pozycja statyczna
+ * takiego elementu to miejsce, które przeglądarki rozstrzygają różnie. Lupa
+ * siedziała przez to o kilka pikseli za wysoko w Safari i równo w Chrome.
+ */
 .szukanie .ikona {
   position: absolute;
   left: .65rem;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--tekst-trzeci);
   pointer-events: none;
 }
@@ -1092,19 +1242,113 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .rozmowa-akcje button.rozlacz { border-color: var(--alarm); color: var(--alarm); }
 .rozmowa-akcje button.rozlacz:hover { background: color-mix(in srgb, var(--alarm) 14%, transparent); }
 
-/* Siatka obrazu: jeden rozmówca na całą szerokość, kilku — po dwóch w rzędzie. */
-.siatka-wideo {
+/*
+ * Siatka kafelków: ja i rozmówcy, każdy z nazwą i drogą połączenia.
+ *
+ * Liczba kolumn idzie z liczby kafelków, a nie z `auto-fit`. `auto-fit` przy
+ * dwóch osobach dawał dwa kafelki obok siebie na monitorze i dwa pod sobą na
+ * telefonie — czyli układ zmieniający się od szerokości okna, a nie od tego,
+ * ile osób rozmawia. Przy dwóch kafelkach chcemy jednej decyzji: obok siebie
+ * tam, gdzie jest szeroko, i pod sobą tam, gdzie wysoko.
+ */
+.siatka-kafelkow {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  grid-template-columns: 1fr;
   gap: var(--odstep-2);
-  margin-top: var(--odstep-2);
+  margin-top: var(--odstep-3);
 }
-.rozmowa-wideo {
-  width: 100%;
+.siatka-kafelkow[data-ilu="3"], .siatka-kafelkow[data-ilu="4"] {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Dwie osoby: obok siebie dopiero wtedy, gdy okno jest szersze niż wysokie. */
+@media (min-width: 34rem) {
+  .siatka-kafelkow[data-ilu="2"] { grid-template-columns: 1fr 1fr; }
+}
+
+.kafelek {
+  position: relative;
+  display: grid;
+  place-items: center;
   aspect-ratio: 4 / 3;
-  object-fit: cover;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--linia);
   border-radius: var(--promien-m);
+  background: var(--wglebienie);
+}
+
+/*
+ * Kafelek z obrazem dostaje linię akcentu.
+ *
+ * To jedyne miejsce w aplikacji, w którym akcent jest jednocześnie obrysem
+ * i poświatą — bo jedyne, w którym „to jest teraz na żywo" jest dosłowną
+ * prawdą, a nie sposobem zwrócenia uwagi. Na czerni cyjanowy włos świeci sam
+ * z siebie i nie potrzebuje niczego więcej.
+ */
+.kafelek.z-obrazem {
+  border-color: color-mix(in srgb, var(--akcent) 55%, transparent);
   background: #000;
+}
+
+.obraz-kafelka {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Element wideo stoi zawsze — niesie dźwięk. Bez obrazu jest przezroczysty
+     i pokazuje awatar spod spodu, zamiast czarnego prostokąta. */
+  opacity: 0;
+  transition: opacity var(--wolno);
+}
+.kafelek.z-obrazem .obraz-kafelka { opacity: 1; }
+
+/* Odbicie lustrzane własnego podglądu — tak, jak wygląda się w lustrze. */
+.obraz-kafelka.odbity { transform: scaleX(-1); }
+
+/*
+ * Podpis leży NA obrazie, na gradiencie.
+ *
+ * Pod kafelkiem zabierałby wysokość, której na telefonie przy czterech
+ * kafelkach nie ma. Gradient, a nie pasek — pasek odcinałby dół obrazu prostą
+ * krawędzią i wyglądał jak druga ramka.
+ */
+.podpis-kafelka {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  padding: var(--odstep-4) var(--odstep-3) var(--odstep-3);
+  background: linear-gradient(transparent, rgb(0 0 0 / .72));
+  color: #fff;
+  font-size: .75rem;
+}
+.podpis-kafelka .kto {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+/* Etykieta drogi na gradiencie potrzebuje własnego kontrastu — token tekstu
+   drugiego jest dobrany do tła aplikacji, nie do zdjęcia pod spodem. */
+.podpis-kafelka .tryb {
+  border-color: rgb(255 255 255 / .35);
+  color: rgb(255 255 255 / .85);
+}
+.podpis-kafelka .tryb.uwaga { border-color: var(--alarm); color: var(--alarm); }
+
+/* Bez obrazu podpis nie ma czego przykrywać — gradient byłby cieniem znikąd. */
+.kafelek:not(.z-obrazem) .podpis-kafelka {
+  background: none;
+  color: var(--tekst-drugi);
+}
+.kafelek:not(.z-obrazem) .podpis-kafelka .tryb {
+  border-color: var(--linia);
+  color: var(--tekst-drugi);
 }
 
 .przychodzaca {
@@ -1115,6 +1359,60 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   border-radius: var(--promien-m);
   padding: var(--odstep-6);
   background: var(--akcent-tlo);
+}
+
+/* --- Zaproszenie do przeniesienia historii -------------------------------- */
+
+/*
+ * Pasek, nie okno modalne.
+ *
+ * Propozycja przeniesienia historii dotyczy tylko tych, którzy mają ją na
+ * drugim urządzeniu — dla zakładającego pierwsze konto jest szumem. Modal
+ * kazałby wszystkim odpowiadać na pytanie zadane części z nich; pasek stoi
+ * z boku drogi i zamyka się jednym kliknięciem.
+ */
+.zaproszenie {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  border: 1px solid var(--linia);
+  border-left: 2px solid var(--akcent);
+  border-radius: 0 var(--promien-m) var(--promien-m) 0;
+  background: var(--karta);
+  padding: var(--odstep-3) var(--odstep-4);
+  font-size: .8125rem;
+  flex: none;
+}
+.zaproszenie > .ikona { color: var(--akcent); }
+.zaproszenie p { margin: 0; flex: 1; min-width: 0; }
+.zaproszenie button { flex: none; min-height: var(--dotyk-ikona); }
+
+/* Konsekwencja w drugiej linii, mniejsza — ale przed kliknięciem, nie po. */
+.zaproszenie .drobne {
+  display: block;
+  color: var(--tekst-drugi);
+  font-size: .75rem;
+}
+
+/* Na wąskim ekranie pasek nie mieści się w jednym wierszu — zawija, zamiast
+   ściskać tekst do dwóch słów na linię. */
+@media (max-width: 40rem) {
+  .zaproszenie { flex-wrap: wrap; }
+  .zaproszenie p { flex-basis: 100%; order: -1; }
+}
+
+/*
+ * Rozwinięta karta odbioru ma własne przewijanie i własny sufit wysokości.
+ *
+ * Powłoka czatu ma twardą wysokość widoku, więc karta bez sufitu nie
+ * przewinęłaby się — ścisnęłaby wątek do zera i to on zniknąłby z ekranu.
+ */
+.zaproszenie-rozwiniete {
+  flex: none;
+  max-height: min(70%, 34rem);
+  overflow-y: auto;
+  max-width: 34rem;
+  width: 100%;
 }
 
 /* --- Konto --------------------------------------------------------------- */
@@ -1284,7 +1582,13 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     background: var(--tlo);
     border-left: 1px solid var(--linia);
     box-shadow: var(--cien-panelu);
-    padding: var(--odstep-6);
+    /* Panel sięga krawędzi ekranu, więc wcięcia bezpieczne są jego sprawą —
+       powłoka kończy się przed nim. */
+    padding:
+      calc(var(--odstep-6) + var(--bezpiecznie-gora))
+      calc(var(--odstep-6) + var(--bezpiecznie-prawo))
+      calc(var(--odstep-6) + var(--bezpiecznie-dol))
+      var(--odstep-6);
     z-index: 20;
   }
   .inspektor:not(.otwarty) { display: none; }
@@ -1328,12 +1632,19 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * za nią nadążać i gubiłby się przy każdej takiej zmianie.
  */
 @media (max-width: 46rem) {
-  .aplikacja:has(.uklad) { padding: var(--odstep-4) var(--odstep-4) 0; }
-
-  .uklad, .uklad:has(.inspektor) {
-    grid-template-columns: minmax(0, 1fr);
-    height: calc(100dvh - var(--odstep-4));
+  /*
+   * Na dole zero marginesu: pasek nawigacji jest przyklejony do krawędzi
+   * i sam dokłada sobie wcięcie bezpieczne. Margines powłoki byłby drugim.
+   */
+  .aplikacja:has(.uklad) {
+    padding:
+      max(var(--odstep-4), var(--bezpiecznie-gora))
+      max(var(--odstep-4), var(--bezpiecznie-prawo))
+      0
+      max(var(--odstep-4), var(--bezpiecznie-lewo));
   }
+
+  .uklad, .uklad:has(.inspektor) { grid-template-columns: minmax(0, 1fr); }
 
   /* Nawigacja schodzi na dół, gdzie sięga kciuk. */
   .sidebar {
@@ -1345,13 +1656,23 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     background: color-mix(in srgb, var(--tlo) 92%, transparent);
     backdrop-filter: blur(12px);
     border-top: 1px solid var(--linia);
-    padding: var(--odstep-2) var(--odstep-2) calc(var(--odstep-2) + env(safe-area-inset-bottom));
+    padding: var(--odstep-2) var(--odstep-2) calc(var(--odstep-2) + var(--bezpiecznie-dol));
     z-index: 10;
   }
   .marka, .stopka-sidebara { display: none; }
 
   /* Etykieta pod ikoną — pasek dolny czyta się pionowo, nie poziomo. */
   .galaz {
+    /*
+     * `position: relative` jest tu KONIECZNE, nie kosmetyczne.
+     *
+     * Znacznik nieprzeczytanych jest pozycjonowany bezwzględnie. Bez ustalonego
+     * rodzica odnosił się do najbliższego przodka z pozycją — czyli do paska
+     * nawigacji przyklejonego do dołu ekranu. Wszystkie znaczniki lądowały
+     * w jednym miejscu w rogu paska, niezależnie od tego, której gałęzi
+     * dotyczyły, i wyglądało to jak losowo pływająca plamka.
+     */
+    position: relative;
     flex-direction: column;
     gap: 2px;
     justify-content: center;
@@ -1360,12 +1681,18 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     padding-inline: var(--odstep-2);
   }
   .galaz.aktywna { border-color: transparent; }
-  .galaz .znacznik { position: absolute; margin: 0; transform: translate(1.1rem, -.9rem); }
+  .galaz .znacznik {
+    position: absolute;
+    top: .1rem;
+    left: 50%;
+    margin: 0;
+    transform: translateX(.4rem);
+  }
 
   /* Miejsce na pasek, żeby nie przykrywał ostatniej wiadomości ani pola. */
-  .panel-listy, .ekran { padding-bottom: 4rem; }
+  .panel-listy, .ekran { padding-bottom: calc(3.5rem + var(--bezpiecznie-dol)); }
 
-  .wiadomosci li { max-width: 86%; }
+  .wiadomosci li:not(.dzien) { max-width: 86%; }
   .siatka-konta { grid-template-columns: minmax(0, 1fr); }
 }
 

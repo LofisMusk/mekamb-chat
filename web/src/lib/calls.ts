@@ -90,9 +90,28 @@ class PeerLink {
   droga: CallRoute = "unknown";
   odrzuconyOdcisk = false;
 
+  /**
+   * Czy właśnie składamy własną ofertę.
+   *
+   * Potrzebne przy WŁĄCZENIU KAMERY w trakcie rozmowy: obie strony mogą sięgnąć
+   * po nią w tej samej sekundzie i wtedy każda dostaje cudzą ofertę, mając
+   * własną w toku. Bez rozstrzygnięcia, kto ustępuje, obie odrzucają cudzą
+   * i obraz nie pojawia się po żadnej stronie.
+   */
+  private tworzeOferte = false;
+
   private constructor(
     readonly username: string,
     pc: RTCPeerConnection,
+    /**
+     * Czy w kolizji ofert to MY ustępujemy.
+     *
+     * Rozstrzygane porównaniem nazw, bo musi wyjść tak samo po obu stronach
+     * bez wymiany choćby jednej wiadomości. Losowanie albo „kto pierwszy"
+     * dałoby czasem dwie strony uprzejme naraz — czyli nikogo, kto dokończy
+     * negocjację.
+     */
+    private readonly uprzejmy: boolean,
     private readonly wyslijSygnal: (
       kind: "offer" | "answer" | "ice" | "hangup",
       payload: string,
@@ -105,6 +124,7 @@ class PeerLink {
 
   static async utworz(
     username: string,
+    mojaNazwa: string,
     lokalny: MediaStream,
     iceServers: IceServer[],
     wyslijSygnal: PeerLink["wyslijSygnal"],
@@ -112,7 +132,7 @@ class PeerLink {
     onStrumien: (username: string, stream: MediaStream) => void,
   ): Promise<PeerLink> {
     const pc = new RTCPeerConnection({ iceServers });
-    const link = new PeerLink(username, pc, wyslijSygnal, onZmiana);
+    const link = new PeerLink(username, pc, mojaNazwa < username, wyslijSygnal, onZmiana);
 
     for (const track of lokalny.getTracks()) {
       pc.addTrack(track, lokalny);
@@ -142,10 +162,27 @@ class PeerLink {
 
   /** Wysyła ofertę — wołane przez stronę, która inicjuje tę parę. */
   async zaproponuj(): Promise<void> {
-    const oferta = await this.pc.createOffer();
-    await this.pc.setLocalDescription(oferta);
+    this.tworzeOferte = true;
+    try {
+      const oferta = await this.pc.createOffer();
+      await this.pc.setLocalDescription(oferta);
 
-    await this.wyslijSygnal("offer", oferta.sdp ?? "", ownSdpFingerprint(oferta.sdp ?? ""));
+      await this.wyslijSygnal("offer", oferta.sdp ?? "", ownSdpFingerprint(oferta.sdp ?? ""));
+    } finally {
+      this.tworzeOferte = false;
+    }
+  }
+
+  /**
+   * Dokłada ścieżkę do już zestawionego połączenia i negocjuje ją.
+   *
+   * Sama `addTrack` nie wysyła nic — bez nowej oferty druga strona nie wie
+   * o istnieniu ścieżki i obraz nigdzie nie dociera. To był powód, dla którego
+   * przycisk kamery w rozmowie głosowej nie robił widocznie nic.
+   */
+  async dolozSciezke(track: MediaStreamTrack, strumien: MediaStream): Promise<void> {
+    this.pc.addTrack(track, strumien);
+    await this.zaproponuj();
   }
 
   /** Przetwarza sygnał od tego uczestnika. */
@@ -153,6 +190,18 @@ class PeerLink {
     switch (kind) {
       case "offer": {
         this.sprawdzOdcisk(payload, odciskZMls);
+
+        /*
+         * Kolizja ofert: obie strony włączyły kamerę naraz.
+         *
+         * Strona nieuprzejma trzyma się własnej oferty i cudzą pomija — jej
+         * oferta dojdzie do skutku, a druga strona dołoży swoją ścieżkę
+         * w następnej rundzie. Strona uprzejma ustępuje: `setRemoteDescription`
+         * z ofertą przy własnej w toku wykonuje niejawny rollback, więc nie
+         * trzeba go wołać osobno.
+         */
+        const kolizja = this.tworzeOferte || this.pc.signalingState !== "stable";
+        if (kolizja && !this.uprzejmy) return;
 
         await this.pc.setRemoteDescription({ type: "offer", sdp: payload });
         await this.oproznijKolejkeIce();
@@ -390,6 +439,54 @@ export class Call {
     return this.lokalny;
   }
 
+  /** Czy z tego urządzenia wychodzi obraz — niezależnie od tego, jak zaczęła się rozmowa. */
+  maWideo(): boolean {
+    return (this.lokalny?.getVideoTracks().length ?? 0) > 0;
+  }
+
+  /**
+   * Włącza kamerę w trwającej rozmowie — także takiej zaczętej jako głosowa.
+   *
+   * # Dlaczego to nie jest zwykłe „odsłoń ścieżkę"
+   *
+   * W rozmowie głosowej ścieżki wideo NIE MA: `getUserMedia` prosiło tylko
+   * o mikrofon, więc nie ma czego zapalić. Trzeba dobrać obraz z kamery, dołożyć
+   * go do każdego połączenia z osobna (mesh nie ma węzła, który zrobiłby to za
+   * nas) i z każdym z osobna negocjować od nowa.
+   *
+   * Zgodę na kamerę system oddaje dopiero tutaj, a nie na początku rozmowy —
+   * i tak ma być: prośba o kamerę przy odbieraniu połączenia GŁOSOWEGO jest
+   * prośbą o coś, o co nikt nie prosił.
+   *
+   * Wywołane, gdy obraz już idzie, nie robi nic — powtórne `getUserMedia`
+   * zapaliłoby drugi strumień z tej samej kamery.
+   */
+  async wlaczKamere(): Promise<void> {
+    if (!this.lokalny || this.maWideo()) return;
+
+    const zKamery = await navigator.mediaDevices.getUserMedia({ video: true });
+    const sciezka = zKamery.getVideoTracks()[0];
+    if (!sciezka) return;
+
+    // Do TEGO SAMEGO strumienia, nie do nowego: podgląd własny i wyciszanie
+    // patrzą na `strumienLokalny()`, a druga strona dostaje jeden strumień
+    // z dwiema ścieżkami zamiast dwóch strumieni do posklejania.
+    this.lokalny.addTrack(sciezka);
+
+    // Negocjacje idą równolegle — przy czterech osobach szeregowo znaczyłoby
+    // to cztery pełne wymiany jedna po drugiej, czyli kilka sekund czekania.
+    await Promise.all(
+      [...this.links.values()].map((link) =>
+        link.dolozSciezke(sciezka, this.lokalny!).catch(() => {
+          // Jedno połączenie, które nie przyjęło obrazu, nie może przerwać
+          // rozmowy z pozostałymi — mesh znaczy osobne zaufanie na parę.
+        }),
+      ),
+    );
+
+    this.powiadom();
+  }
+
   private tenSamCall(callId: Uint8Array): boolean {
     return (
       callId.length === this.callId.length &&
@@ -409,6 +506,7 @@ export class Call {
   private async utworzLink(username: string): Promise<PeerLink> {
     const link = await PeerLink.utworz(
       username,
+      this.messenger.account.userId,
       this.lokalny!,
       this.iceServers,
       (kind, payload, odcisk) =>
@@ -428,9 +526,17 @@ export class Call {
     return link;
   }
 
+  /*
+   * Stan mówi, czy obraz idzie TERAZ, a nie jak rozmowa się zaczęła.
+   *
+   * `wideo` z konstruktora jest trybem startowym i przestaje być prawdą
+   * w chwili, w której ktoś włączy kamerę w rozmowie głosowej. Ekran, który
+   * czytałby tamto pole, nie pokazałby ani własnego podglądu, ani przycisku
+   * do zgaszenia obrazu.
+   */
   private powiadom(): void {
     this.onStan({
-      wideo: this.wideo,
+      wideo: this.maWideo(),
       uczestnicy: [...this.links.values()].map((l) => l.stan()),
     });
   }

@@ -248,7 +248,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // czyli w najbardziej wymownym momencie.
         if (zegarPotwierdzen?.isActive == true) return
 
-        zegarPotwierdzen = viewModelScope.launch {
+        /*
+         * Odliczanie w zakresie PROCESU, nie ekranu.
+         *
+         * Tu ginęły potwierdzenia. Zegar czeka losowo od 3 do 30 sekund — a to
+         * jest mnóstwo czasu na to, żeby ktoś odłożył telefon albo obrócił
+         * ekran. `viewModelScope` gasł wtedy razem z modelem i anulował
+         * korutynę PRZED wysłaniem, więc potwierdzenie nie wychodziło nigdy.
+         * Druga strona zostawała z jednym ptaszkiem („wysłano") na zawsze,
+         * mimo że wiadomość dawno doszła i została przeczytana — dokładnie to,
+         * co było widać w aplikacji.
+         *
+         * Powtórka nie przyjdzie: potwierdzenie wysyła się raz. Anulowane
+         * znaczy więc utracone, a nie opóźnione.
+         */
+        zegarPotwierdzen = Rdzen.zakres.launch {
             kotlinx.coroutines.delay(losoweOpoznienie())
 
             val klient = messenger ?: return@launch
@@ -369,6 +383,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 Rdzen.podepnij(getApplication(), klient)
                 stan = stan.copy(zalogowany = true, rozmowy = zapisane)
             }
+        }
+    }
+
+    /**
+     * Wysyła zgłoszenie błędu.
+     *
+     * Wynik wraca komunikatem, a nie milczeniem: zgłoszenie idzie na publiczną
+     * stronę projektu, więc użytkownik ma prawo wiedzieć, czy naprawdę tam
+     * trafiło — i pod jakim numerem, gdyby chciał zajrzeć.
+     *
+     * Poza opisem i kontekstem nie wychodzi stąd nic; co i dlaczego, mówi
+     * `server/src/zgloszenia.ts`.
+     */
+    fun zglosBlad(opis: String, kontekst: String, onWynik: (String) -> Unit) {
+        val klient = messenger ?: return
+
+        viewModelScope.launch {
+            runCatching { api.zglosBlad(klient.token, opis, kontekst) }
+                .onSuccess { numer ->
+                    onWynik(
+                        if (numer != null) "Wysłane — zgłoszenie nr $numer. Dziękujemy."
+                        else "Wysłane. Dziękujemy.",
+                    )
+                }
+                .onFailure { blad ->
+                    onWynik(blad.message ?: "Nie udało się wysłać zgłoszenia.")
+                }
         }
     }
 

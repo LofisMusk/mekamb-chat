@@ -42,7 +42,7 @@ const prawdziwyFetch = globalThis.fetch;
 
 beforeEach(() => {
   wyslane = null;
-  (env as Record<string, unknown>).GITHUB_TOKEN = "token-testowy";
+  (env as unknown as Record<string, unknown>).GITHUB_TOKEN = "token-testowy";
 
   vi.stubGlobal("fetch", async (wejscie: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof wejscie === "string" ? wejscie : wejscie.toString();
@@ -59,7 +59,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete (env as Record<string, unknown>).GITHUB_TOKEN;
+  delete (env as unknown as Record<string, unknown>).GITHUB_TOKEN;
 });
 
 async function zglos(cialo: unknown, bearer?: string): Promise<Response> {
@@ -143,7 +143,7 @@ describe("zgłoszenia błędów", () => {
    * nie poszło.
    */
   it("mówi wprost, gdy serwer nie ma skonfigurowanych zgłoszeń", async () => {
-    delete (env as Record<string, unknown>).GITHUB_TOKEN;
+    delete (env as unknown as Record<string, unknown>).GITHUB_TOKEN;
 
     const odpowiedz = await zglos({ opis: "coś nie działa" }, await token("zg5"));
 

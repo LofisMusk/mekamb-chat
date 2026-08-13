@@ -220,7 +220,16 @@ export async function rozmowcaRozmowy(groupId: Uint8Array): Promise<string | nul
  */
 export async function zapiszRozmowe(
   groupId: Uint8Array,
-  rozmowca: string,
+  /**
+   * Nazwa rozmówcy — albo `undefined`, gdy wywołujący jej nie zna.
+   *
+   * To rozróżnienie jest konieczne, odkąd zapisujemy rozmowy, których nie ma
+   * na ekranie: nanoszenie ptaszka albo śladu po rozmowie na wątek otwarty
+   * gdzie indziej nie wie, jak ta rozmowa się nazywa. Pusty napis podany
+   * zamiast tego KASOWAŁBY nazwę i wiersz na liście zostawał bez imienia —
+   * z powodu wyłącznie technicznego, po zdarzeniu, które nazwy nie dotyczyło.
+   */
+  rozmowca: string | undefined,
   wiadomosci: Wiadomosc[],
 ): Promise<void> {
   const zapis = await wczytajWszystko();
@@ -229,7 +238,7 @@ export async function zapiszRozmowe(
   // Obcinamy od początku — najstarsze idą pierwsze.
   const przyciete = wiadomosci.slice(-LIMIT_WIADOMOSCI);
   zapis.rozmowy[klucz] = {
-    rozmowca,
+    rozmowca: rozmowca ?? zapis.rozmowy[klucz]?.rozmowca ?? "",
     wiadomosci: przyciete.map(doZapisu) as Wiadomosc[],
     // Zapis nie jest przeczytaniem — znacznik zostaje taki, jaki był.
     przeczytaneDo: zapis.rozmowy[klucz]?.przeczytaneDo,

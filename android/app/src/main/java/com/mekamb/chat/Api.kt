@@ -444,6 +444,30 @@ class Api(private val baseUrl: String) {
         }
     }
 
+    /**
+     * Zgłasza błąd — serwer zakłada z tego issue na GitHubie.
+     *
+     * Idzie przez serwer, bo token GitHuba w APK jest tokenem oddanym każdemu,
+     * kto potrafi rozpakować plik. Uzasadnienie i — ważniejsze — lista tego,
+     * czego stąd NIE wysyłamy, siedzą w `server/src/zgloszenia.ts`.
+     *
+     * Dwa pola i ani jednego więcej. Serwer i tak weźmie tylko te dwa, ale
+     * dokładanie czegokolwiek tutaj byłoby pisaniem kodu, który liczy na to,
+     * że ktoś inny go powstrzyma.
+     */
+    suspend fun zglosBlad(token: String, opis: String, kontekst: String): Int? {
+        val odpowiedz = postJson(
+            "/zgloszenia",
+            buildJsonObject {
+                put("opis", opis)
+                put("kontekst", kontekst)
+            },
+            token,
+        )
+
+        return odpowiedz["numer"]?.jsonPrimitive?.content?.toIntOrNull()
+    }
+
     private suspend fun postJson(
         sciezka: String,
         body: JsonObject,

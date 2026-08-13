@@ -213,6 +213,7 @@ private fun Zawartosc(
         uprawnienia.launch(potrzebne.toTypedArray())
     }
     var wUczestnikach by remember { mutableStateOf(false) }
+    var wZgloszeniu by remember { mutableStateOf(false) }
     var wUstawieniach by remember { mutableStateOf(false) }
 
     // Ustawienie prywatności żyje tak samo długo jak motyw — poza modelem,
@@ -274,13 +275,14 @@ private fun Zawartosc(
 
     BackHandler(enabled = stan.przychodzacaRozmowa != null) { model.odrzucRozmowe() }
 
-    BackHandler(enabled = wPrzeniesieniu) { wPrzeniesieniu = false }
+    BackHandler(enabled = wZgloszeniu) { wZgloszeniu = false }
+    BackHandler(enabled = !wZgloszeniu && wPrzeniesieniu) { wPrzeniesieniu = false }
     BackHandler(enabled = !wPrzeniesieniu && wUstawieniach) { wUstawieniach = false }
     BackHandler(enabled = !wPrzeniesieniu && !wUstawieniach && wUczestnikach) {
         wUczestnikach = false
     }
 
-    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach
+    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach || wZgloszeniu
 
     // Rozmowa wraca do listy — nie do gałęzi, z której ją otwarto.
     BackHandler(enabled = !wGlebi && stan.zalogowany && wRozmowie) {
@@ -380,6 +382,9 @@ private fun Zawartosc(
             // formularz „z kim rozmawiasz". Wybór rozmówcy zszedł pod
             // „Nowa rozmowa", bo dotyczy pierwszego kontaktu, a nie każdego
             // wejścia do aplikacji.
+            stan.zalogowany && wZgloszeniu ->
+                EkranZgloszenia(model, onWstecz = { wZgloszeniu = false })
+
             stan.zalogowany && wPrzeniesieniu ->
                 EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
 
@@ -411,6 +416,7 @@ private fun Zawartosc(
                         wUczestnikach = true
                     },
                     onUstawienia = { wUstawieniach = true },
+                    onZgloszenie = { wZgloszeniu = true },
                     onGalaz = { galaz = it },
                 )
 

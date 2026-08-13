@@ -272,16 +272,52 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     [zaplanujWysylke],
   );
 
-  /** Nanosi potwierdzenie na własne wiadomości. */
-  const nanieStan = useCallback((identyfikatory: string[], stan: StanWiadomosci) => {
-    const zbior = new Set(identyfikatory);
+  /**
+   * Nanosi potwierdzenie na własne wiadomości.
+   *
+   * # Dlaczego to sięga na DYSK, a nie tylko do stanu ekranu
+   *
+   * Bo potwierdzenie przychodzi RAZ i nie powtórzy się nigdy. Wcześniej ta
+   * funkcja zmieniała wyłącznie `wiadomosci`, czyli wątek otwarty w tej chwili —
+   * a potwierdzenie przychodzi po losowym opóźnieniu do trzydziestu sekund,
+   * więc trafiało zwykle w moment, w którym użytkownik patrzył już na coś
+   * innego. Wtedy przepadało bez śladu: dymek zostawał przy „wysłano" na stałe,
+   * bo drugiej szansy nie ma.
+   *
+   * Otwarta rozmowa dostaje nowy stan od razu (widać go bez czekania) i tak samo
+   * ląduje na dysku. Każda inna jest tylko przepisywana.
+   */
+  const nanieStan = useCallback(
+    (groupId: Uint8Array, identyfikatory: string[], stan: StanWiadomosci) => {
+      const zbior = new Set(identyfikatory);
 
-    setWiadomosci((poprzednie) =>
-      poprzednie.map((w) =>
-        w.wlasna && zbior.has(w.id) ? { ...w, stan: wyzszyStan(w.stan ?? "wyslane", stan) } : w,
-      ),
-    );
-  }, []);
+      const podnies = (lista: Wiadomosc[]): Wiadomosc[] =>
+        lista.map((w) =>
+          w.wlasna && zbior.has(w.id) ? { ...w, stan: wyzszyStan(w.stan ?? "wyslane", stan) } : w,
+        );
+
+      if (biezacaGrupa.current && kluczRozmowy(biezacaGrupa.current) === kluczRozmowy(groupId)) {
+        // Zapis na dysk robi tu efekt czuwający nad `wiadomosci` — dopisywanie
+        // go drugi raz oznaczałoby dwa zapisy tej samej rozmowy naraz.
+        setWiadomosci(podnies);
+        return;
+      }
+
+      void wczytajRozmowe(groupId)
+        .then((zapisane) => {
+          if (zapisane.length === 0) return;
+          return zapiszRozmowe(groupId, undefined, podnies(zapisane)).then(() => listaRozmow());
+        })
+        .then((pozycje) => {
+          if (pozycje) setRozmowy(pozycje);
+        })
+        .catch(() => {
+          // Nieudany zapis ptaszka nie może wywrócić odbierania. Ptaszek jest
+          // wygodą, koperta — treścią.
+        });
+    },
+    [],
+  );
 
   // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
   // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
@@ -315,7 +351,11 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
            * oddaje. Dostarczenie zostaje — nie mówi nic o niczyjej uwadze.
            */
           if (odebrana.receipt.kind === "delivered" || odczytRef.current) {
-            nanieStan(odebrana.receipt.messageIds, stanZPotwierdzenia(odebrana.receipt.kind));
+            nanieStan(
+              odebrana.groupId,
+              odebrana.receipt.messageIds,
+              stanZPotwierdzenia(odebrana.receipt.kind),
+            );
           }
         } else if (odebrana?.call) {
           /*
@@ -568,7 +608,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           // Cudzy wątek dopisujemy prosto na dysk i odświeżamy listę: nie ma go
           // na ekranie, więc nie ma czego przerysować poza wierszem listy.
           void wczytajRozmowe(grupaDlaRozmowy)
-            .then((zapisane) => zapiszRozmowe(grupaDlaRozmowy, "", [...zapisane, wpis]))
+            .then((zapisane) => zapiszRozmowe(grupaDlaRozmowy, undefined, [...zapisane, wpis]))
             .then(() => listaRozmow())
             .then(setRozmowy)
             .catch(() => {});

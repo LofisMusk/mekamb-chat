@@ -359,7 +359,17 @@ app.get("/inbox/:userId/connect", async (c) => {
   }
 
   const inbox = c.env.USER_INBOX.get(c.env.USER_INBOX.idFromName(skrzynka));
-  const odpowiedz = await inbox.fetch(c.req.raw);
+
+  // Identyfikator urządzenia bierzemy z PODPISANEGO tokenu, nigdy z zapytania:
+  // inaczej ktokolwiek podszyłby się pod cudzy kursor i potwierdzał koperty
+  // w jego imieniu. Skrzynka używa go do osobnego kursora na urządzenie —
+  // patrz `UserInbox.acknowledge`.
+  const adres = new URL(c.req.url);
+  if (payload.deviceId) {
+    adres.searchParams.set("urzadzenie", payload.deviceId);
+  }
+
+  const odpowiedz = await inbox.fetch(new Request(adres, c.req.raw));
 
   // Przeglądarka zrywa połączenie, jeśli serwer nie potwierdzi wybranego
   // podprotokołu. Odsyłamy dokładnie to, co przyszło.

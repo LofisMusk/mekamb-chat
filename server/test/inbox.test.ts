@@ -1,8 +1,8 @@
 import { SELF, env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { issueToken } from "../src/crypto";
-import { MAX_ENVELOPE_BYTES } from "../src/env";
+import { MAILBOX_RETENTION_DAYS, MAX_ENVELOPE_BYTES } from "../src/env";
 
 /** Skrzynka wchodzi do gry dopiero, gdy dostarczenie bezpośrednie zawiodło. */
 
@@ -121,6 +121,153 @@ describe("UserInbox", () => {
   it("żądanie bez upgrade'u jest odrzucane", async () => {
     const odpowiedz = await inbox("bez-upgrade").fetch("https://inbox/connect");
     expect(odpowiedz.status).toBe(426);
+  });
+});
+
+/**
+ * Skrzynka jest wspólna dla wszystkich urządzeń jednej osoby.
+ *
+ * # Sedno
+ *
+ * Potwierdzenie kasowało kopertę dla WSZYSTKICH. Laptop online i telefon
+ * w kieszeni znaczyło, że laptop potwierdza, a telefon nie dostaje już nic —
+ * i nikt nie zgłasza błędu, bo z punktu widzenia serwera wszystko poszło
+ * dobrze. Dopóki to obowiązywało, konta nie dało się używać na dwóch
+ * urządzeniach, niezależnie od tego, co potrafi MLS.
+ */
+describe("wiele urządzeń jednej osoby", () => {
+  function polacz(skrzynka: ReturnType<typeof inbox>, urzadzenie: string) {
+    return skrzynka.fetch(`https://inbox/connect?urzadzenie=${urzadzenie}`, {
+      headers: { Upgrade: "websocket" },
+    });
+  }
+
+  it("potwierdzenie jednego urządzenia nie okrada drugiego", async () => {
+    const skrzynka = inbox("dwa-urzadzenia");
+    await polacz(skrzynka, "laptop");
+    await polacz(skrzynka, "telefon");
+
+    await skrzynka.deposit(koperta("dla obu"));
+    await skrzynka.acknowledge(1, "laptop");
+
+    // Laptop ma z głowy, telefon nadal czeka — i koperta LEŻY w kolejce.
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(0);
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+    expect(await skrzynka.pendingCount()).toBe(1);
+  });
+
+  it("koperta znika dopiero po potwierdzeniu przez wszystkie urządzenia", async () => {
+    const skrzynka = inbox("oba-potwierdzaja");
+    await polacz(skrzynka, "laptop");
+    await polacz(skrzynka, "telefon");
+
+    await skrzynka.deposit(koperta("dla obu"));
+    await skrzynka.acknowledge(1, "laptop");
+    expect(await skrzynka.pendingCount()).toBe(1);
+
+    await skrzynka.acknowledge(1, "telefon");
+    expect(await skrzynka.pendingCount()).toBe(0);
+  });
+
+  it("ponowne podłączenie dostaje tylko to, czego nie potwierdziło", async () => {
+    const skrzynka = inbox("wznowienie");
+    await polacz(skrzynka, "laptop");
+    await polacz(skrzynka, "telefon");
+
+    await skrzynka.deposit(koperta("pierwsza"));
+    await skrzynka.deposit(koperta("druga"));
+    await skrzynka.acknowledge(1, "telefon");
+
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(2);
+  });
+
+  /**
+   * Spóźnione potwierdzenie starszej koperty przychodzi po ponownym
+   * połączeniu. Cofnięcie kursora zafundowałoby urządzeniu powtórkę
+   * wszystkiego, co już przetworzyło.
+   */
+  it("kursor nie cofa się przy spóźnionym potwierdzeniu", async () => {
+    const skrzynka = inbox("spoznione");
+    await polacz(skrzynka, "laptop");
+
+    for (const tresc of ["a", "b", "c"]) {
+      await skrzynka.deposit(koperta(tresc));
+    }
+
+    await skrzynka.acknowledge(3, "laptop");
+    await skrzynka.acknowledge(1, "laptop");
+
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(0);
+  });
+
+  /**
+   * Rampa zgodności: serwer, który po wdrożeniu przestaje rozumieć klienta
+   * sprzed aktualizacji, odcina wszystkich, którzy jeszcze jej nie zainstalowali.
+   */
+  it("klient bez identyfikatora urządzenia działa jak dawniej", async () => {
+    const skrzynka = inbox("stary-klient");
+    await skrzynka.deposit(koperta("po staremu"));
+
+    await skrzynka.acknowledge(1);
+
+    expect(await skrzynka.pendingCount()).toBe(0);
+  });
+
+  /**
+   * Nieznane urządzenie nie może zablokować kasowania — inaczej wystarczyłoby
+   * zgadnąć nazwę, żeby zmusić serwer do wiecznego trzymania cudzych kopert.
+   */
+  it("urządzenie, które nigdy się nie podłączyło, nie trzyma kolejki", async () => {
+    const skrzynka = inbox("nieznane");
+    await polacz(skrzynka, "laptop");
+
+    await skrzynka.deposit(koperta("jedyna"));
+    await skrzynka.acknowledge(1, "laptop");
+
+    expect(await skrzynka.pendingCount()).toBe(0);
+  });
+
+  /**
+   * Zgubiony telefon nie może zabetonować skrzynki.
+   *
+   * Bez odcięcia po ostatniej aktywności jedno urządzenie, które nigdy już się
+   * nie odezwie, trzymałoby każdą kopertę w nieskończoność — a serwer ma
+   * przechowywać jak najmniej i jak najkrócej.
+   *
+   * Podmieniamy sam `Date`, nie liczniki: fałszywy `setTimeout` zawiesiłby
+   * wejście-wyjście workerd i test nigdy by się nie skończył.
+   */
+  it("urządzenie milczące dłużej niż retencja przestaje trzymać kolejkę", async () => {
+    const skrzynka = inbox("zgubiony-telefon");
+    await polacz(skrzynka, "telefon");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + (MAILBOX_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
+
+      await polacz(skrzynka, "laptop");
+      await skrzynka.deposit(koperta("swieza"));
+      await skrzynka.acknowledge(1, "laptop");
+
+      // Koperta jest świeża, więc nie usunęła jej retencja — usunęło ją to, że
+      // telefon przestał się liczyć.
+      expect(await skrzynka.pendingCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("urządzenie, które się odezwało, nadal trzyma kolejkę", async () => {
+    const skrzynka = inbox("zywy-telefon");
+    await polacz(skrzynka, "telefon");
+    await polacz(skrzynka, "laptop");
+
+    await skrzynka.deposit(koperta("swieza"));
+    await skrzynka.acknowledge(1, "laptop");
+
+    // Kontrola dla testu wyżej: bez upływu czasu koperta zostaje.
+    expect(await skrzynka.pendingCount()).toBe(1);
   });
 });
 

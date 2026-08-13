@@ -20,10 +20,24 @@ import { MAILBOX_RETENTION_DAYS, MAX_ENVELOPE_BYTES, type Env } from "./env";
  * GB-sekund. Przy zwykłym WebSockecie każdy zalogowany klient kosztowałby
  * nieprzerwanie.
  *
+ * # Jedna skrzynka, wiele urządzeń
+ *
+ * Skrzynka adresowana jest NAZWĄ UŻYTKOWNIKA, nie urządzeniem — bo nadawca zna
+ * tylko nazwę. Wszystkie urządzenia jednej osoby czytają więc tę samą kolejkę
+ * i każde musi dostać swoją kopię.
+ *
+ * Dlatego potwierdzenie nie kasuje koperty, tylko przesuwa **kursor tego
+ * urządzenia** (tabela `kursory`). Koperta znika, gdy minie kursory wszystkich
+ * urządzeń, które odezwały się w ciągu ostatnich `MAILBOX_RETENTION_DAYS`.
+ * Wcześniej pierwsze potwierdzenie kasowało kopertę dla wszystkich, więc drugie
+ * urządzenie nigdy jej nie widziało — i to, a nie MLS, uniemożliwiało używanie
+ * konta na laptopie i telefonie naraz.
+ *
  * # Czego ten obiekt nie widzi
  *
  * Koperty są nieprzezroczyste. Serwer zna ich rozmiar, czas i adresata —
- * i nic ponadto.
+ * i nic ponadto. Doszedł do tego identyfikator urządzenia przy odbiorze; nadal
+ * nie ma go przy nadawaniu, więc kto do kogo pisze pozostaje nieznane.
  */
 /**
  * Skleja identyfikator kolejki z kopertą.
@@ -41,6 +55,27 @@ function withId(id: number, envelope: ArrayBuffer): ArrayBuffer {
 /** Długość prefiksu z identyfikatorem koperty. */
 export const ENVELOPE_ID_BYTES = 8;
 
+/**
+ * Co siedzi w gnieździe po przebudzeniu z hibernacji.
+ *
+ * Mapa w pamięci obiektu nie przetrwa uśpienia, a `deviceId` jest potrzebny
+ * przy każdym potwierdzeniu — więc jedzie z samym gniazdem.
+ */
+interface Przypiete {
+  urzadzenie: string | null;
+}
+
+/** Odczytuje identyfikator urządzenia przypięty do gniazda. */
+function urzadzenieGniazda(ws: WebSocket): string | null {
+  try {
+    return (ws.deserializeAttachment() as Przypiete | null)?.urzadzenie ?? null;
+  } catch {
+    // Gniazdo sprzed tej wersji nie ma nic przypiętego. Zachowuje się wtedy
+    // jak dawniej — patrz [`acknowledge`].
+    return null;
+  }
+}
+
 export class UserInbox extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -51,6 +86,17 @@ export class UserInbox extends DurableObject<Env> {
           id         INTEGER PRIMARY KEY AUTOINCREMENT,
           envelope   BLOB NOT NULL,
           created_at INTEGER NOT NULL
+        );
+      `);
+
+      // Kursor na urządzenie. Powstaje przy pierwszym podłączeniu i od tej
+      // chwili urządzenie **trzyma kolejkę**: nic poniżej jego kursora nie
+      // zostanie skasowane.
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS kursory (
+          device_id  TEXT PRIMARY KEY,
+          ostatni_id INTEGER NOT NULL,
+          widziane_o INTEGER NOT NULL
         );
       `);
     });
@@ -121,15 +167,49 @@ export class UserInbox extends DurableObject<Env> {
       return new Response("oczekiwano upgrade do WebSocketa", { status: 426 });
     }
 
+    const urzadzenie = new URL(request.url).searchParams.get("urzadzenie") || null;
+
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
     // Hibernacja: obiekt może zostać wyładowany z pamięci, a połączenie przetrwa.
     this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ urzadzenie } satisfies Przypiete);
 
-    await this.flushTo(server);
+    if (urzadzenie !== null) {
+      this.zarejestrujUrzadzenie(urzadzenie);
+    }
+
+    await this.flushTo(server, urzadzenie);
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Zakłada kursor urządzenia, jeśli jeszcze go nie ma.
+   *
+   * # Dlaczego zaczyna od zera, a nie od bieżącego końca kolejki
+   *
+   * Zero znaczy „nie widziałem jeszcze niczego", więc świeżo podłączone
+   * urządzenie dostaje wszystko, co w kolejce zostało. Ustawienie kursora na
+   * koniec byłoby cichym skasowaniem zaległości dla nowego urządzenia.
+   *
+   * # Kolejność, na której to stoi
+   *
+   * Urządzenie **trzyma kolejkę dopiero od pierwszego podłączenia**. Zanim
+   * założy kursor, nikt o nim tutaj nie wie i jego koperty mogą zostać
+   * skasowane po potwierdzeniu przez pozostałe urządzenia. Dlatego parowanie
+   * musi podłączyć nowe urządzenie do skrzynki ZANIM stare wyśle Welcome —
+   * inaczej powtórzyłaby się awaria opisana w CLAUDE.md, gdzie Welcome nigdy
+   * nie dotarł i żadna wiadomość się nie odszyfrowała.
+   */
+  private zarejestrujUrzadzenie(urzadzenie: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO kursory (device_id, ostatni_id, widziane_o) VALUES (?, 0, ?)
+       ON CONFLICT (device_id) DO UPDATE SET widziane_o = excluded.widziane_o`,
+      urzadzenie,
+      Date.now(),
+    );
   }
 
   /**
@@ -137,10 +217,19 @@ export class UserInbox extends DurableObject<Env> {
    *
    * **Nie kasuje ich z kolejki** — to robi dopiero potwierdzenie od klienta.
    * Klient, który dostał bajty i zaraz potem padł, ma je zobaczyć ponownie.
+   *
+   * Urządzenie ze swoim kursorem dostaje tylko to, czego jeszcze nie
+   * potwierdziło. Bez kursora (klient sprzed tej wersji) dostaje całą kolejkę,
+   * czyli dokładnie to co dawniej.
    */
-  private async flushTo(socket: WebSocket): Promise<void> {
+  private async flushTo(socket: WebSocket, urzadzenie: string | null): Promise<void> {
+    const od = urzadzenie === null ? 0 : this.kursor(urzadzenie);
+
     const pending = this.ctx.storage.sql
-      .exec<{ id: number; envelope: ArrayBuffer }>("SELECT id, envelope FROM queue ORDER BY id")
+      .exec<{
+        id: number;
+        envelope: ArrayBuffer;
+      }>("SELECT id, envelope FROM queue WHERE id > ? ORDER BY id", od)
       .toArray();
 
     for (const row of pending) {
@@ -148,10 +237,36 @@ export class UserInbox extends DurableObject<Env> {
     }
   }
 
-  /** Liczba kopert czekających w kolejce. */
+  /** Ostatnia koperta potwierdzona przez to urządzenie; zero, gdy żadna. */
+  private kursor(urzadzenie: string): number {
+    const row = this.ctx.storage.sql
+      .exec<{
+        ostatni_id: number;
+      }>("SELECT ostatni_id FROM kursory WHERE device_id = ?", urzadzenie)
+      .toArray()[0];
+    return row?.ostatni_id ?? 0;
+  }
+
+  /** Liczba kopert fizycznie leżących w kolejce. */
   async pendingCount(): Promise<number> {
     const row = this.ctx.storage.sql
       .exec<{ n: number }>("SELECT COUNT(*) AS n FROM queue")
+      .toArray()[0];
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Ile kopert czeka na konkretne urządzenie.
+   *
+   * Różni się od [`pendingCount`], bo koperta potwierdzona przez laptopa nadal
+   * leży w kolejce dla telefonu. To właśnie ta różnica jest sednem obsługi
+   * wielu urządzeń.
+   */
+  async pendingCountFor(urzadzenie: string): Promise<number> {
+    const row = this.ctx.storage.sql
+      .exec<{
+        n: number;
+      }>("SELECT COUNT(*) AS n FROM queue WHERE id > ?", this.kursor(urzadzenie))
       .toArray()[0];
     return row?.n ?? 0;
   }
@@ -173,18 +288,74 @@ export class UserInbox extends DurableObject<Env> {
     // `ack:<id>` — klient przetworzył i ZAPISAŁ kopertę, można ją usunąć.
     const ack = /^ack:(\d+)$/.exec(message);
     if (ack?.[1]) {
-      await this.acknowledge(Number(ack[1]));
+      await this.acknowledge(Number(ack[1]), urzadzenieGniazda(ws));
     }
   }
 
   /**
-   * Kasuje kopertę potwierdzoną przez klienta.
+   * Przyjmuje potwierdzenie od klienta.
+   *
+   * # Dlaczego to nie jest zwykłe `DELETE`
+   *
+   * Skrzynka jest wspólna dla wszystkich urządzeń jednej osoby, więc kasowanie
+   * koperty na pierwsze potwierdzenie **okradało pozostałe urządzenia**: laptop
+   * potwierdzał, a śpiący telefon nie dostawał już nic i nikt nie zgłaszał
+   * błędu. Zamiast tego każde urządzenie przesuwa własny kursor, a koperta
+   * znika dopiero, gdy minie kursory wszystkich znanych urządzeń.
+   *
+   * Bez `urzadzenie` (klient sprzed tej wersji) zostaje dawne zachowanie —
+   * inaczej aktualizacja serwera odcięłaby wszystkich, którzy jeszcze nie
+   * zaktualizowali aplikacji. Ta sama rampa co przy `DELIVERY_TOKEN_REQUIRED`.
    *
    * Wywoływane z kanału WebSocket, ale wystawione jako osobna metoda, żeby dało
    * się je sprawdzić bez zestawiania gniazda w teście.
    */
-  async acknowledge(id: number): Promise<void> {
-    this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", id);
+  async acknowledge(id: number, urzadzenie: string | null = null): Promise<void> {
+    if (urzadzenie === null) {
+      this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", id);
+      return;
+    }
+
+    // `MAX` — spóźnione potwierdzenie starszej koperty nie może cofnąć kursora
+    // i zafundować urządzeniu powtórki wszystkiego, co już przetworzyło.
+    this.ctx.storage.sql.exec(
+      `INSERT INTO kursory (device_id, ostatni_id, widziane_o) VALUES (?, ?, ?)
+       ON CONFLICT (device_id) DO UPDATE
+         SET ostatni_id = MAX(kursory.ostatni_id, excluded.ostatni_id),
+             widziane_o = excluded.widziane_o`,
+      urzadzenie,
+      id,
+      Date.now(),
+    );
+
+    this.sprzatnij();
+  }
+
+  /**
+   * Kasuje koperty, które minęły kursory wszystkich żywych urządzeń.
+   *
+   * Urządzenie milczące dłużej niż `MAILBOX_RETENTION_DAYS` przestaje się
+   * liczyć — inaczej jeden zgubiony telefon trzymałby kolejkę w nieskończoność.
+   * To jest to odcięcie po ostatniej aktywności, które commit #13 zapisał sobie
+   * jako pozostałą pracę.
+   *
+   * Gdy nie ma ani jednego znanego urządzenia, nie kasujemy nic: pusty zbiór
+   * dałby minimum „nieskończoność" i wyczyścił całą kolejkę osobie, która
+   * jeszcze się nie podłączyła.
+   */
+  private sprzatnij(): void {
+    const prog = Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+    const row = this.ctx.storage.sql
+      .exec<{
+        najmniejszy: number | null;
+      }>("SELECT MIN(ostatni_id) AS najmniejszy FROM kursory WHERE widziane_o > ?", prog)
+      .toArray()[0];
+
+    const najmniejszy = row?.najmniejszy;
+    if (najmniejszy === null || najmniejszy === undefined) return;
+
+    this.ctx.storage.sql.exec("DELETE FROM queue WHERE id <= ?", najmniejszy);
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -206,6 +377,12 @@ export class UserInbox extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const cutoff = Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+    // Najpierw znikają kursory urządzeń, które przestały się odzywać — dopiero
+    // wtedy `sprzatnij` może ruszyć koperty, które taki nieboszczyk trzymał.
+    this.ctx.storage.sql.exec("DELETE FROM kursory WHERE widziane_o < ?", cutoff);
+    this.sprzatnij();
+
     this.ctx.storage.sql.exec("DELETE FROM queue WHERE created_at < ?", cutoff);
 
     // Alarm odnawiamy tylko wtedy, gdy jest jeszcze co pilnować — inaczej

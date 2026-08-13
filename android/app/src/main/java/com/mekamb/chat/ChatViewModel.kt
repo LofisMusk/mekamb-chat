@@ -1456,7 +1456,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun dopiszDoRozmowy(groupId: ByteArray, wiadomosc: Wiadomosc) {
         val nazwa = nazwaZeSkladu(groupId) ?: historia.rozmowca(groupId) ?: return
-        runCatching { historia.zapisz(groupId, nazwa, historia.wczytaj(groupId) + wiadomosc) }
+        // Atomowo: odczyt-i-zapis pod jednym zamkiem, żeby dwie wiadomości tuż
+        // po sobie się nie nadpisały (patrz `Historia.dopisz`).
+        runCatching { historia.dopisz(groupId, nazwa, wiadomosc) }
+    }
+
+    /**
+     * Usuwa rozmowę z tego urządzenia i odświeża listę.
+     *
+     * Jeśli usuwana rozmowa jest tą zapamiętaną jako otwarta, czyścimy
+     * `groupId` — wybór ekranu w [MainActivity] ma warunek `groupId != null`,
+     * więc bez tego ekran mógłby wrócić do wątku, którego nie ma już na dysku.
+     */
+    fun usunRozmowe(groupId: ByteArray) {
+        runCatching {
+            historia.usun(groupId)
+            val byla = stan.groupId?.contentEquals(groupId) == true
+            stan = stan.copy(
+                rozmowy = historia.lista(),
+                groupId = if (byla) null else stan.groupId,
+                wiadomosci = if (byla) emptyList() else stan.wiadomosci,
+            )
+        }
     }
 
     /**

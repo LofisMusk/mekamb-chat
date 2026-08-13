@@ -212,7 +212,19 @@ class Historia(private val vault: Vault) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /*
+     * Wszystkie metody są `@Synchronized` na tej instancji.
+     *
+     * Cała historia leży w JEDNYM zaszyfrowanym rekordzie, a każda zmiana to
+     * odczyt-zmiana-zapis. Odbiór ze skrzynki idzie na innym wątku niż efekt
+     * oznaczający przeczytane, więc bez zamka dwie takie operacje czytałyby ten
+     * sam stan i ta, która pisze druga, cofałaby zmianę pierwszej — tak właśnie
+     * znikał znacznik odczytu (zapis wątku przywracał stare `przeczytaneDo`).
+     * Zamek jest wznawialny, więc metody wołające inne (np. [dopisz]) działają.
+     */
+
     /** Wczytuje historię jednej rozmowy. */
+    @Synchronized
     fun wczytaj(groupId: ByteArray): List<Wiadomosc> =
         wczytajWszystko().rozmowy[klucz(groupId)]
             ?.wiadomosci
@@ -233,6 +245,7 @@ class Historia(private val vault: Vault) {
             ?: emptyList()
 
     /** Z kim była ta rozmowa. */
+    @Synchronized
     fun rozmowca(groupId: ByteArray): String? =
         wczytajWszystko().rozmowy[klucz(groupId)]?.rozmowca
 
@@ -242,6 +255,7 @@ class Historia(private val vault: Vault) {
      * Odczyt przed zapisem jest konieczny: wszystkie rozmowy leżą w jednym
      * zaszyfrowanym rekordzie, więc zapis samej bieżącej skasowałby resztę.
      */
+    @Synchronized
     fun zapisz(groupId: ByteArray, rozmowca: String, wiadomosci: List<Wiadomosc>) {
         val zapis = wczytajWszystko()
 
@@ -282,6 +296,7 @@ class Historia(private val vault: Vault) {
      * Wołane, gdy rozmowa jest otwarta na ekranie — czyli wtedy, gdy użytkownik
      * naprawdę na nią patrzy, a nie gdy wiadomość tylko dotarła.
      */
+    @Synchronized
     fun oznaczPrzeczytane(groupId: ByteArray, doChwili: Long) {
         val zapis = wczytajWszystko()
         val klucz = klucz(groupId)
@@ -298,11 +313,43 @@ class Historia(private val vault: Vault) {
     }
 
     /**
+     * Dopisuje jedną wiadomość do rozmowy — atomowo względem innych zapisów.
+     *
+     * Osobno od [zapisz], bo tu odczyt i zapis muszą być JEDNĄ operacją pod
+     * jednym zamkiem: dwie wiadomości, które przyjdą tuż po sobie do wątku
+     * spoza ekranu, czytałyby ten sam stan i druga nadpisałaby pierwszą.
+     * Dedup po identyfikatorze — ta sama koperta może dojść dwa razy (ponowne
+     * dostarczenie ze skrzynki przy zerwanym połączeniu).
+     */
+    @Synchronized
+    fun dopisz(groupId: ByteArray, rozmowca: String, wiadomosc: Wiadomosc) {
+        val istniejace = wczytaj(groupId)
+        if (istniejace.any { it.id.contentEquals(wiadomosc.id) }) return
+        zapisz(groupId, rozmowca, istniejace + wiadomosc)
+    }
+
+    /**
+     * Usuwa rozmowę z historii tego urządzenia.
+     *
+     * Kasuje tylko lokalny zapis — grupa MLS i inne urządzenia zostają
+     * nietknięte. „Usuń" znaczy „nie chcę tego widzieć u siebie", nie „opuść
+     * grupę". Wiadomość przysłana po skasowaniu założy wiersz na nowo.
+     */
+    @Synchronized
+    fun usun(groupId: ByteArray) {
+        val zapis = wczytajWszystko()
+        val klucz = klucz(groupId)
+        if (klucz !in zapis.rozmowy) return
+        vault.saveHistory(json.encodeToString(zapis.copy(rozmowy = zapis.rozmowy - klucz)).toByteArray())
+    }
+
+    /**
      * Wszystkie rozmowy, od najświeższej.
      *
      * Kolejność po czasie ostatniej wiadomości, a nie po nazwie: lista ma
      * pokazywać to, do czego wraca się najczęściej.
      */
+    @Synchronized
     fun lista(): List<PozycjaListy> =
         wczytajWszystko().rozmowy
             .map { (hex, rozmowa) ->

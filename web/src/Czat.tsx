@@ -6,6 +6,7 @@ import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
 import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import { PrzeniesStad } from "./Przeniesienie";
+import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
 import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
 import {
@@ -34,7 +35,7 @@ import { useWstecz } from "./lib/nawigacja";
 import { createPasskey, isPasskeySupported } from "./lib/passkey";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
-import { isInstalled, isPersistent, wipe } from "./lib/vault";
+import { isPersistent, wipe } from "./lib/vault";
 import { ulozWatek } from "./lib/watek";
 
 /**
@@ -728,7 +729,7 @@ function Nawigacja({
             wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
         <span
           className={siec.uwaga ? "tryb uwaga" : "tryb"}
-          title="Przeglądarka nie potrafi łączyć się bezpośrednio — wiadomości idą przez skrzynkę na serwerze."
+          title="Wiadomości idą przez serwer — nie da się inaczej w przeglądarce."
         >
           <Ikona nazwa={siec.ikona} rozmiar={13} />
           {siec.tekst}
@@ -774,7 +775,7 @@ function PanelListy({
             type="search"
             value={szukane}
             onChange={(e) => onSzukane(e.target.value)}
-            placeholder="Szukaj w rozmowach · Search"
+            placeholder="Szukaj"
             aria-label="Szukaj rozmowy"
           />
         </div>
@@ -1065,7 +1066,7 @@ function Watek({
           rows={1}
           value={tresc}
           onChange={(e) => setTresc(e.target.value)}
-          placeholder="Napisz wiadomość · Message"
+          placeholder="Napisz wiadomość"
           aria-label="Treść wiadomości"
           onKeyDown={(e) => {
             /*
@@ -1308,13 +1309,13 @@ function Kontakty({ onRozpocznij }: { onRozpocznij: (nazwa: string) => void }) {
           }}
         >
           <label>
-            Z kim rozmawiasz · Recipient
+            Z kim chcesz rozmawiać
             <input value={nazwa} onChange={(e) => setNazwa(e.target.value)} required />
           </label>
 
           <button className="glowny" disabled={!nazwa.trim()}>
             <Ikona nazwa="rozmowy" rozmiar={16} />
-            Rozpocznij rozmowę · Start chat
+            Rozpocznij rozmowę
           </button>
         </form>
       </div>
@@ -1357,28 +1358,42 @@ function Konto({
             </span>
           </div>
 
+          {/*
+            Stan konta powiedziany po ludzku.
+
+            „Trwały magazyn: nieprzyznany" i „Aplikacja zainstalowana: nie" to
+            były odpowiedzi na pytania, których nikt nie zadał — nazwy
+            wewnętrznych mechanizmów przepisane wprost na ekran. Zostaje to,
+            co daje się z czymś zrobić: czy rozmowy są bezpieczne na tym
+            urządzeniu i czy w tej chwili cokolwiek dochodzi.
+
+            Wiersz o pamięci pojawia się DOPIERO, gdy jest źle. Napis
+            „przyznany" przy działającej rzeczy nie mówi nic; ostrzeżenie
+            o tym, że przeglądarka może skasować rozmowy, mówi bardzo dużo —
+            i wtedy trzeba je przeczytać.
+          */}
           <dl className="stan-konta">
             <div>
-              <dt>Trwały magazyn</dt>
-              <dd className={trwaly ? undefined : "uwaga"}>
-                <Ikona nazwa={trwaly ? "wyslane" : "ostrzezenie"} rozmiar={13} />
-                {trwaly ? "przyznany" : "nieprzyznany"}
-              </dd>
-            </div>
-            <div>
-              <dt>Aplikacja zainstalowana</dt>
-              <dd>
-                <Ikona nazwa={isInstalled() ? "wyslane" : "info"} rozmiar={13} />
-                {isInstalled() ? "tak" : "nie"}
-              </dd>
-            </div>
-            <div>
-              <dt>Połączenie ze skrzynką</dt>
+              <dt>Wiadomości</dt>
               <dd className={siec.uwaga ? "uwaga" : undefined}>
                 <Ikona nazwa={siec.ikona} rozmiar={13} />
-                {stanSieci === "polaczone" ? "działa" : stanSieci === "laczenie" ? "łączę…" : "zerwane"}
+                {stanSieci === "polaczone"
+                  ? "dochodzą"
+                  : stanSieci === "laczenie"
+                    ? "łączę…"
+                    : "brak połączenia"}
               </dd>
             </div>
+
+            {!trwaly && (
+              <div>
+                <dt>Pamięć</dt>
+                <dd className="uwaga">
+                  <Ikona nazwa="ostrzezenie" rozmiar={13} />
+                  przeglądarka może usunąć rozmowy
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
 
@@ -1387,6 +1402,12 @@ function Konto({
 
           To decyzja o tym, ile o sobie mówisz — dotyczy każdej rozmowy naraz,
           więc miejscem jest konto, a nie pojedynczy wątek.
+        */}
+        {/*
+          Z opisu zostało jedno zdanie: to, które zmienia decyzję.
+          Reszta — opóźnienie, zbiorcza wysyłka, „moment wysłania koperty" —
+          opisywała, JAK to zrobiliśmy. Kto to czyta, nie ma z tego czego
+          wybrać, a słowo „koperta" znaczy coś tylko dla nas.
         */}
         <div className="karta">
           <strong>Potwierdzenia odczytu</strong>
@@ -1397,29 +1418,18 @@ function Konto({
               checked={odczyt}
               onChange={(e) => onOdczyt(e.target.checked)}
             />
-            <span>Wysyłaj potwierdzenia odczytu · Read receipts</span>
+            <span>Wysyłaj potwierdzenia odczytu</span>
           </label>
 
-          {/* Zostaje to, co zmienia decyzję: że wyłączenie działa w obie
-              strony i że samego CZASU wysłania ukryć się nie da. */}
           <p className="wskazowka">
-            Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych.
-            „Dostarczono" zostaje — nie mówi nic o niczyjej uwadze.
-          </p>
-
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="zegar" rozmiar={14} />
-            Wysyłamy je zbiorczo, po losowym opóźnieniu do 30 sekund. Samego momentu wysłania
-            koperty ukryć się nie da.
+            Kiedy je wyłączysz, przestaniesz też widzieć cudze.
           </p>
         </div>
 
+        {/* Bez opisu: przełącznik z trzema podpisanymi opcjami mówi wszystko,
+            co da się o nim powiedzieć. */}
         <div className="karta">
           <strong>Wygląd</strong>
-          <p className="wskazowka">
-            Motyw dotyczy tej przeglądarki. „Systemowy" idzie za ustawieniem urządzenia
-            i zmienia się razem z nim.
-          </p>
           <WyborMotywuUI />
         </div>
 
@@ -1427,12 +1437,22 @@ function Konto({
 
         <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
 
+        <ZglosBlad token={messenger.accessToken} />
+
+        {/*
+          To zdanie ZOSTAJE i zostaje w całości.
+
+          Nie jest opisem mechanizmu — jest jedyną informacją, przez którą ktoś
+          może stracić wszystkie swoje rozmowy, jeśli jej nie przeczyta. Skrócone
+          do „rozmowy są zapisane lokalnie" nie mówi już, co z tego wynika ani co
+          zrobić, zanim będzie za późno.
+        */}
         <div className="karta">
-          <strong>Klucze i historia</strong>
+          <strong>Twoje rozmowy</strong>
           <p className="wskazowka-ikona">
             <Ikona nazwa="klucz" rozmiar={14} />
-            Leżą wyłącznie w tej przeglądarce. Utrata wszystkich urządzeń znaczy utratę rozmów —
-            nikt ich nie odtworzy. Zanim zmienisz urządzenie, przenieś konto.
+            Są zapisane tylko na tym urządzeniu — nie mamy ich kopii i nie
+            odtworzymy ich nikomu. Zanim zmienisz telefon, przenieś konto.
           </p>
         </div>
       </div>
@@ -1461,7 +1481,7 @@ function Konto({
           }}
         >
           <Ikona nazwa="kosz" rozmiar={16} />
-          Usuń konto z tego urządzenia · Delete
+          Usuń konto z tego urządzenia
         </button>
       </section>
     </>
@@ -1505,7 +1525,7 @@ function PasskeyZarzadzanie({
         }}
       >
         <Ikona nazwa={zarejestrowano ? "wyslane" : "blokada"} rozmiar={16} />
-        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey · Add passkey"}
+        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey"}
       </button>
     </div>
   );

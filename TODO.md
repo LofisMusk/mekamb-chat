@@ -79,6 +79,36 @@ npx wrangler secret put GITHUB_REPO
 
 Token o szerszym zakresie daje przy tym samym pożytku dostęp do kodu.
 
+## Do włączenia, żeby backend wdrażał się sam
+
+Zgłoszenie #18 („nie da się dodać kontaktu") nie było usterką w kodzie: pod
+`API_URL` stał Worker starszy niż klienci i odrzucał zajęcie epoki, bo wymagał
+listy członków, której klienci — po przeniesieniu rozsyłki do nadawcy — już nie
+wysyłają. Klient webowy wdraża się sam przy każdym scaleniu, APK powstaje przy
+etykiecie, a Worker szedł na produkcję tylko wtedy, gdy ktoś pamiętał.
+
+Nowy przebieg `deploy-server.yml` robi to przy każdym scaleniu do `main`, ale
+potrzebuje sekretu (Settings → Secrets and variables → Actions):
+
+```bash
+CLOUDFLARE_API_TOKEN     # szablon „Edit Cloudflare Workers" + uprawnienie do D1
+CLOUDFLARE_ACCOUNT_ID    # tylko gdy konto ma dostęp do kilku kont Cloudflare
+```
+
+Zanim to nastąpi, produkcję odblokowuje ręczne wdrożenie:
+
+```bash
+cd server
+npx wrangler d1 migrations apply mekamb --remote   # najpierw baza: nowy kod czyta spent_tokens
+npx wrangler deploy
+```
+
+Sprawdzenie, czy pod adresem stoi aktualna wersja — `404` znaczy stary Worker:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://mekamb.grubyogon10.workers.dev/tokens/key
+```
+
 ## Nadal nieruszone
 
 - Push notifications (wymaga `google-services.json`). Usługa pierwszoplanowa

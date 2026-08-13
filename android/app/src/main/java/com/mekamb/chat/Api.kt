@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -251,6 +252,9 @@ class Api(private val baseUrl: String) {
      * `relayId` jest OSOBNO wyprowadzony, a nie identyfikatorem rozmowy: serwer
      * widzi go w adresie żądania, a z niego nie da się policzyć znaczników
      * kopert. Gdyby stał tu surowy identyfikator, ukrywanie ich nie dawałoby nic.
+     *
+     * Zwraca `accepted` z odpowiedzi; odmowa leci wyjątkiem [ApiException],
+     * bo o tym, co z nią zrobić, rozstrzyga [Relay].
      */
     suspend fun zajmijEpoke(
         token: String,
@@ -259,14 +263,16 @@ class Api(private val baseUrl: String) {
     ): Boolean {
         val body = buildJsonObject { put("epoch", epoch.toLong()) }
 
-        return try {
-            postJson("/groups/$relayId/commit", body, token)
-            true
-        } catch (e: ApiException) {
-            // 409 nie jest błędem klienta — znaczy „ktoś był pierwszy".
-            // Wywołujący ma porzucić commit i spróbować ponownie.
-            if (e.status == 409) false else throw e
-        }
+        // Odmowy NIE tłumaczymy tutaj na `false`. Rozstrzyga je jedna reguła
+        // w [Relay] — ta sama, którą ma klient webowy — bo od kodu odpowiedzi
+        // zależy nie tylko komunikat, ale i to, czy porzucić przygotowany
+        // commit. Rozdzielenie tego na dwa miejsca kończyło się tym, że 409
+        // było obsłużone, a 400 zostawiało rozmowę z commitem nie do scalenia.
+        val odpowiedz = postJson("/groups/$relayId/commit", body, token)
+
+        // Serwer odpowiedział, ale epoki nie zajął. Brak pola traktujemy jak
+        // zgodę: taki kształt odpowiedzi ma przyjęte zajęcie epoki.
+        return odpowiedz["accepted"]?.jsonPrimitive?.booleanOrNull ?: true
     }
 
     /**

@@ -63,9 +63,30 @@ cargo run -q -p mekamb-opaque --bin genkey
 
 ### 3. Publikacja
 
+Wdrożeniem zajmuje się [`deploy-server.yml`](../.github/workflows/deploy-server.yml)
+przy każdym scaleniu do `main`. Potrzebuje sekretu `CLOUDFLARE_API_TOKEN`
+(i `CLOUDFLARE_ACCOUNT_ID`, gdy konto ma dostęp do kilku kont Cloudflare)
+w Settings → Secrets and variables → Actions.
+
+Ręcznie — na pierwszy raz i w awarii:
+
 ```bash
+npx wrangler d1 migrations apply mekamb --remote
 npx wrangler deploy
 ```
+
+> **Serwer musi wdrażać się razem z klientami.** Klient webowy publikuje się sam
+> przy każdym scaleniu, APK powstaje przy etykiecie — a Worker wdrażany „gdy
+> ktoś pamiętał" zostawał w tyle za kontraktem, który zmieniał się po stronie
+> klienta. Tak powstało zgłoszenie #18: wdrożony Worker wymagał w zajęciu epoki
+> pola, którego klienci już nie wysyłali, więc **nie dało się dodać kontaktu ani
+> założyć rozmowy**, a komunikat mówił o „niepustej liście członków".
+>
+> Szybkie sprawdzenie, czy pod adresem stoi aktualna wersja:
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' "$API_URL/tokens/key"   # 404 = stary Worker
+> ```
 
 ## Uwierzytelnianie
 

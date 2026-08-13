@@ -1027,7 +1027,21 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * Bez tego dziedziczy tło, obrys i promienie dymka — i data wygląda jak
  * wiadomość wysłana przez nikogo.
  */
-.wiadomosci li:not(.dzien):not(.zdarzenie) {
+/*
+ * `:not(.dzien, .zdarzenie)` — JEDEN `:not` z listą, nie dwa po kolei.
+ *
+ * To nie jest skrót zapisu, tylko warunek poprawności. Specyficzność `:not()`
+ * to specyficzność jego NAJBARDZIEJ szczegółowego argumentu, więc wersja
+ * z listą waży tyle samo co dawne `:not(.dzien)`. Dwa `:not` napisane obok
+ * siebie sumują się i podnoszą tę regułę PONAD `.wiadomosci li.wlasna` —
+ * a wtedy własne wiadomości dostają wyrównanie i tło cudzych, bo reguła ogólna
+ * zaczyna wygrywać ze szczegółową.
+ *
+ * Dokładnie tak się to zepsuło przy dokładaniu śladu po rozmowie: dymki
+ * ustawiły się po lewej i straciły swój kolor, mimo że reguła `.wlasna` była
+ * nietknięta. Tak samo cicho przestały działać `.nieudana` i `.pusto-watku`.
+ */
+.wiadomosci li:not(.dzien, .zdarzenie) {
   background: var(--babel);
   border: 1px solid var(--linia);
   border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
@@ -1792,7 +1806,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     transform: translateX(.4rem);
   }
 
-  .wiadomosci li:not(.dzien):not(.zdarzenie) { max-width: 86%; }
+  .wiadomosci li:not(.dzien, .zdarzenie) { max-width: 86%; }
   .siatka-konta { grid-template-columns: minmax(0, 1fr); }
 }
 

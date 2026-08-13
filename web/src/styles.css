@@ -966,6 +966,45 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   white-space: nowrap;
 }
 
+/*
+ * Przeciągnięcie wiersza w lewo odsłania kosz spod spodu.
+ *
+ * Wiersz jest nieprzezroczysty (kryje kosz w spoczynku) i przesuwa się nad nim;
+ * `overflow: hidden` na pozycji obcina to, co wyjechało poza krawędź. Kolor
+ * kosza to `--alarm-tlo`, nie nasycona czerwień — Nocturne trzyma akcent i alarm
+ * jako linię, a nie plamę.
+ */
+.pozycja-rozmowy {
+  position: relative;
+  overflow: hidden;
+  list-style: none;
+}
+.pozycja-rozmowy .wiersz-rozmowy {
+  position: relative;
+  z-index: 1;
+  background: var(--tlo);
+  /* Poziom obsługujemy sami; pion zostawiamy przewijaniu listy. */
+  touch-action: pan-y;
+}
+.pozycja-rozmowy .wiersz-rozmowy.otwarta { background: var(--karta); }
+.wiersz-usun {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 5.5rem;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .15rem;
+  min-height: 0;
+  border: none;
+  background: var(--alarm-tlo);
+  color: var(--alarm);
+  font-size: .6875rem;
+}
+.wiersz-usun:hover { background: color-mix(in srgb, var(--alarm) 20%, var(--alarm-tlo)); }
+
 .pusto {
   display: flex;
   flex-direction: column;

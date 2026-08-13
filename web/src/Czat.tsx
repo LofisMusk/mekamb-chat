@@ -13,9 +13,11 @@ import {
   type PozycjaListy,
   type Wiadomosc,
   type ZapisRozmowy,
+  dopiszWiadomosc,
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
+  usunRozmowe,
   wczytajRozmowe,
   zapiszRozmowe,
 } from "./lib/historia";
@@ -243,19 +245,85 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     if (zegarPotwierdzen.current !== null) clearTimeout(zegarPotwierdzen.current);
   }, []);
 
+  // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
+  // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
+  // zrywałaby połączenie.
+  const biezacaGrupa = useRef<Uint8Array | null>(null);
+  biezacaGrupa.current = groupId;
+
+  /**
+   * Nazwa rozmowy odtworzona ze składu grupy MLS.
+   *
+   * Potrzebna, gdy wiadomość przychodzi do rozmowy spoza ekranu: zapis na dysk
+   * musi wiedzieć, czyj to wątek, a jedynym źródłem prawdy o nazwie jest drzewo
+   * MLS. Brak zwracamy jako `undefined`, żeby zapis nie skasował nazwy
+   * zachowanej wcześniej.
+   */
+  const nazwaGrupy = useCallback(
+    (groupId: Uint8Array): string | undefined => {
+      try {
+        return nazwaRozmowy(messenger.memberUserIds(groupId), messenger.account.userId) || undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    [messenger],
+  );
+
+  /**
+   * Przełączenie rozmowy czyści wiadomości w TYM SAMYM zdarzeniu.
+   *
+   * Bez tego `groupId` zmieniał się o jeden render wcześniej niż `wiadomosci`,
+   * więc efekt zapisujący zdążył zrzucić wiadomości poprzedniej rozmowy pod
+   * identyfikator nowej — świeżo otwarty wątek „dziedziczył" cudzą historię.
+   * Pusty stan wychodzi też na dobre licznikowi i zapisowi: oba mają warunek
+   * „są jakieś wiadomości", więc na pustce nie robią nic.
+   */
+  const otworzRozmowe = useCallback((docelowa: Uint8Array | null) => {
+    setGroupId(docelowa);
+    setWiadomosci([]);
+    setWLocie([]);
+  }, []);
+
   const dodaj = useCallback(
     (odebrana: ReceivedMessage) => {
-      setWiadomosci((poprzednie) => [
-        ...poprzednie,
-        {
-          id: idWiadomosci(odebrana.messageId),
-          autor: odebrana.senderUserId,
-          tresc: odebrana.text,
-          czas: odebrana.sentAtMs,
-          wlasna: false,
-          zalacznik: odebrana.attachment,
-        },
-      ]);
+      const wiadomosc: Wiadomosc = {
+        id: idWiadomosci(odebrana.messageId),
+        autor: odebrana.senderUserId,
+        tresc: odebrana.text,
+        czas: odebrana.sentAtMs,
+        wlasna: false,
+        zalacznik: odebrana.attachment,
+      };
+
+      /*
+       * Wiadomość trafia do SWOJEJ rozmowy, nie do tej otwartej na ekranie.
+       *
+       * Wcześniej dopisywała się do wątku akurat widocznego bez patrzenia na
+       * grupę — więc świeżo założona rozmowa pokazywała wiadomości kogoś
+       * zupełnie innego, a nadawca, którego wątku nikt nie oglądał, nie
+       * pojawiał się na liście wcale (trzeba było najpierw do niego napisać,
+       * żeby się w ogóle pokazał). Android robił to poprawnie od dawna
+       * (`ChatViewModel`), web nie.
+       */
+      if (biezacaGrupa.current && kluczRozmowy(biezacaGrupa.current) === kluczRozmowy(odebrana.groupId)) {
+        // Otwarty wątek: dopisujemy do stanu, a na dysk zrzuca to efekt
+        // czuwający nad `wiadomosci` — drugi zapis stąd byłby zapisem tej samej
+        // rozmowy naraz.
+        setWiadomosci((poprzednie) => [...poprzednie, wiadomosc]);
+      } else {
+        // Rozmowa spoza ekranu: prosto na dysk i odświeżenie listy, żeby wiersz
+        // i licznik nieprzeczytanych urosły nawet wtedy, gdy nikt tego wątku
+        // nie ogląda.
+        void dopiszWiadomosc(odebrana.groupId, nazwaGrupy(odebrana.groupId), wiadomosc)
+          .then(() => listaRozmow())
+          .then(setRozmowy)
+          .catch(() => {
+            // Nieudany zapis nie może wywrócić odbioru — wiadomość jest już
+            // odszyfrowana, a jej kopia na dysku to mniejsza sprawa niż
+            // zerwana pętla odbierająca.
+          });
+      }
 
       /*
        * Dostarczenie potwierdzamy przy odbiorze, a nie przy pokazaniu.
@@ -269,7 +337,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       zbieracz.current.dodaj(klucz, "delivered", idWiadomosci(odebrana.messageId));
       zaplanujWysylke();
     },
-    [zaplanujWysylke],
+    [zaplanujWysylke, nazwaGrupy],
   );
 
   /**
@@ -319,12 +387,6 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     [],
   );
 
-  // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
-  // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
-  // zrywałaby połączenie.
-  const biezacaGrupa = useRef<Uint8Array | null>(null);
-  biezacaGrupa.current = groupId;
-
   const obsluzKoperte = useCallback(
     async (ramkaBuf: ArrayBuffer, potwierdz: (id: bigint) => void) => {
       const ramka = new Uint8Array(ramkaBuf);
@@ -373,7 +435,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
         } else if (odebrana) {
           dodaj(odebrana);
-          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
+          if (!biezacaGrupa.current) otworzRozmowe(odebrana.groupId);
         }
         poSukcesie(nieudane.current, String(id));
       } catch (err) {
@@ -392,7 +454,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         }
       }
     },
-    [messenger, dodaj, nanieStan],
+    [messenger, dodaj, nanieStan, otworzRozmowe],
   );
 
   // Ustawienie przez referencję: obsługa koperty nie może zależeć od stanu,
@@ -497,10 +559,12 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     let aktualne = true;
 
     void wczytajRozmowe(groupId).then((zapisane) => {
-      if (!aktualne || zapisane.length === 0) return;
+      if (!aktualne) return;
 
       // Scalamy z tym, co przyszło w międzyczasie — koperta mogła dotrzeć,
-      // zanim odczyt z dysku się skończył.
+      // zanim odczyt z dysku się skończył. Pusty wynik też nanosimy: świeżo
+      // otwarta rozmowa bez zapisów na dysku ma zacząć od pustki, a nie zostać
+      // przy wiadomościach, które `otworzRozmowe` już wyczyściło.
       setWiadomosci((biezace) => {
         const znane = new Set(biezace.map((w) => w.id));
         return [...zapisane.filter((w) => !znane.has(w.id)), ...biezace].sort(
@@ -537,7 +601,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    */
   useWstecz(
     galaz === "rozmowy" && groupId !== null,
-    () => setGroupId(null),
+    () => otworzRozmowe(null),
     groupId ? kluczRozmowy(groupId) : "",
   );
 
@@ -557,7 +621,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         nazwa,
       );
 
-      setGroupId(istniejaca ? istniejaca.groupId : await messenger.startConversation(nazwa));
+      otworzRozmowe(istniejaca ? istniejaca.groupId : await messenger.startConversation(nazwa));
       setGalaz("rozmowy");
     } catch (err) {
       onBlad(err);
@@ -618,22 +682,31 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     />
   );
 
-  // Rozmowa zajmuje ekran w całości: gdy trwa, jest jedyną rzeczą, którą
-  // użytkownik chce widzieć — i jedyną, którą wolno mu pomylić z czymś innym.
-  if (rozmowaNaEkranie) return <>{ekranRozmowy}</>;
-
   return (
     <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
+      {/*
+        Ekran rozmowy A/V zostaje PIERWSZYM dzieckiem tego samego korzenia,
+        także w trakcie rozmowy. Wcześniej trwająca rozmowa zwracała osobny
+        korzeń (`<>…</>`), więc React odmontowywał `Rozmowa` i montował ją od
+        nowa przy każdym wejściu i wyjściu — a świeży komponent zgłaszał
+        `call = null`, czyli `onAktywnosc(false)`, co przełączało korzeń z
+        powrotem i pętliło przemontowania: obraz migotał, a negocjacja
+        startowała w kółko. Ekran rozmowy i tak przykrywa wszystko
+        (`position: fixed`), więc resztę układu chowamy pod nim, nie ruszając
+        miejsca `Rozmowa` w drzewie.
+      */}
       {ekranRozmowy}
 
-      <Nawigacja
-        galaz={galaz}
-        onGalaz={setGalaz}
-        nieprzeczytane={nieprzeczytane}
-        stanSieci={stanSieci}
-      />
+      {!rozmowaNaEkranie && (
+        <>
+          <Nawigacja
+            galaz={galaz}
+            onGalaz={setGalaz}
+            nieprzeczytane={nieprzeczytane}
+            stanSieci={stanSieci}
+          />
 
-      {galaz === "rozmowy" && (
+          {galaz === "rozmowy" && (
         <PanelListy
           rozmowy={widoczne}
           wszystkich={rozmowy.length}
@@ -642,8 +715,19 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           nazwaPozycji={nazwaPozycji}
           otwarta={groupId}
           onOtworz={(pozycja) => {
-            setGroupId(pozycja.groupId);
+            otworzRozmowe(pozycja.groupId);
             setRozmowca(nazwaPozycji(pozycja));
+          }}
+          onUsun={(pozycja) => {
+            // Usunięcie z listy zamyka też wątek, jeśli akurat jest otwarty —
+            // inaczej ekran zostałby przy rozmowie, której nie ma już na dysku.
+            if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
+              otworzRozmowe(null);
+            }
+            void usunRozmowe(pozycja.groupId)
+              .then(() => listaRozmow())
+              .then(setRozmowy)
+              .catch((err) => onBlad(err));
           }}
         />
       )}
@@ -718,6 +802,8 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
         </aside>
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -789,6 +875,7 @@ function PanelListy({
   nazwaPozycji,
   otwarta,
   onOtworz,
+  onUsun,
 }: {
   rozmowy: PozycjaListy[];
   wszystkich: number;
@@ -797,6 +884,7 @@ function PanelListy({
   nazwaPozycji: (p: PozycjaListy) => string;
   otwarta: Uint8Array | null;
   onOtworz: (p: PozycjaListy) => void;
+  onUsun: (p: PozycjaListy) => void;
 }) {
   const kluczOtwartej = otwarta ? kluczRozmowy(otwarta) : null;
 
@@ -832,48 +920,156 @@ function PanelListy({
       ) : (
         <ul className="lista-rozmow">
           {rozmowy.map((pozycja) => {
-            const nazwa = nazwaPozycji(pozycja);
             const klucz = kluczRozmowy(pozycja.groupId);
 
             return (
-              <li key={klucz}>
-                <button
-                  className={klucz === kluczOtwartej ? "wiersz-rozmowy otwarta" : "wiersz-rozmowy"}
-                  onClick={() => onOtworz(pozycja)}
-                >
-                  <span className="awatar" aria-hidden="true">
-                    {nazwa.slice(0, 1)}
-                  </span>
-
-                  <span className="wiersz-tresc">
-                    <span className="wiersz-gora">
-                      <span className="wiersz-nazwa">{nazwa}</span>
-                      {pozycja.ostatnia && (
-                        <span className="wiersz-czas">{godzina(pozycja.ostatnia.czas)}</span>
-                      )}
-                    </span>
-
-                    <span className="wiersz-ostatnia">
-                      {pozycja.ostatnia?.zalacznik && <Ikona nazwa="spinacz" rozmiar={13} />}
-                      <span className="tekst">
-                        {pozycja.ostatnia
-                          ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + zapowiedz(pozycja.ostatnia)
-                          : "brak wiadomości"}
-                      </span>
-                    </span>
-                  </span>
-
-                  {pozycja.nieprzeczytane > 0 && (
-                    <span className="znacznik">{pozycja.nieprzeczytane}</span>
-                  )}
-                </button>
-              </li>
+              <WierszRozmowy
+                key={klucz}
+                pozycja={pozycja}
+                nazwa={nazwaPozycji(pozycja)}
+                otwarta={klucz === kluczOtwartej}
+                onOtworz={() => onOtworz(pozycja)}
+                onUsun={() => onUsun(pozycja)}
+              />
             );
           })}
         </ul>
       )}
 
     </aside>
+  );
+}
+
+/**
+ * Wiersz listy rozmów z gestem „przeciągnij w lewo, żeby usunąć".
+ *
+ * # Dlaczego gest, a nie widoczny przycisk
+ *
+ * Kasowanie jest nieodwracalne (historia jest tylko tutaj), więc nie ma być
+ * pod ręką na jedno dotknięcie obok „otwórz". Gest wymaga świadomego ruchu,
+ * a przycisk „Usuń" spod spodu daje jeszcze chwilę na wycofanie się — puszczenie
+ * palca przed progiem cofa wiersz na miejsce.
+ *
+ * Gest liczy się jako poziomy dopiero, gdy przesunięcie w bok wyraźnie wygrywa
+ * z pionowym; inaczej każde przewinięcie listy kciukiem odsłaniałoby kosze.
+ */
+function WierszRozmowy({
+  pozycja,
+  nazwa,
+  otwarta,
+  onOtworz,
+  onUsun,
+}: {
+  pozycja: PozycjaListy;
+  nazwa: string;
+  otwarta: boolean;
+  onOtworz: () => void;
+  onUsun: () => void;
+}) {
+  // Ile odsłonić pod wierszem i od którego progu puszczenie palca kasuje.
+  const SZEROKOSC_AKCJI = 88;
+  const PROG_USUNIECIA = 64;
+
+  const [przesuniecie, setPrzesuniecie] = useState(0);
+  const [odsloniete, setOdsloniete] = useState(false);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const kierunek = useRef<"nieznany" | "poziomy" | "pionowy">("nieznany");
+
+  const zakonczGest = () => {
+    // Za progiem kasujemy; bliżej — chowamy albo zostawiamy odsłonięty przycisk.
+    if (przesuniecie <= -PROG_USUNIECIA) {
+      onUsun();
+      setPrzesuniecie(0);
+      setOdsloniete(false);
+    } else if (przesuniecie <= -SZEROKOSC_AKCJI / 2) {
+      setPrzesuniecie(-SZEROKOSC_AKCJI);
+      setOdsloniete(true);
+    } else {
+      setPrzesuniecie(0);
+      setOdsloniete(false);
+    }
+    start.current = null;
+    kierunek.current = "nieznany";
+  };
+
+  return (
+    <li className="pozycja-rozmowy">
+      <button
+        type="button"
+        className="wiersz-usun"
+        aria-label={`Usuń rozmowę z ${nazwa}`}
+        onClick={onUsun}
+        tabIndex={odsloniete ? 0 : -1}
+      >
+        <Ikona nazwa="kosz" rozmiar={20} />
+        <span>Usuń</span>
+      </button>
+
+      <button
+        className={otwarta ? "wiersz-rozmowy otwarta" : "wiersz-rozmowy"}
+        style={{
+          transform: `translateX(${przesuniecie}px)`,
+          transition: start.current ? "none" : "transform .18s ease",
+        }}
+        onClick={() => {
+          // Odsłonięty kosz przechwytuje dotknięcie na schowanie, a nie na
+          // wejście do rozmowy — inaczej „cofnięcie" gestu otwierałoby wątek.
+          if (odsloniete) {
+            setPrzesuniecie(0);
+            setOdsloniete(false);
+            return;
+          }
+          onOtworz();
+        }}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          if (!t) return;
+          start.current = { x: t.clientX, y: t.clientY };
+          kierunek.current = "nieznany";
+        }}
+        onTouchMove={(e) => {
+          const t = e.touches[0];
+          if (!start.current || !t) return;
+          const dx = t.clientX - start.current.x;
+          const dy = t.clientY - start.current.y;
+
+          if (kierunek.current === "nieznany") {
+            if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+            // Pionowy gest zostaje przewijaniem listy — wiersza nie ruszamy.
+            kierunek.current = Math.abs(dx) > Math.abs(dy) ? "poziomy" : "pionowy";
+          }
+          if (kierunek.current !== "poziomy") return;
+
+          const bazowe = odsloniete ? -SZEROKOSC_AKCJI : 0;
+          // Tylko w lewo, z lekkim oporem za odsłoniętą szerokością.
+          setPrzesuniecie(Math.max(-SZEROKOSC_AKCJI - 24, Math.min(0, bazowe + dx)));
+        }}
+        onTouchEnd={zakonczGest}
+        onTouchCancel={zakonczGest}
+      >
+        <span className="awatar" aria-hidden="true">
+          {nazwa.slice(0, 1)}
+        </span>
+
+        <span className="wiersz-tresc">
+          <span className="wiersz-gora">
+            <span className="wiersz-nazwa">{nazwa}</span>
+            {pozycja.ostatnia && <span className="wiersz-czas">{godzina(pozycja.ostatnia.czas)}</span>}
+          </span>
+
+          <span className="wiersz-ostatnia">
+            {pozycja.ostatnia?.zalacznik && <Ikona nazwa="spinacz" rozmiar={13} />}
+            <span className="tekst">
+              {pozycja.ostatnia
+                ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + zapowiedz(pozycja.ostatnia)
+                : "brak wiadomości"}
+            </span>
+          </span>
+        </span>
+
+        {pozycja.nieprzeczytane > 0 && <span className="znacznik">{pozycja.nieprzeczytane}</span>}
+      </button>
+    </li>
   );
 }
 

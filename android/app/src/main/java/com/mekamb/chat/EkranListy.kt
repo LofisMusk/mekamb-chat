@@ -23,7 +23,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -141,16 +144,36 @@ fun EkranListy(
             if (widoczne.isNotEmpty()) {
                 LazyColumn(Modifier.fillMaxWidth()) {
                     items(widoczne, key = { Historia.klucz(it.groupId) }) { pozycja ->
-                        WierszRozmowy(
-                            nazwa = pozycja.rozmowca,
-                            ostatnia = pozycja.ostatnia?.let {
-                                if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
-                            } ?: "brak wiadomości",
-                            czas = pozycja.ostatnia?.czas,
-                            nieprzeczytane = pozycja.nieprzeczytane,
-                            tryb = stan.trybPolaczenia,
-                            onClick = { onOtworzRozmowe(pozycja) },
+                        // Przeciągnięcie w lewo usuwa rozmowę. Tylko w lewo —
+                        // gest w prawo nie ma tu żadnego znaczenia, a każdy inny
+                        // kierunek dałby akcję, której nikt nie chciał.
+                        val stanGestu = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { wartosc ->
+                                if (wartosc == SwipeToDismissBoxValue.EndToStart) {
+                                    model.usunRozmowe(pozycja.groupId)
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
                         )
+
+                        SwipeToDismissBox(
+                            state = stanGestu,
+                            enableDismissFromStartToEnd = false,
+                            backgroundContent = { TloUsuwania() },
+                        ) {
+                            WierszRozmowy(
+                                nazwa = pozycja.rozmowca,
+                                ostatnia = pozycja.ostatnia?.let {
+                                    if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
+                                } ?: "brak wiadomości",
+                                czas = pozycja.ostatnia?.czas,
+                                nieprzeczytane = pozycja.nieprzeczytane,
+                                tryb = stan.trybPolaczenia,
+                                onClick = { onOtworzRozmowe(pozycja) },
+                            )
+                        }
                     }
                 }
             } else {
@@ -323,6 +346,11 @@ private fun WierszRozmowy(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Nieprzezroczyste tło: wiersz jedzie NAD tłem usuwania, które ma
+            // się pokazać dopiero w odsłoniętym pasku, a nie przeświecać przez
+            // treść. Tło musi być za `clickable`, żeby kolor nie wychodził poza
+            // efekt dotknięcia.
+            .background(Nocturne.kolory.tlo)
             .defaultMinSize(minHeight = Dotyk.wierszRozmowy)
             .clickable(onClick = onClick)
             .padding(horizontal = Odstep.l, vertical = Odstep.m),
@@ -371,6 +399,37 @@ private fun WierszRozmowy(
                 )
             }
             if (nieprzeczytane > 0) Znacznik(nieprzeczytane)
+        }
+    }
+}
+
+/**
+ * Tło odsłaniane przy przeciąganiu wiersza w lewo.
+ *
+ * Kolor `alarmTlo`, nie nasycona czerwień — Nocturne trzyma alarm jako stłumione
+ * tło i linię, nie plamę. Ikona i podpis stoją przy prawej krawędzi, bo stamtąd
+ * wychodzi gest.
+ */
+@Composable
+private fun TloUsuwania() {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Nocturne.kolory.alarmTlo)
+            .padding(horizontal = Odstep.l),
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            Icon(
+                Ikony.Kosz,
+                contentDescription = null,
+                tint = Nocturne.kolory.alarm,
+                modifier = Modifier.size(20.dp),
+            )
+            Text("Usuń", style = MaterialTheme.typography.labelMedium, color = Nocturne.kolory.alarm)
         }
     }
 }

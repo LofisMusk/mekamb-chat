@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   type Wiadomosc,
+  dopiszWiadomosc,
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
+  usunRozmowe,
   wczytajRozmowe,
   zapiszRozmowe,
 } from "./historia";
@@ -12,9 +14,24 @@ import {
 /** Skarbiec w pamięci — IndexedDB w testach nie ma. */
 let dysk: Uint8Array | null = null;
 
+/**
+ * Opóźnienie odczytu i zapisu — 0 w większości testów.
+ *
+ * Prawdziwy skarbiec szyfruje i pisze do IndexedDB, więc odczyt i zapis TRWAJĄ.
+ * Dopiero to opóźnienie odsłania wyścig dwóch mutacji na jednym rekordzie,
+ * którego serializacja ma pilnować.
+ */
+let opoznienie = 0;
+
 vi.mock("./vault", () => ({
-  loadHistory: async () => dysk,
-  saveHistory: async (h: Uint8Array) => void (dysk = h),
+  loadHistory: async () => {
+    if (opoznienie) await new Promise((r) => setTimeout(r, opoznienie));
+    return dysk;
+  },
+  saveHistory: async (h: Uint8Array) => {
+    if (opoznienie) await new Promise((r) => setTimeout(r, opoznienie));
+    dysk = h;
+  },
 }));
 
 const GRUPA_A = new Uint8Array([1, 2, 3]);
@@ -27,6 +44,7 @@ function wiadomosc(id: string, czas = 1000): Wiadomosc {
 describe("historia rozmów", () => {
   beforeEach(() => {
     dysk = null;
+    opoznienie = 0;
   });
 
   it("pusta historia to pusta lista, nie błąd", async () => {
@@ -260,5 +278,80 @@ describe("historia rozmów", () => {
   it("różne rozmowy mają różne klucze", () => {
     expect(kluczRozmowy(GRUPA_A)).not.toBe(kluczRozmowy(GRUPA_B));
     expect(kluczRozmowy(new Uint8Array([0x0a, 0xff]))).toBe("0aff");
+  });
+
+  /*
+   * Sedno: znacznik odczytu nie może zniknąć pod współbieżnym zapisem.
+   *
+   * Wejście do rozmowy odpala z tej samej zmiany stanu i `oznaczPrzeczytane`,
+   * i `zapiszRozmowe`. Oba czytają rekord, zmieniają i zapisują — a przy
+   * prawdziwym, wolnym skarbcu ten, który pisze DRUGI, zachowywał odczytane na
+   * starcie stare `przeczytaneDo` i cofał podniesienie pierwszego. Objawem był
+   * licznik „1" wiszący przy rozmowie, którą się właśnie otworzyło.
+   */
+  it("odczyt nie ginie pod równoległym zapisem", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100), wiadomosc("b", 200)]);
+
+    opoznienie = 5;
+    // Puszczone RAZEM, bez czekania na pierwsze — dokładnie jak w efektach.
+    await Promise.all([
+      oznaczPrzeczytane(GRUPA_A, 200),
+      zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100), wiadomosc("b", 200)]),
+    ]);
+    opoznienie = 0;
+
+    expect((await listaRozmow())[0]!.nieprzeczytane).toBe(0);
+  });
+
+  /// Sedno: dwie wiadomości do wątku spoza ekranu nie mogą się nadpisać.
+  /// Osobny odczyt-przed-zapisem w każdej z nich czytałby ten sam stan dysku
+  /// i druga gubiłaby pierwszą — dlatego dopisywanie jest jedną operacją.
+  it("równoległe dopisania do rozmowy nie gubią wiadomości", async () => {
+    opoznienie = 5;
+    await Promise.all([
+      dopiszWiadomosc(GRUPA_A, "ala", wiadomosc("a", 100)),
+      dopiszWiadomosc(GRUPA_A, "ala", wiadomosc("b", 200)),
+    ]);
+    opoznienie = 0;
+
+    const odczytane = await wczytajRozmowe(GRUPA_A);
+    expect(odczytane.map((w) => w.id).sort()).toEqual(["a", "b"]);
+  });
+
+  /// Ta sama koperta może dojść dwa razy (ponowne dostarczenie ze skrzynki).
+  /// Dopisanie po identyfikatorze, który już jest, musi być bez skutku.
+  it("dopisanie tej samej wiadomości drugi raz nie dubluje", async () => {
+    await dopiszWiadomosc(GRUPA_A, "ala", wiadomosc("a", 100));
+    await dopiszWiadomosc(GRUPA_A, "ala", wiadomosc("a", 100));
+
+    expect(await wczytajRozmowe(GRUPA_A)).toHaveLength(1);
+  });
+
+  /// Dopisanie do rozmowy spoza ekranu nie jest przeczytaniem — wiersz na
+  /// liście ma urosnąć o nieprzeczytaną wiadomość, nawet gdy nikt jej nie ogląda.
+  it("dopisana wiadomość liczy się jako nieprzeczytana", async () => {
+    await dopiszWiadomosc(GRUPA_A, "ala", wiadomosc("a", 100));
+
+    const lista = await listaRozmow();
+    expect(lista[0]!.rozmowca).toBe("ala");
+    expect(lista[0]!.nieprzeczytane).toBe(1);
+  });
+
+  /// Sedno: usunięcie kasuje TYLKO wskazaną rozmowę, reszta zostaje.
+  it("usunięcie rozmowy zdejmuje ją z listy, nie ruszając innych", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100)]);
+    await zapiszRozmowe(GRUPA_B, "bartek", [wiadomosc("b", 200)]);
+
+    await usunRozmowe(GRUPA_A);
+
+    const lista = await listaRozmow();
+    expect(lista).toHaveLength(1);
+    expect(lista[0]!.rozmowca).toBe("bartek");
+    expect(await wczytajRozmowe(GRUPA_A)).toEqual([]);
+  });
+
+  /// Usunięcie nieistniejącej rozmowy to nie błąd — mogła zniknąć wcześniej.
+  it("usunięcie nieistniejącej rozmowy jest bez skutku", async () => {
+    await expect(usunRozmowe(GRUPA_A)).resolves.toBeUndefined();
   });
 });

@@ -25,6 +25,7 @@ import {
 } from "./tokeny";
 import { requireAuth } from "./middleware";
 import { verifyToken } from "./crypto";
+import zgloszenia from "./zgloszenia";
 
 export { GroupRelay } from "./group";
 export { RateLimiter } from "./ratelimit";
@@ -61,6 +62,7 @@ app.route("/auth", auth);
 app.route("/attachments", attachments);
 app.route("/calls", calls);
 app.route("/transfer", transfer);
+app.route("/zgloszenia", zgloszenia);
 
 /**
  * Limit prób logowania.

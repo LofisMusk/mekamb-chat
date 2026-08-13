@@ -6,6 +6,7 @@ import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
 import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import { PrzeniesStad } from "./Przeniesienie";
+import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
 import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
 import {
@@ -34,7 +35,7 @@ import { useWstecz } from "./lib/nawigacja";
 import { createPasskey, isPasskeySupported } from "./lib/passkey";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
-import { isInstalled, isPersistent, wipe } from "./lib/vault";
+import { isPersistent, wipe } from "./lib/vault";
 import { ulozWatek } from "./lib/watek";
 
 /**
@@ -113,6 +114,20 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * samego trybu też jest zauważone.
    */
   const [zadanieRozmowy, setZadanieRozmowy] = useState<ZadanieRozmowy | null>(null);
+
+  /*
+   * Grupa, w której toczy się rozmowa A/V — osobno od tej otwartej na ekranie.
+   *
+   * To dwie różne rzeczy i wcześniej były jedną. Rozmowa przychodząca musi
+   * dojść niezależnie od tego, co użytkownik ma akurat przed sobą: może być
+   * w innym wątku, w Kontaktach albo na Koncie. Sklejenie ich znaczyło albo
+   * gubienie połączeń, albo przerzucanie kogoś do innej rozmowy w chwili,
+   * w której ktoś zadzwonił.
+   */
+  const [grupaRozmowy, setGrupaRozmowy] = useState<Uint8Array | null>(null);
+
+  /** Czy rozmowa A/V zajmuje ekran — wtedy reszty układu nie ma. */
+  const [rozmowaNaEkranie, setRozmowaNaEkranie] = useState(false);
 
   /*
    * Inspektor: na szerokim ekranie otwarty od razu, na wąskim schowany.
@@ -257,16 +272,52 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     [zaplanujWysylke],
   );
 
-  /** Nanosi potwierdzenie na własne wiadomości. */
-  const nanieStan = useCallback((identyfikatory: string[], stan: StanWiadomosci) => {
-    const zbior = new Set(identyfikatory);
+  /**
+   * Nanosi potwierdzenie na własne wiadomości.
+   *
+   * # Dlaczego to sięga na DYSK, a nie tylko do stanu ekranu
+   *
+   * Bo potwierdzenie przychodzi RAZ i nie powtórzy się nigdy. Wcześniej ta
+   * funkcja zmieniała wyłącznie `wiadomosci`, czyli wątek otwarty w tej chwili —
+   * a potwierdzenie przychodzi po losowym opóźnieniu do trzydziestu sekund,
+   * więc trafiało zwykle w moment, w którym użytkownik patrzył już na coś
+   * innego. Wtedy przepadało bez śladu: dymek zostawał przy „wysłano" na stałe,
+   * bo drugiej szansy nie ma.
+   *
+   * Otwarta rozmowa dostaje nowy stan od razu (widać go bez czekania) i tak samo
+   * ląduje na dysku. Każda inna jest tylko przepisywana.
+   */
+  const nanieStan = useCallback(
+    (groupId: Uint8Array, identyfikatory: string[], stan: StanWiadomosci) => {
+      const zbior = new Set(identyfikatory);
 
-    setWiadomosci((poprzednie) =>
-      poprzednie.map((w) =>
-        w.wlasna && zbior.has(w.id) ? { ...w, stan: wyzszyStan(w.stan ?? "wyslane", stan) } : w,
-      ),
-    );
-  }, []);
+      const podnies = (lista: Wiadomosc[]): Wiadomosc[] =>
+        lista.map((w) =>
+          w.wlasna && zbior.has(w.id) ? { ...w, stan: wyzszyStan(w.stan ?? "wyslane", stan) } : w,
+        );
+
+      if (biezacaGrupa.current && kluczRozmowy(biezacaGrupa.current) === kluczRozmowy(groupId)) {
+        // Zapis na dysk robi tu efekt czuwający nad `wiadomosci` — dopisywanie
+        // go drugi raz oznaczałoby dwa zapisy tej samej rozmowy naraz.
+        setWiadomosci(podnies);
+        return;
+      }
+
+      void wczytajRozmowe(groupId)
+        .then((zapisane) => {
+          if (zapisane.length === 0) return;
+          return zapiszRozmowe(groupId, undefined, podnies(zapisane)).then(() => listaRozmow());
+        })
+        .then((pozycje) => {
+          if (pozycje) setRozmowy(pozycje);
+        })
+        .catch(() => {
+          // Nieudany zapis ptaszka nie może wywrócić odbierania. Ptaszek jest
+          // wygodą, koperta — treścią.
+        });
+    },
+    [],
+  );
 
   // Bieżący identyfikator rozmowy dla obsługi koperty. Przez referencję,
   // bo obsługa nie może zależeć od stanu — inaczej każda zmiana rozmowy
@@ -300,13 +351,26 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
            * oddaje. Dostarczenie zostaje — nie mówi nic o niczyjej uwadze.
            */
           if (odebrana.receipt.kind === "delivered" || odczytRef.current) {
-            nanieStan(odebrana.receipt.messageIds, stanZPotwierdzenia(odebrana.receipt.kind));
+            nanieStan(
+              odebrana.groupId,
+              odebrana.receipt.messageIds,
+              stanZPotwierdzenia(odebrana.receipt.kind),
+            );
           }
         } else if (odebrana?.call) {
-          // Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia —
-          // trafia do komponentu rozmowy.
+          /*
+           * Sygnalizacja rozmowy nie jest wiadomością do wyświetlenia — trafia
+           * do ekranu rozmowy.
+           *
+           * Grupa rozmowy jest ZAWSZE ta z koperty, także wtedy, gdy otwarty
+           * jest inny wątek albo zupełnie inna gałąź. Wcześniej ustawiał ją
+           * tylko warunek „jeśli nic nie jest otwarte", więc telefon dzwoniący
+           * w czasie czytania innej rozmowy nie dzwonił nigdzie: sygnał szedł
+           * do komponentu przypiętego do CUDZEJ grupy, który go odrzucał jako
+           * nieswój — i nikt się nie dowiadywał, że ktoś dzwonił.
+           */
+          setGrupaRozmowy(odebrana.groupId);
           setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
-          if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
         } else if (odebrana) {
           dodaj(odebrana);
           if (!biezacaGrupa.current) setGroupId(odebrana.groupId);
@@ -500,8 +564,68 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     }
   };
 
+  /*
+   * Ekran rozmowy A/V stoi PONAD układem, a nie w środku wątku.
+   *
+   * Składnik rysuje się zawsze — to on wie, czy jest co pokazywać, i mówi to
+   * przez `onAktywnosc`. Odmontowywanie go, gdy nie ma rozmowy, kasowałoby
+   * kolejkę sygnałów i trwającą negocjację przy każdym przejściu między
+   * gałęziami.
+   *
+   * Grupa: ta z sygnału, a gdy dzwonimy sami — ta otwarta. Bez żadnej z nich
+   * nie ma do kogo dzwonić i składnik nie ma czego rysować.
+   */
+  const grupaDlaRozmowy = grupaRozmowy ?? groupId;
+
+  const ekranRozmowy = grupaDlaRozmowy && (
+    <Rozmowa
+      messenger={messenger}
+      groupId={grupaDlaRozmowy}
+      sygnal={sygnalRozmowy}
+      zadanie={zadanieRozmowy}
+      onAktywnosc={setRozmowaNaEkranie}
+      onZdarzenie={(zapis) => {
+        /*
+         * Ślad po rozmowie trafia do WĄTKU, w którym się odbyła.
+         *
+         * Gdy rozmowa toczyła się w innej grupie niż otwarta, dopisanie go do
+         * `wiadomosci` wstawiłoby zdarzenie do cudzej historii — i tam
+         * zostałoby zapisane na dysku. Do stanu ekranu dokładamy je więc tylko
+         * wtedy, gdy to naprawdę ta sama rozmowa.
+         */
+        const wpis: Wiadomosc = {
+          id: crypto.randomUUID(),
+          autor: zapis.wychodzaca ? "Ty" : rozmowca,
+          tresc: "",
+          czas: Date.now(),
+          wlasna: zapis.wychodzaca,
+          rozmowa: zapis,
+        };
+
+        if (groupId && kluczRozmowy(groupId) === kluczRozmowy(grupaDlaRozmowy)) {
+          setWiadomosci((p) => [...p, wpis]);
+        } else {
+          // Cudzy wątek dopisujemy prosto na dysk i odświeżamy listę: nie ma go
+          // na ekranie, więc nie ma czego przerysować poza wierszem listy.
+          void wczytajRozmowe(grupaDlaRozmowy)
+            .then((zapisane) => zapiszRozmowe(grupaDlaRozmowy, undefined, [...zapisane, wpis]))
+            .then(() => listaRozmow())
+            .then(setRozmowy)
+            .catch(() => {});
+        }
+      }}
+      onBlad={onBlad}
+    />
+  );
+
+  // Rozmowa zajmuje ekran w całości: gdy trwa, jest jedyną rzeczą, którą
+  // użytkownik chce widzieć — i jedyną, którą wolno mu pomylić z czymś innym.
+  if (rozmowaNaEkranie) return <>{ekranRozmowy}</>;
+
   return (
     <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
+      {ekranRozmowy}
+
       <Nawigacja
         galaz={galaz}
         onGalaz={setGalaz}
@@ -545,9 +669,13 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             tresc={tresc}
             setTresc={setTresc}
             stanSieci={stanSieci}
-            sygnalRozmowy={sygnalRozmowy}
-            zadanieRozmowy={zadanieRozmowy}
-            setZadanieRozmowy={setZadanieRozmowy}
+            // Dzwonimy z otwartego wątku, więc rozmowa toczy się w JEGO grupie.
+            // Bez tego ekran rozmowy zostałby przy grupie z poprzedniego
+            // połączenia przychodzącego.
+            setZadanieRozmowy={(z) => {
+              setGrupaRozmowy(groupId);
+              setZadanieRozmowy(z);
+            }}
             inspektorOtwarty={inspektorOtwarty}
             setInspektorOtwarty={setInspektorOtwarty}
             onBlad={onBlad}
@@ -641,7 +769,7 @@ function Nawigacja({
             wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
         <span
           className={siec.uwaga ? "tryb uwaga" : "tryb"}
-          title="Przeglądarka nie potrafi łączyć się bezpośrednio — wiadomości idą przez skrzynkę na serwerze."
+          title="Wiadomości idą przez serwer — nie da się inaczej w przeglądarce."
         >
           <Ikona nazwa={siec.ikona} rozmiar={13} />
           {siec.tekst}
@@ -687,7 +815,7 @@ function PanelListy({
             type="search"
             value={szukane}
             onChange={(e) => onSzukane(e.target.value)}
-            placeholder="Szukaj w rozmowach · Search"
+            placeholder="Szukaj"
             aria-label="Szukaj rozmowy"
           />
         </div>
@@ -761,8 +889,6 @@ function Watek({
   tresc,
   setTresc,
   stanSieci,
-  sygnalRozmowy,
-  zadanieRozmowy,
   setZadanieRozmowy,
   inspektorOtwarty,
   setInspektorOtwarty,
@@ -778,8 +904,6 @@ function Watek({
   tresc: string;
   setTresc: (t: string) => void;
   stanSieci: StanPolaczenia;
-  sygnalRozmowy: SygnalRozmowy | null;
-  zadanieRozmowy: ZadanieRozmowy | null;
   setZadanieRozmowy: (z: ZadanieRozmowy) => void;
   inspektorOtwarty: boolean;
   setInspektorOtwarty: (o: boolean | ((o: boolean) => boolean)) => void;
@@ -916,33 +1040,10 @@ function Watek({
         </div>
       </header>
 
-      {/* Rozmowa A/V nad wiadomościami, nie pod nimi: gdy trwa, jest
-          najważniejszą rzeczą na ekranie.
-
-          Ślad po niej idzie do tej samej listy co wiadomości. Osobna lista
-          „zdarzeń" wymagałaby scalania dwóch porządków czasowych przy każdym
-          rysowaniu wątku — a rozmowa i wiadomość dzieją się w tej samej osi
-          czasu i mają się w niej przeplatać. */}
-      <Rozmowa
-        messenger={messenger}
-        groupId={groupId}
-        sygnal={sygnalRozmowy}
-        zadanie={zadanieRozmowy}
-        onZdarzenie={(zapis) =>
-          setWiadomosci((p) => [
-            ...p,
-            {
-              id: crypto.randomUUID(),
-              autor: zapis.wychodzaca ? "Ty" : rozmowca,
-              tresc: "",
-              czas: Date.now(),
-              wlasna: zapis.wychodzaca,
-              rozmowa: zapis,
-            },
-          ])
-        }
-        onBlad={onBlad}
-      />
+      {/* Rozmowy A/V tu NIE MA — jest osobnym ekranem ponad układem (`Czat`).
+          Ślad po niej idzie do tej samej listy co wiadomości: rozmowa
+          i wiadomość dzieją się w tej samej osi czasu i mają się w niej
+          przeplatać. */}
 
       <ol
         className="wiadomosci"
@@ -1005,7 +1106,7 @@ function Watek({
           rows={1}
           value={tresc}
           onChange={(e) => setTresc(e.target.value)}
-          placeholder="Napisz wiadomość · Message"
+          placeholder="Napisz wiadomość"
           aria-label="Treść wiadomości"
           onKeyDown={(e) => {
             /*
@@ -1248,13 +1349,13 @@ function Kontakty({ onRozpocznij }: { onRozpocznij: (nazwa: string) => void }) {
           }}
         >
           <label>
-            Z kim rozmawiasz · Recipient
+            Z kim chcesz rozmawiać
             <input value={nazwa} onChange={(e) => setNazwa(e.target.value)} required />
           </label>
 
           <button className="glowny" disabled={!nazwa.trim()}>
             <Ikona nazwa="rozmowy" rozmiar={16} />
-            Rozpocznij rozmowę · Start chat
+            Rozpocznij rozmowę
           </button>
         </form>
       </div>
@@ -1297,28 +1398,42 @@ function Konto({
             </span>
           </div>
 
+          {/*
+            Stan konta powiedziany po ludzku.
+
+            „Trwały magazyn: nieprzyznany" i „Aplikacja zainstalowana: nie" to
+            były odpowiedzi na pytania, których nikt nie zadał — nazwy
+            wewnętrznych mechanizmów przepisane wprost na ekran. Zostaje to,
+            co daje się z czymś zrobić: czy rozmowy są bezpieczne na tym
+            urządzeniu i czy w tej chwili cokolwiek dochodzi.
+
+            Wiersz o pamięci pojawia się DOPIERO, gdy jest źle. Napis
+            „przyznany" przy działającej rzeczy nie mówi nic; ostrzeżenie
+            o tym, że przeglądarka może skasować rozmowy, mówi bardzo dużo —
+            i wtedy trzeba je przeczytać.
+          */}
           <dl className="stan-konta">
             <div>
-              <dt>Trwały magazyn</dt>
-              <dd className={trwaly ? undefined : "uwaga"}>
-                <Ikona nazwa={trwaly ? "wyslane" : "ostrzezenie"} rozmiar={13} />
-                {trwaly ? "przyznany" : "nieprzyznany"}
-              </dd>
-            </div>
-            <div>
-              <dt>Aplikacja zainstalowana</dt>
-              <dd>
-                <Ikona nazwa={isInstalled() ? "wyslane" : "info"} rozmiar={13} />
-                {isInstalled() ? "tak" : "nie"}
-              </dd>
-            </div>
-            <div>
-              <dt>Połączenie ze skrzynką</dt>
+              <dt>Wiadomości</dt>
               <dd className={siec.uwaga ? "uwaga" : undefined}>
                 <Ikona nazwa={siec.ikona} rozmiar={13} />
-                {stanSieci === "polaczone" ? "działa" : stanSieci === "laczenie" ? "łączę…" : "zerwane"}
+                {stanSieci === "polaczone"
+                  ? "dochodzą"
+                  : stanSieci === "laczenie"
+                    ? "łączę…"
+                    : "brak połączenia"}
               </dd>
             </div>
+
+            {!trwaly && (
+              <div>
+                <dt>Pamięć</dt>
+                <dd className="uwaga">
+                  <Ikona nazwa="ostrzezenie" rozmiar={13} />
+                  przeglądarka może usunąć rozmowy
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
 
@@ -1327,6 +1442,12 @@ function Konto({
 
           To decyzja o tym, ile o sobie mówisz — dotyczy każdej rozmowy naraz,
           więc miejscem jest konto, a nie pojedynczy wątek.
+        */}
+        {/*
+          Z opisu zostało jedno zdanie: to, które zmienia decyzję.
+          Reszta — opóźnienie, zbiorcza wysyłka, „moment wysłania koperty" —
+          opisywała, JAK to zrobiliśmy. Kto to czyta, nie ma z tego czego
+          wybrać, a słowo „koperta" znaczy coś tylko dla nas.
         */}
         <div className="karta">
           <strong>Potwierdzenia odczytu</strong>
@@ -1337,29 +1458,18 @@ function Konto({
               checked={odczyt}
               onChange={(e) => onOdczyt(e.target.checked)}
             />
-            <span>Wysyłaj potwierdzenia odczytu · Read receipts</span>
+            <span>Wysyłaj potwierdzenia odczytu</span>
           </label>
 
-          {/* Zostaje to, co zmienia decyzję: że wyłączenie działa w obie
-              strony i że samego CZASU wysłania ukryć się nie da. */}
           <p className="wskazowka">
-            Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych.
-            „Dostarczono" zostaje — nie mówi nic o niczyjej uwadze.
-          </p>
-
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="zegar" rozmiar={14} />
-            Wysyłamy je zbiorczo, po losowym opóźnieniu do 30 sekund. Samego momentu wysłania
-            koperty ukryć się nie da.
+            Kiedy je wyłączysz, przestaniesz też widzieć cudze.
           </p>
         </div>
 
+        {/* Bez opisu: przełącznik z trzema podpisanymi opcjami mówi wszystko,
+            co da się o nim powiedzieć. */}
         <div className="karta">
           <strong>Wygląd</strong>
-          <p className="wskazowka">
-            Motyw dotyczy tej przeglądarki. „Systemowy" idzie za ustawieniem urządzenia
-            i zmienia się razem z nim.
-          </p>
           <WyborMotywuUI />
         </div>
 
@@ -1367,12 +1477,22 @@ function Konto({
 
         <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
 
+        <ZglosBlad token={messenger.accessToken} />
+
+        {/*
+          To zdanie ZOSTAJE i zostaje w całości.
+
+          Nie jest opisem mechanizmu — jest jedyną informacją, przez którą ktoś
+          może stracić wszystkie swoje rozmowy, jeśli jej nie przeczyta. Skrócone
+          do „rozmowy są zapisane lokalnie" nie mówi już, co z tego wynika ani co
+          zrobić, zanim będzie za późno.
+        */}
         <div className="karta">
-          <strong>Klucze i historia</strong>
+          <strong>Twoje rozmowy</strong>
           <p className="wskazowka-ikona">
             <Ikona nazwa="klucz" rozmiar={14} />
-            Leżą wyłącznie w tej przeglądarce. Utrata wszystkich urządzeń znaczy utratę rozmów —
-            nikt ich nie odtworzy. Zanim zmienisz urządzenie, przenieś konto.
+            Są zapisane tylko na tym urządzeniu — nie mamy ich kopii i nie
+            odtworzymy ich nikomu. Zanim zmienisz telefon, przenieś konto.
           </p>
         </div>
       </div>
@@ -1401,7 +1521,7 @@ function Konto({
           }}
         >
           <Ikona nazwa="kosz" rozmiar={16} />
-          Usuń konto z tego urządzenia · Delete
+          Usuń konto z tego urządzenia
         </button>
       </section>
     </>
@@ -1445,7 +1565,7 @@ function PasskeyZarzadzanie({
         }}
       >
         <Ikona nazwa={zarejestrowano ? "wyslane" : "blokada"} rozmiar={16} />
-        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey · Add passkey"}
+        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey"}
       </button>
     </div>
   );

@@ -40,6 +40,23 @@ describe("historia rozmów", () => {
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toEqual(wiadomosci);
   });
 
+  /*
+   * Sedno: zapis BEZ nazwy nie może jej skasować.
+   *
+   * Tak zapisujemy rozmowy, których nie ma na ekranie — nanosząc ptaszek
+   * albo ślad po rozmowie na wątek otwarty gdzie indziej. Wywołujący nie zna
+   * wtedy nazwy i nie ma jak jej poznać. Gdyby brak nazwy znaczył „nazwa
+   * pusta", wiersz na liście traciłby imię przy każdym potwierdzeniu odczytu,
+   * które przyszło do innej rozmowy niż otwarta — czyli przy większości.
+   */
+  it("zapis bez nazwy zostawia zapisaną nazwę w spokoju", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 1)]);
+    await zapiszRozmowe(GRUPA_A, undefined, [wiadomosc("a", 1), wiadomosc("b", 2)]);
+
+    const lista = await listaRozmow();
+    expect(lista.find((p) => p.rozmowca === "ala")).toBeDefined();
+  });
+
   /// Sedno: dwie rozmowy leżą w jednym rekordzie, więc zapis jednej nie może
   /// skasować drugiej.
   it("zapis jednej rozmowy nie rusza pozostałych", async () => {

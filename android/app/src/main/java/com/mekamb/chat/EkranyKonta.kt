@@ -50,6 +50,7 @@ fun EkranKonta(
     onPrzeniesienie: () -> Unit,
     onUczestnicy: () -> Unit,
     onUstawienia: () -> Unit,
+    onZgloszenie: () -> Unit,
     onGalaz: (Galaz) -> Unit,
 ) {
     val konto = model.konto
@@ -103,15 +104,22 @@ fun EkranKonta(
                 WierszMenu(
                     ikona = Ikony.Odcisk,
                     tytul = "Kody bezpieczeństwa",
-                    opis = "Safety numbers — do porównania poza aplikacją",
+                    opis = "Do porównania z rozmówcą poza aplikacją",
                     onClick = onUczestnicy,
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
                 WierszMenu(
                     ikona = Ikony.Dzwonek,
                     tytul = "Powiadomienia i połączenie",
-                    opis = "Notifications & transport",
+                    opis = "Dźwięki i sposób dostarczania",
                     onClick = onUstawienia,
+                )
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
+                WierszMenu(
+                    ikona = Ikony.Ostrzezenie,
+                    tytul = "Zgłoś błąd",
+                    opis = "Napisz nam, co nie działa",
+                    onClick = onZgloszenie,
                 )
             }
 

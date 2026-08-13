@@ -100,6 +100,27 @@ class MainActivity : ComponentActivity() {
     }
 
     // Aplikacja mogła już działać, gdy użytkownik zeskanował kod.
+    /*
+     * Czy aplikacja jest na wierzchu — do decyzji o powiadomieniach.
+     *
+     * Kto ma otwartą rozmowę przed oczami, ten widzi wchodzącą wiadomość
+     * i powiedzenie mu o niej drugi raz jest szumem. Rozstrzyga to
+     * [UslugaNasluchu]; tu zapisujemy tylko fakt.
+     *
+     * `onStart`/`onStop`, a nie `onResume`/`onPause`: `onPause` przychodzi
+     * także wtedy, gdy nad aplikacją stanie systemowe okienko uprawnień —
+     * a wtedy użytkownik dalej patrzy na rozmowę.
+     */
+    override fun onStart() {
+        super.onStart()
+        Rdzen.naWierzchu = true
+    }
+
+    override fun onStop() {
+        Rdzen.naWierzchu = false
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         kodPrzeniesienia(intent)?.let { kodZIntencji = it }
@@ -192,6 +213,7 @@ private fun Zawartosc(
         uprawnienia.launch(potrzebne.toTypedArray())
     }
     var wUczestnikach by remember { mutableStateOf(false) }
+    var wZgloszeniu by remember { mutableStateOf(false) }
     var wUstawieniach by remember { mutableStateOf(false) }
 
     // Ustawienie prywatności żyje tak samo długo jak motyw — poza modelem,
@@ -202,6 +224,25 @@ private fun Zawartosc(
     // nie samo dotarcie wiadomości.
     LaunchedEffect(stan.groupId, wRozmowie, stan.wiadomosci.size) {
         if (wRozmowie && stan.groupId != null) model.oznaczPrzeczytane()
+    }
+
+    /*
+     * Która rozmowa jest na ekranie — i sprzątanie jej powiadomień.
+     *
+     * Otwarcie wątku jest zobaczeniem tego, o czym powiadomienie mówiło, więc
+     * musi je zgasić. Zostawione wisiałoby jako informacja o wiadomości, którą
+     * użytkownik właśnie czyta.
+     */
+    LaunchedEffect(stan.groupId, wRozmowie) {
+        val otwarta = stan.groupId?.takeIf { wRozmowie }
+        Rdzen.otwartaGrupa = otwarta
+        if (otwarta != null) Powiadomienia.schowajWiadomosci(kontekst, otwarta)
+    }
+
+    // Baner dzwoniącej rozmowy gaśnie, gdy nie ma już czego banerować —
+    // po odebraniu, odrzuceniu albo rozłączeniu się dzwoniącego.
+    LaunchedEffect(stan.przychodzacaRozmowa) {
+        if (stan.przychodzacaRozmowa == null) Powiadomienia.schowajRozmowe(kontekst)
     }
 
     // Nowa rozmowa — własna albo przychodząca — otwiera się od razu.
@@ -234,13 +275,14 @@ private fun Zawartosc(
 
     BackHandler(enabled = stan.przychodzacaRozmowa != null) { model.odrzucRozmowe() }
 
-    BackHandler(enabled = wPrzeniesieniu) { wPrzeniesieniu = false }
+    BackHandler(enabled = wZgloszeniu) { wZgloszeniu = false }
+    BackHandler(enabled = !wZgloszeniu && wPrzeniesieniu) { wPrzeniesieniu = false }
     BackHandler(enabled = !wPrzeniesieniu && wUstawieniach) { wUstawieniach = false }
     BackHandler(enabled = !wPrzeniesieniu && !wUstawieniach && wUczestnikach) {
         wUczestnikach = false
     }
 
-    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach
+    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach || wZgloszeniu
 
     // Rozmowa wraca do listy — nie do gałęzi, z której ją otwarto.
     BackHandler(enabled = !wGlebi && stan.zalogowany && wRozmowie) {
@@ -340,6 +382,9 @@ private fun Zawartosc(
             // formularz „z kim rozmawiasz". Wybór rozmówcy zszedł pod
             // „Nowa rozmowa", bo dotyczy pierwszego kontaktu, a nie każdego
             // wejścia do aplikacji.
+            stan.zalogowany && wZgloszeniu ->
+                EkranZgloszenia(model, onWstecz = { wZgloszeniu = false })
+
             stan.zalogowany && wPrzeniesieniu ->
                 EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
 
@@ -371,6 +416,7 @@ private fun Zawartosc(
                         wUczestnikach = true
                     },
                     onUstawienia = { wUstawieniach = true },
+                    onZgloszenie = { wZgloszeniu = true },
                     onGalaz = { galaz = it },
                 )
 

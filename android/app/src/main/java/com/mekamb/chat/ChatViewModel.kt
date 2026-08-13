@@ -211,7 +211,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = Vault(application)
     private val historia = Historia(vault)
     private val api = Api(BuildConfig.API_URL)
-    private var messenger: Messenger? = null
+
+    /**
+     * Klient — z [Rdzen], nie własny.
+     *
+     * Model widoku go UŻYWA, ale nie jest jego właścicielem: `Messenger` trzyma
+     * stan MLS, a ten musi przeżyć zamknięcie ekranu. Własne pole znaczyło, że
+     * przy każdym obrocie telefonu powstawał drugi klient na tym samym skarbcu —
+     * czyli dwa ratchety przesuwane niezależnie, z których każdy cofa pracę
+     * drugiego. Tu jest już tylko skrót do jednego wspólnego.
+     */
+    private val messenger: Messenger?
+        get() = Rdzen.messenger
 
     /**
      * Zbieracz potwierdzeń i jego zegar.
@@ -237,7 +248,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // czyli w najbardziej wymownym momencie.
         if (zegarPotwierdzen?.isActive == true) return
 
-        zegarPotwierdzen = viewModelScope.launch {
+        /*
+         * Odliczanie w zakresie PROCESU, nie ekranu.
+         *
+         * Tu ginęły potwierdzenia. Zegar czeka losowo od 3 do 30 sekund — a to
+         * jest mnóstwo czasu na to, żeby ktoś odłożył telefon albo obrócił
+         * ekran. `viewModelScope` gasł wtedy razem z modelem i anulował
+         * korutynę PRZED wysłaniem, więc potwierdzenie nie wychodziło nigdy.
+         * Druga strona zostawała z jednym ptaszkiem („wysłano") na zawsze,
+         * mimo że wiadomość dawno doszła i została przeczytana — dokładnie to,
+         * co było widać w aplikacji.
+         *
+         * Powtórka nie przyjdzie: potwierdzenie wysyła się raz. Anulowane
+         * znaczy więc utracone, a nie opóźnione.
+         */
+        zegarPotwierdzen = Rdzen.zakres.launch {
             kotlinx.coroutines.delay(losoweOpoznienie())
 
             val klient = messenger ?: return@launch
@@ -296,11 +321,41 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * nas dodać do grupy. Wcześniej ratowało nas to, że każde uruchomienie
      * aplikacji wymuszało pełne logowanie.
      */
+    /**
+     * Odpięcie słuchacza zdarzeń z [Rdzen].
+     *
+     * Musi zostać wywołane w `onCleared`: słuchacz trzyma referencję do tego
+     * modelu, a [Rdzen] żyje tak długo jak proces. Nieodpięty zostawiałby po
+     * każdym obrocie ekranu kolejny martwy model rysujący donikąd — i każdy
+     * z nich dalej dostawałby wszystkie koperty.
+     */
+    private var odepnijSluchacza: (() -> Unit)? = null
+
     init {
+        /*
+         * Zdarzenia idą przez [Rdzen], bo mają dwóch odbiorców o różnym czasie
+         * życia: ten model (rysuje) i usługę (powiadamia). Marszałek na wątek
+         * główny jest konieczny — koperty przetwarzane są na `Dispatchers.IO`,
+         * a `stan` to stan Compose'a.
+         */
+        odepnijSluchacza = Rdzen.sluchaj { zdarzenie, tryb ->
+            viewModelScope.launch { obsluzZdarzenie(zdarzenie, tryb) }
+        }
+
+        /*
+         * Klient mógł przeżyć ten ekran.
+         *
+         * Odkąd trzyma go [Rdzen], obrót telefonu albo powrót do aplikacji
+         * zostawionej w tle zastaje gotowe, działające połączenie. Logowanie od
+         * nowa byłoby wtedy nie tylko zbędne — otworzyłoby drugi stan MLS na
+         * tym samym skarbcu.
+         */
         val konto = vault.loadAccount()
         val tokenOdswiezajacy = vault.loadRefreshToken()
 
-        if (konto != null && tokenOdswiezajacy != null) {
+        if (Rdzen.messenger != null) {
+            stan = stan.copy(zalogowany = true, rozmowy = historia.lista())
+        } else if (konto != null && tokenOdswiezajacy != null) {
             viewModelScope.launch {
                 val wynik = runCatching { api.refreshSession(konto.deviceId, tokenOdswiezajacy) }
                     .getOrNull() ?: return@launch
@@ -325,10 +380,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
                 runCatching { klient.uzupelnijTokeny() }
 
-                klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
-                messenger = klient
+                Rdzen.podepnij(getApplication(), klient)
                 stan = stan.copy(zalogowany = true, rozmowy = zapisane)
             }
+        }
+    }
+
+    /**
+     * Wysyła zgłoszenie błędu.
+     *
+     * Wynik wraca komunikatem, a nie milczeniem: zgłoszenie idzie na publiczną
+     * stronę projektu, więc użytkownik ma prawo wiedzieć, czy naprawdę tam
+     * trafiło — i pod jakim numerem, gdyby chciał zajrzeć.
+     *
+     * Poza opisem i kontekstem nie wychodzi stąd nic; co i dlaczego, mówi
+     * `server/src/zgloszenia.ts`.
+     */
+    fun zglosBlad(opis: String, kontekst: String, onWynik: (String) -> Unit) {
+        val klient = messenger ?: return
+
+        viewModelScope.launch {
+            runCatching { api.zglosBlad(klient.token, opis, kontekst) }
+                .onSuccess { numer ->
+                    onWynik(
+                        if (numer != null) "Wysłane — zgłoszenie nr $numer. Dziękujemy."
+                        else "Wysłane. Dziękujemy.",
+                    )
+                }
+                .onFailure { blad ->
+                    onWynik(blad.message ?: "Nie udało się wysłać zgłoszenia.")
+                }
         }
     }
 
@@ -417,8 +498,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // działający transport, a od czasu wpięcia skrzynki także otwarte
         // gniazdo, które wznawiałoby się w nieskończoność i próbowało zapisywać
         // stan MLS do skarbca skasowanego przed chwilą poniżej.
-        messenger?.close()
-        messenger = null
+        Rdzen.odepnij(getApplication())
         sesjaLogowania = null
         vault.wipe()
         stan = StanCzatu()
@@ -515,8 +595,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * logowaniem, a nie utratą urządzenia. Kasuje je dopiero samo odebranie.
      */
     fun przejdzDoOdbioru() {
-        messenger?.close()
-        messenger = null
+        Rdzen.odepnij(getApplication())
         sesjaLogowania = null
         stan = StanCzatu(ekran = Ekran.ODBIOR)
     }
@@ -681,10 +760,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
                 runCatching { klient.uzupelnijTokeny() }
 
-                klient.startReceiving(viewModelScope, ::obsluzZdarzenie)
+                Rdzen.podepnij(getApplication(), klient)
                 klient
-            }.onSuccess { klient ->
-                messenger = klient
+            }.onSuccess { _ ->
                 sesjaLogowania = null
                 stan = stan.copy(
                     zalogowany = true,
@@ -933,6 +1011,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var rozmowa: RozmowaAV? = null
 
     /**
+     * Sygnały, które przyszły w trakcie dzwonienia — zanim było co nimi karmić.
+     *
+     * Powód i skutek jego braku opisane są przy [obsluzSygnalRozmowy]; tu tylko
+     * to, dlaczego kolejka jest ograniczona. Sygnalizacja przychodzi z sieci,
+     * a rozmowa, której nikt nie odbiera, przyjmowałaby kandydatów tak długo,
+     * jak długo ktoś je nadaje. Kilkadziesiąt wystarcza z zapasem na normalne
+     * zestawienie połączenia; powyżej to już nie jest dzwonienie.
+     */
+    private val oczekujaceSygnaly = mutableListOf<IncomingEvent.CallSignal>()
+
+    private companion object {
+        const val LIMIT_OCZEKUJACYCH = 64
+    }
+
+    /**
      * Zaczyna rozmowę z uczestnikami bieżącej grupy.
      *
      * Skład bierzemy z drzewa MLS, nie z nazwy rozmowy: dzwonimy do osób,
@@ -949,17 +1042,39 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             .filter { it != ja }
         if (rozmowcy.isEmpty()) return
 
-        rozmowa = RozmowaAV.zadzwon(
-            kontekst = kontekst,
-            messenger = klient,
-            groupId = groupId,
-            rozmowcy = rozmowcy,
-            zWideo = zWideo,
-            zakres = viewModelScope,
-            onZmiana = ::przyjmijStanRozmowy,
-        )
-
-        stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
+        /*
+         * Zestawienie rozmowy MOŻE się nie udać i nie może przy tym zabić
+         * aplikacji.
+         *
+         * `RozmowaAV` w konstruktorze ładuje bibliotekę natywną WebRTC, tworzy
+         * kontekst OpenGL i sięga po mikrofon. Każda z tych rzeczy potrafi
+         * odmówić: telefon bez sprzętowego kodera, mikrofon zajęty przez inną
+         * aplikację, odebrane w międzyczasie uprawnienie. Wyjątek leciał stąd
+         * prosto przez wywołanie z Compose'a i wywracał proces — czyli
+         * „dzwonienie crashuje aplikację". Nieudane dzwonienie ma być
+         * komunikatem, a nie zniknięciem aplikacji z ekranu.
+         */
+        runCatching {
+            RozmowaAV.zadzwon(
+                kontekst = kontekst,
+                messenger = klient,
+                groupId = groupId,
+                rozmowcy = rozmowcy,
+                zWideo = zWideo,
+                zakres = viewModelScope,
+                onZmiana = ::przyjmijStanRozmowy,
+            )
+        }.onSuccess { nowa ->
+            rozmowa = nowa
+            stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
+        }.onFailure { blad ->
+            rozmowa = null
+            stan = stan.copy(
+                rozmowaAV = emptyList(),
+                przychodzacaRozmowa = null,
+                blad = "Nie udało się rozpocząć rozmowy: ${blad.message ?: "brak dostępu do mikrofonu"}",
+            )
+        }
     }
 
     /**
@@ -985,20 +1100,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         rozmowaOd = System.currentTimeMillis()
         val przychodzaca = stan.przychodzacaRozmowa ?: return
 
+        // Baner gaśnie razem z dzwonkiem, zanim cokolwiek innego się wydarzy.
+        Powiadomienia.schowajRozmowe(getApplication())
+
         // Oferta idzie razem z odebraniem: `RozmowaAV` przetworzy ją dopiero
         // po pobraniu poświadczeń ICE — patrz komentarz przy `odbierz`.
-        rozmowa = RozmowaAV.odbierz(
-            kontekst = kontekst,
-            messenger = klient,
-            groupId = przychodzaca.groupId,
-            callId = przychodzaca.callId,
-            zWideo = zWideo,
-            od = przychodzaca.od,
-            oferta = przychodzaca.oferta,
-            odcisk = przychodzaca.odcisk,
-            zakres = viewModelScope,
-            onZmiana = ::przyjmijStanRozmowy,
-        )
+        // Odbieranie może się nie udać z tych samych powodów co dzwonienie —
+        // uzasadnienie przy `zadzwon`. Tu boli podwójnie: awaria przy odbieraniu
+        // zabierała aplikację w chwili, w której ktoś do nas dzwonił.
+        val nowa = runCatching {
+            RozmowaAV.odbierz(
+                kontekst = kontekst,
+                messenger = klient,
+                groupId = przychodzaca.groupId,
+                callId = przychodzaca.callId,
+                zWideo = zWideo,
+                od = przychodzaca.od,
+                oferta = przychodzaca.oferta,
+                odcisk = przychodzaca.odcisk,
+                zakres = viewModelScope,
+                onZmiana = ::przyjmijStanRozmowy,
+            )
+        }.getOrElse { blad ->
+            oczekujaceSygnaly.clear()
+            stan = stan.copy(
+                przychodzacaRozmowa = null,
+                rozmowaAV = emptyList(),
+                blad = "Nie udało się odebrać rozmowy: ${blad.message ?: "brak dostępu do mikrofonu"}",
+            )
+            return
+        }
+        rozmowa = nowa
+
+        /*
+         * Kandydaci uzbierani w czasie dzwonienia — teraz jest komu ich podać.
+         *
+         * Kolejność wobec oferty załatwia sama `RozmowaAV`: kandydat, który
+         * przyjdzie przed opisem zdalnym, czeka w jej własnej kolejce. Tutaj
+         * chodzi wyłącznie o to, żeby w ogóle do niej trafiły — bez tego
+         * przepadały i połączenie nie miało się z czym zestawić.
+         */
+        val zalegle = oczekujaceSygnaly.toList()
+        oczekujaceSygnaly.clear()
+
+        for (sygnal in zalegle) {
+            runCatching {
+                nowa.przyjmij(
+                    sygnal.senderUserId,
+                    sygnal.kind,
+                    sygnal.payload,
+                    sygnal.dtlsFingerprint,
+                )
+            }
+        }
 
         stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
     }
@@ -1120,21 +1274,57 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val biezaca = rozmowa
 
         if (biezaca == null) {
-            return if (zdarzenie.kind == CallSignalKind.OFFER) {
-                stan.copy(
-                    trybPolaczenia = tryb,
-                    przychodzacaRozmowa = PrzychodzacaRozmowa(
-                        od = zdarzenie.senderUserId,
-                        groupId = zdarzenie.groupId,
-                        callId = zdarzenie.callId,
-                        oferta = zdarzenie.payload,
-                        odcisk = zdarzenie.dtlsFingerprint,
-                    ),
-                )
-            } else {
-                // Kandydat albo rozłączenie bez rozmowy: spóźniony sygnał
-                // z rozmowy, która już się skończyła. Nie ma czego robić.
-                stan.copy(trybPolaczenia = tryb)
+            return when (zdarzenie.kind) {
+                CallSignalKind.OFFER -> {
+                    oczekujaceSygnaly.clear()
+                    stan.copy(
+                        trybPolaczenia = tryb,
+                        przychodzacaRozmowa = PrzychodzacaRozmowa(
+                            od = zdarzenie.senderUserId,
+                            groupId = zdarzenie.groupId,
+                            callId = zdarzenie.callId,
+                            oferta = zdarzenie.payload,
+                            odcisk = zdarzenie.dtlsFingerprint,
+                        ),
+                    )
+                }
+
+                CallSignalKind.HANGUP -> {
+                    // Dzwoniący się rozmyślił, zanim ktokolwiek odebrał.
+                    oczekujaceSygnaly.clear()
+                    Powiadomienia.schowajRozmowe(getApplication())
+                    stan.copy(trybPolaczenia = tryb, przychodzacaRozmowa = null)
+                }
+
+                /*
+                 * Kandydat ICE, który przyszedł w trakcie DZWONIENIA.
+                 *
+                 * # Dlaczego wyrzucenie go psuło każdą rozmowę
+                 *
+                 * Dzwoniący nadaje kandydatów natychmiast po złożeniu oferty —
+                 * `onIceCandidate` odzywa się zaraz po `setLocalDescription`,
+                 * a nie po tym, jak ktoś odbierze. Przez cały czas dzwonienia
+                 * `rozmowa` jest tu jeszcze `null`, bo połączenie powstaje
+                 * dopiero po naciśnięciu „Odbierz" i po zgodzie na mikrofon.
+                 *
+                 * Wszyscy ci kandydaci lądowali więc w tej gałęzi i przepadali,
+                 * uznani za „spóźniony sygnał z rozmowy, która się skończyła" —
+                 * podczas gdy była to rozmowa, która się jeszcze nie zaczęła.
+                 * Po odebraniu dzwoniący miał już zebrane swoje i nie nadawał
+                 * ich drugi raz, więc zostawało połączenie znające adresy
+                 * wyłącznie jednej strony. ICE nie miało czego z czym sparować
+                 * i rozmowa nie zestawiała się nigdy: licznik szedł, a nikt
+                 * nikogo nie słyszał.
+                 *
+                 * Teraz czekają i zostają podane rozmowie zaraz po jej
+                 * utworzeniu (patrz `odbierzRozmowe`).
+                 */
+                else -> {
+                    if (oczekujaceSygnaly.size < LIMIT_OCZEKUJACYCH) {
+                        oczekujaceSygnaly.add(zdarzenie)
+                    }
+                    stan.copy(trybPolaczenia = tryb)
+                }
             }
         }
 
@@ -1290,8 +1480,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Odpina słuchacza zdarzeń — klienta NIE zamyka.
+     *
+     * To jest cała zmiana, przez którą telefon zaczął odbierać przy zamkniętej
+     * aplikacji. Wcześniej stało tu `messenger?.close()`, więc obrót ekranu albo
+     * wyjście z aplikacji zrywały połączenie ze skrzynką i kończyły odbieranie —
+     * a wiadomość wysłana w tym czasie czekała na serwerze do następnego
+     * uruchomienia. Klient żyje teraz w [Rdzen], razem z procesem, którego przy
+     * życiu trzyma [UslugaNasluchu]; kończy go dopiero wylogowanie.
+     */
     override fun onCleared() {
-        messenger?.close()
+        odepnijSluchacza?.invoke()
+        odepnijSluchacza = null
         super.onCleared()
     }
 }

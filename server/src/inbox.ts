@@ -20,6 +20,25 @@ import { MAILBOX_RETENTION_DAYS, MAX_ENVELOPE_BYTES, type Env } from "./env";
  * GB-sekund. Przy zwykłym WebSockecie każdy zalogowany klient kosztowałby
  * nieprzerwanie.
  *
+ * # Jedna skrzynka, wiele urządzeń
+ *
+ * Skrzynka nazywa się NAZWĄ UŻYTKOWNIKA, więc wszystkie urządzenia jednego
+ * konta dzielą tę samą kolejkę. Kasowanie koperty po pierwszym potwierdzeniu
+ * działało tylko dla jednego odbiorcy: kto przetworzył kopertę pierwszy,
+ * `ack:<id>` KASOWAŁ ją pozostałym urządzeniom — a że tą samą drogą idą
+ * `welcome` i commity MLS, urządzenie, które kopertę straciło, nigdy nie
+ * wchodziło do grupy. „Piszę do kolegi, on widzi, ale ja jego odpowiedzi już
+ * nie" i „nie da się zrobić grupy" brały się dokładnie stąd, a nadawca nie
+ * widział żadnego błędu.
+ *
+ * Dlatego kolejka jest teraz DZIENNIKIEM tylko do dopisywania, a przeczytanie
+ * odnotowujemy OSOBNO dla każdego urządzenia (`device_reads`). Potwierdzenie
+ * jednego urządzenia przestaje mu wysyłać kopertę i nie rusza pozostałych.
+ * Koperty kasuje wyłącznie retencja — bo skrzynka celowo nie zna składu grup,
+ * więc nie wie, ILE urządzeń ma jeszcze kopertę odebrać, i nie może skasować
+ * jej „gdy wszyscy odczytali". Urządzenie tożsamościuje się kryptograficznie:
+ * bierzemy je z uwierzytelnionego tokenu przy `/connect`, nie z danych klienta.
+ *
  * # Czego ten obiekt nie widzi
  *
  * Koperty są nieprzezroczyste. Serwer zna ich rozmiar, czas i adresata —
@@ -53,7 +72,32 @@ export class UserInbox extends DurableObject<Env> {
           created_at INTEGER NOT NULL
         );
       `);
+
+      // Przeczytania per urządzenie. Jeden wiersz = to urządzenie ma już tę
+      // kopertę i nie trzeba mu jej wysyłać ponownie. Klucz złożony odsiewa
+      // powtórzone potwierdzenia bez osobnego sprawdzania.
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS device_reads (
+          device_id   TEXT NOT NULL,
+          envelope_id INTEGER NOT NULL,
+          PRIMARY KEY (device_id, envelope_id)
+        );
+      `);
     });
+  }
+
+  /**
+   * Identyfikator urządzenia dla tego gniazda.
+   *
+   * Bierzemy go z uwierzytelnionego tokenu przy `/connect` i przypinamy do
+   * gniazda przez `serializeAttachment`, żeby przetrwał hibernację. Puste,
+   * gdy połączenie przyszło bez tożsamości urządzenia (starszy klient albo
+   * wywołanie z testu) — takie urządzenia dzielą jedną „bezimienną" kolejkę,
+   * czyli zachowują się jak przed tą zmianą i niczego nie psują nowym.
+   */
+  private static urzadzenieGniazda(ws: WebSocket): string {
+    const dane = ws.deserializeAttachment() as { device?: string } | null;
+    return dane?.device ?? "";
   }
 
   /**
@@ -121,26 +165,40 @@ export class UserInbox extends DurableObject<Env> {
       return new Response("oczekiwano upgrade do WebSocketa", { status: 426 });
     }
 
+    // Tożsamość urządzenia z adresu żądania. `/connect` w Workerze bierze ją
+    // z uwierzytelnionego tokenu, nie z danych klienta, i dokleja tu.
+    const urzadzenie = new URL(request.url).searchParams.get("device") ?? "";
+
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
 
     // Hibernacja: obiekt może zostać wyładowany z pamięci, a połączenie przetrwa.
+    // Tożsamość urządzenia musi ją przeżyć, więc idzie w załącznik gniazda,
+    // a nie do zmiennej w pamięci obiektu.
     this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ device: urzadzenie });
 
-    await this.flushTo(server);
+    await this.flushTo(server, urzadzenie);
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   /**
-   * Wysyła zaległe koperty.
+   * Wysyła temu urządzeniu koperty, których jeszcze nie potwierdziło.
    *
-   * **Nie kasuje ich z kolejki** — to robi dopiero potwierdzenie od klienta.
-   * Klient, który dostał bajty i zaraz potem padł, ma je zobaczyć ponownie.
+   * **Nie kasuje ich z kolejki** — to robi dopiero retencja. Potwierdzenie
+   * klienta tylko odnotowuje, że TO urządzenie już kopertę ma; inne urządzenia
+   * tego samego konta dostaną ją niezależnie. Klient, który dostał bajty
+   * i zaraz potem padł, ma je zobaczyć ponownie.
    */
-  private async flushTo(socket: WebSocket): Promise<void> {
+  private async flushTo(socket: WebSocket, urzadzenie: string): Promise<void> {
     const pending = this.ctx.storage.sql
-      .exec<{ id: number; envelope: ArrayBuffer }>("SELECT id, envelope FROM queue ORDER BY id")
+      .exec<{ id: number; envelope: ArrayBuffer }>(
+        `SELECT id, envelope FROM queue
+         WHERE id NOT IN (SELECT envelope_id FROM device_reads WHERE device_id = ?)
+         ORDER BY id`,
+        urzadzenie,
+      )
       .toArray();
 
     for (const row of pending) {
@@ -148,10 +206,28 @@ export class UserInbox extends DurableObject<Env> {
     }
   }
 
-  /** Liczba kopert czekających w kolejce. */
+  /**
+   * Liczba kopert w dzienniku.
+   *
+   * To NIE jest „ile zostało do doręczenia" — dziennik trzyma kopertę aż do
+   * retencji, także po tym, jak jedyne urządzenie ją potwierdziło. Do
+   * sprawdzenia, ile czeka konkretne urządzenie, jest [`pendingCountFor`].
+   */
   async pendingCount(): Promise<number> {
     const row = this.ctx.storage.sql
       .exec<{ n: number }>("SELECT COUNT(*) AS n FROM queue")
+      .toArray()[0];
+    return row?.n ?? 0;
+  }
+
+  /** Ile kopert czeka na potwierdzenie konkretnego urządzenia. */
+  async pendingCountFor(urzadzenie: string): Promise<number> {
+    const row = this.ctx.storage.sql
+      .exec<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM queue
+         WHERE id NOT IN (SELECT envelope_id FROM device_reads WHERE device_id = ?)`,
+        urzadzenie,
+      )
       .toArray()[0];
     return row?.n ?? 0;
   }
@@ -170,21 +246,33 @@ export class UserInbox extends DurableObject<Env> {
       return;
     }
 
-    // `ack:<id>` — klient przetworzył i ZAPISAŁ kopertę, można ją usunąć.
+    // `ack:<id>` — TO urządzenie przetworzyło i ZAPISAŁO kopertę. Odnotowujemy
+    // przeczytanie tylko dla niego; koperta zostaje w dzienniku dla pozostałych.
     const ack = /^ack:(\d+)$/.exec(message);
     if (ack?.[1]) {
-      await this.acknowledge(Number(ack[1]));
+      await this.acknowledge(Number(ack[1]), UserInbox.urzadzenieGniazda(ws));
     }
   }
 
   /**
-   * Kasuje kopertę potwierdzoną przez klienta.
+   * Odnotowuje, że dane urządzenie ma już tę kopertę.
+   *
+   * Nie kasuje koperty z dziennika: inne urządzenia tego konta mogą jej jeszcze
+   * nie mieć, a skrzynka nie wie, ile ich jest. Kasuje ją dopiero retencja.
+   *
+   * `INSERT OR IGNORE` czyni powtórzone potwierdzenie nieszkodliwym, a wpis dla
+   * nieistniejącej koperty (spóźnione albo spreparowane) niczego nie psuje —
+   * po prostu nigdy się z żadną nie zejdzie.
    *
    * Wywoływane z kanału WebSocket, ale wystawione jako osobna metoda, żeby dało
    * się je sprawdzić bez zestawiania gniazda w teście.
    */
-  async acknowledge(id: number): Promise<void> {
-    this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", id);
+  async acknowledge(id: number, urzadzenie: string): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO device_reads (device_id, envelope_id) VALUES (?, ?)",
+      urzadzenie,
+      id,
+    );
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -206,6 +294,15 @@ export class UserInbox extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const cutoff = Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+    // Najpierw ślady przeczytań usuwanych kopert, potem same koperty — inaczej
+    // `device_reads` rosłoby bez końca dla urządzeń, które już dawno wszystko
+    // odebrały. AUTOINCREMENT nie używa identyfikatorów ponownie, więc osierocony
+    // wpis nikogo nie zasłoni, ale zostawiony jest czystym marnotrawstwem miejsca.
+    this.ctx.storage.sql.exec(
+      "DELETE FROM device_reads WHERE envelope_id IN (SELECT id FROM queue WHERE created_at < ?)",
+      cutoff,
+    );
     this.ctx.storage.sql.exec("DELETE FROM queue WHERE created_at < ?", cutoff);
 
     // Alarm odnawiamy tylko wtedy, gdy jest jeszcze co pilnować — inaczej

@@ -79,16 +79,41 @@ describe("UserInbox", () => {
     expect(await skrzynka.pendingCount()).toBe(2);
   });
 
-  it("potwierdzenie kasuje kopertę z kolejki", async () => {
+  it("potwierdzenie przestaje wysyłać kopertę TEMU urządzeniu", async () => {
     const skrzynka = inbox("potwierdzajacy");
     await skrzynka.deposit(koperta("pierwsza"));
     await skrzynka.deposit(koperta("druga"));
-    expect(await skrzynka.pendingCount()).toBe(2);
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(2);
 
     // Identyfikatory rosną od jedynki — pierwszy wpis w tej skrzynce ma id 1.
-    await skrzynka.acknowledge(1);
+    await skrzynka.acknowledge(1, "telefon");
 
-    expect(await skrzynka.pendingCount()).toBe(1);
+    // Dla tego urządzenia zostaje jedna. Sam dziennik nadal trzyma obie —
+    // kasuje je dopiero retencja, bo inne urządzenia mogą ich jeszcze nie mieć.
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+    expect(await skrzynka.pendingCount()).toBe(2);
+  });
+
+  /**
+   * Sedno naprawy wielu urządzeń: potwierdzenie JEDNEGO urządzenia nie może
+   * zabrać koperty pozostałym. Wcześniej kolejka kasowała ją po pierwszym
+   * `ack`, więc kto przetworzył ją pierwszy, kasował ją reszcie konta — a że
+   * tą samą drogą idą `welcome` i commity MLS, urządzenie, które kopertę
+   * straciło, nigdy nie wchodziło do grupy. „On widzi moją wiadomość, ja jego
+   * odpowiedzi już nie" brało się dokładnie stąd.
+   */
+  it("potwierdzenie jednego urządzenia nie ukrywa koperty przed drugim", async () => {
+    const skrzynka = inbox("dwa-urzadzenia");
+    await skrzynka.deposit(koperta("welcome"));
+    await skrzynka.deposit(koperta("wiadomosc"));
+
+    // Telefon odbiera i potwierdza obie.
+    await skrzynka.acknowledge(1, "telefon");
+    await skrzynka.acknowledge(2, "telefon");
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(0);
+
+    // Laptop tego samego konta wciąż ma do odebrania obie — nietknięte.
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(2);
   });
 
   it("potwierdzenie nieistniejącego wpisu jest nieszkodliwe", async () => {
@@ -96,9 +121,10 @@ describe("UserInbox", () => {
     await skrzynka.deposit(koperta("moja"));
 
     // Powtórzone albo spóźnione potwierdzenie nie może niczego zepsuć.
-    await skrzynka.acknowledge(99999);
+    await skrzynka.acknowledge(99999, "telefon");
 
     expect(await skrzynka.pendingCount()).toBe(1);
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
   });
 
   it("koperta bez potwierdzenia wraca przy kolejnym połączeniu", async () => {

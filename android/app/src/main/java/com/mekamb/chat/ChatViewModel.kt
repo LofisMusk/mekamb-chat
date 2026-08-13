@@ -72,6 +72,19 @@ data class StanCzatu(
     val rozmowaAV: List<UczestnikRozmowy> = emptyList(),
     /** Czy w trwającej rozmowie nadajemy obraz. */
     val rozmowaZWideo: Boolean = false,
+    /*
+     * Stan mikrofonu, kamery i własnego obrazu SĄ w stanie ekranu, a nie
+     * czytane z `RozmowaAV` przez `get()`.
+     *
+     * Compose obserwuje `stan`, a nie pole w obiekcie rozmowy — więc dopóki
+     * to było zwykłym getterem, wyciszenie mikrofonu zmieniało wszystko poza
+     * wyglądem przycisku, który je zgłosił. Przycisk przerysowywał się dopiero
+     * przy najbliższej zmianie czegoś innego, czyli pozornie losowo.
+     */
+    val mikrofonWlaczony: Boolean = true,
+    val kameraWlaczona: Boolean = false,
+    /** Własny obraz z kamery — do podglądu we własnym kafelku. */
+    val wideoLokalne: org.webrtc.VideoTrack? = null,
     /** Kto dzwoni i do której rozmowy — zanim odbierzemy. */
     val przychodzacaRozmowa: PrzychodzacaRozmowa? = null,
 ) {
@@ -454,6 +467,27 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pokaz(ekran: Ekran) {
         stan = stan.copy(ekran = ekran, blad = null, informacja = null)
+    }
+
+    /**
+     * Wychodzi z sesji na ekran odbioru przeniesienia.
+     *
+     * # Dlaczego to zamyka sesję, zamiast po prostu pokazać ekran
+     *
+     * Odebranie zrzutu PODMIENIA skarbiec — ziarno tożsamości, stan MLS
+     * i historię. Zrobienie tego pod działającym klientem znaczyłoby, że
+     * `Messenger` dopisuje stan MLS starego konta do skarbca nowego, a otwarte
+     * gniazdo skrzynki nadal nasłuchuje na starej nazwie. Dlatego sesja gaśnie
+     * najpierw, a dopiero potem pokazujemy ekran.
+     *
+     * Konto na dysku ZOSTAJE: rezygnacja z przeniesienia kończy się zwykłym
+     * logowaniem, a nie utratą urządzenia. Kasuje je dopiero samo odebranie.
+     */
+    fun przejdzDoOdbioru() {
+        messenger?.close()
+        messenger = null
+        sesjaLogowania = null
+        stan = StanCzatu(ekran = Ekran.ODBIOR)
     }
 
     /**
@@ -889,9 +923,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             rozmowcy = rozmowcy,
             zWideo = zWideo,
             zakres = viewModelScope,
-        ) { uczestnicy -> stan = stan.copy(rozmowaAV = uczestnicy) }
+            onZmiana = ::przyjmijStanRozmowy,
+        )
 
         stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
+    }
+
+    /**
+     * Przenosi migawkę rozmowy do stanu ekranu.
+     *
+     * Jedno miejsce dla obu dróg wejścia w rozmowę — inaczej dzwoniący
+     * i odbierający mieliby dwie kopie tej samej reguły, a różnica między nimi
+     * ujawniałaby się tylko po jednej stronie połączenia.
+     */
+    private fun przyjmijStanRozmowy(migawka: StanRozmowyAV) {
+        stan = stan.copy(
+            rozmowaAV = migawka.uczestnicy,
+            mikrofonWlaczony = migawka.mikrofonWlaczony,
+            kameraWlaczona = migawka.kameraWlaczona,
+            wideoLokalne = migawka.wideoLokalne,
+        )
     }
 
     /** Odbiera dzwoniącą rozmowę. */
@@ -911,24 +962,44 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             oferta = przychodzaca.oferta,
             odcisk = przychodzaca.odcisk,
             zakres = viewModelScope,
-        ) { uczestnicy -> stan = stan.copy(rozmowaAV = uczestnicy) }
+            onZmiana = ::przyjmijStanRozmowy,
+        )
 
         stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
     }
 
+    /** Kontekst OpenGL trwającej rozmowy — potrzebny widokom rysującym obraz. */
+    fun kontekstGlRozmowy(): org.webrtc.EglBase.Context? = rozmowa?.kontekstGl()
+
     /** Kończy rozmowę i zwalnia mikrofon oraz kamerę. */
     fun zakonczRozmowe() {
+        // Stan gaśnie pierwszy, żeby ekran dostał sygnał wyjścia najwcześniej,
+        // jak się da. Nie wystarcza to jednak za synchronizację: Compose
+        // sprząta dopiero przy kolejnej klatce, więc podglądy wideo mogą jeszcze
+        // trzymać ścieżki, które `zakoncz` zaraz zwolni. Dlatego odpięcie
+        // podglądu po stronie ekranu musi znieść już zwolniony zasób.
+        stan = stan.copy(
+            rozmowaAV = emptyList(),
+            przychodzacaRozmowa = null,
+            wideoLokalne = null,
+            kameraWlaczona = false,
+            mikrofonWlaczony = true,
+        )
+
         rozmowa?.zakoncz()
         rozmowa = null
-        stan = stan.copy(rozmowaAV = emptyList(), przychodzacaRozmowa = null)
     }
 
     fun przelaczMikrofon() = rozmowa?.przelaczMikrofon()
-    fun przelaczKamere() = rozmowa?.przelaczKamere()
 
-    /** Czy mikrofon jest włączony — ekran rysuje po tym stan przycisku. */
-    val mikrofonWlaczony: Boolean get() = rozmowa?.mikrofonWlaczony ?: true
-    val kameraWlaczona: Boolean get() = rozmowa?.kameraWlaczona ?: false
+    /**
+     * Włącza albo wyłącza obraz.
+     *
+     * Zgoda na aparat jest sprawą ekranu, nie modelu — o uprawnienie prosi się
+     * z widoku, bo tylko on ma `ActivityResultLauncher`. Tu przychodzi wywołanie
+     * już po zgodzie.
+     */
+    fun przelaczKamere() = rozmowa?.przelaczKamere()
 
     /**
      * Odrzuca dzwoniącą rozmowę.

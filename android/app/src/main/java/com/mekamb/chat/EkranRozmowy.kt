@@ -8,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -127,7 +128,18 @@ fun EkranRozmowy(
     BackHandler(enabled = arkuszZalacznikow) { arkuszZalacznikow = false }
 
     Box(modifier.fillMaxSize()) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    /*
+     * `imePadding` na całej rozmowie, nie na samym polu pisania.
+     *
+     * Aplikacja rysuje od krawędzi do krawędzi, a od Androida 15 okno nie
+     * zmniejsza się już samo pod klawiaturę mimo `adjustResize` w manifeście.
+     * Bez tego pole pisania i przycisk wysyłania chowają się POD klawiaturą,
+     * której otwarcie samo je wywołało — czyli nie da się wysłać wiadomości,
+     * którą właśnie się pisze. Odsunięcie całej kolumny, a nie samego pola,
+     * zabiera ze sobą listę: inaczej ostatni dymek zostaje pod klawiaturą
+     * i nie widać tego, na co się właśnie odpowiada.
+     */
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         PasekRozmowy(
             nazwa = stan.rozmowca ?: "rozmowa",
             tryb = stan.trybPolaczenia,
@@ -225,9 +237,14 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
                 }
             }
 
+            // Zostaje, bo mówi o tym, co robimy z PLIKIEM, zanim go wyślemy —
+            // i o tym, że może się nie udać. To zmienia decyzję: przy takim
+            // ostrzeżeniu zdjęcie z lokalizacją można wysłać świadomie albo
+            // wcale. Zdanie o szyfrowaniu każdego pliku osobnym kluczem
+            // zniknęło — było zapewnieniem, po którym nic nie zależy.
             Wskazowka(
-                "Każdy plik szyfrowany osobnym kluczem. Usuwamy lokalizację i dane " +
-                    "urządzenia — gdy się nie uda, powiemy o tym wprost.",
+                "Lokalizację i dane urządzenia usuwamy PRZED wysłaniem. Gdy się nie uda, " +
+                    "napiszemy to przy wiadomości.",
                 Ikony.Tarcza,
             )
         }

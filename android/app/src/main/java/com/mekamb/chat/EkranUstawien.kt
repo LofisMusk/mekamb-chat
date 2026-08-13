@@ -50,8 +50,13 @@ fun EkranUstawien(
     Column(modifier = modifier.fillMaxSize()) {
         PasekZPowrotem("Ustawienia", "Settings", onWstecz = onWstecz)
 
+        // `weight(1f)` jawnie: bez niego kolumna przewijana bierze wysokość
+        // z treści i na niskim ekranie ostatnia karta ląduje poza nim, a przy
+        // paskach systemowych rysowanych pod treścią nie widać, że coś zostało.
         Column(
             Modifier
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
@@ -106,10 +111,12 @@ fun EkranUstawien(
                     onZmiana = onOdczyt,
                 )
 
+                // Zdanie zostaje, bo jest o kompromisie pod tym przełącznikiem:
+                // wysyłanie potwierdzeń zostawia ślad w RUCHU, którego treść
+                // ukryć się da, a chwili nadania nie.
                 Text(
-                    "Potwierdzenia są szyfrowane end-to-end i wysyłane zbiorczo, po losowym " +
-                        "opóźnieniu do 30 sekund — serwer nie zobaczy, co i kiedy przeczytałeś. " +
-                        "Chwili wysłania samej koperty ukryć się nie da.",
+                    "Wysyłane zbiorczo, po losowym opóźnieniu do 30 sekund. Ptaszek pojawia " +
+                        "się więc z opóźnieniem — chwili wysłania samej koperty ukryć się nie da.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -135,10 +142,13 @@ fun EkranUstawien(
                         color = Nocturne.kolory.tekstTrzeci,
                     )
                 }
+                // Sama informacja, że push nie działa — bo ona zmienia
+                // zachowanie: o nowej wiadomości dowiesz się dopiero po
+                // otwarciu aplikacji. Obietnice o przyszłym kształcie ładunku
+                // nie zmieniają dziś niczyjej decyzji.
                 Text(
-                    "Wymagają projektu Firebase, którego ta wersja nie ma. Gdy dojdą, ładunek " +
-                        "będzie wyłącznie budzący — bez nadawcy i bez treści. Wiadomość " +
-                        "odszyfrowuje się dopiero w aplikacji.",
+                    "Ta wersja ich nie ma. O nowej wiadomości dowiesz się dopiero po otwarciu " +
+                        "aplikacji.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -178,7 +188,7 @@ fun EkranUstawien(
                 )
                 Text(
                     "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
-                        "Przez serwer: adres widzi serwer, treści nie widzi nikt.",
+                        "Przez serwer: adres zna serwer.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )

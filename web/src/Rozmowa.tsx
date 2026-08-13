@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Ikona } from "./Ikony";
 import { Call } from "./lib/calls";
-import type { CallState } from "./lib/calls";
+import type { CallState, PeerState } from "./lib/calls";
 import type { Messenger } from "./lib/messenger";
 
 /** Sygnalizacja odebrana kanałem MLS, przekazana do komponentu rozmowy. */
@@ -62,8 +62,21 @@ export function Rozmowa({
   const [call, setCall] = useState<Call | null>(null);
   const [stan, setStan] = useState<CallState | null>(null);
   const [przychodzace, setPrzychodzace] = useState<SygnalRozmowy | null>(null);
-  const strumienie = useRef(new Map<string, MediaStream>());
-  const [wersjaStrumieni, setWersjaStrumieni] = useState(0);
+
+  /*
+   * Strumienie w STANIE, nie w referencji z licznikiem.
+   *
+   * Wcześniej mapa leżała w `useRef`, a przerysowanie wymuszał rosnący licznik
+   * wpleciony w klucz elementu `<video>`. Klucz zmieniał się przy każdej
+   * zmianie czyjegokolwiek strumienia, więc React odmontowywał i montował
+   * WSZYSTKIE podglądy naraz — obraz każdego uczestnika gasł do czerni
+   * i zapalał się od nowa za każdym razem, gdy ktokolwiek dołączył.
+   *
+   * Zwykła mapa w stanie wystarcza: strumień jednej osoby jest tym samym
+   * obiektem przez całą rozmowę (WebRTC dokłada do niego ścieżki, a nie
+   * podmienia go), więc element wideo nie ma powodu się przemontować.
+   */
+  const [strumienie, setStrumienie] = useState<ReadonlyMap<string, MediaStream>>(new Map());
 
   /*
    * Wyciszenie jest stanem WIDOKU, nie rdzenia.
@@ -80,8 +93,13 @@ export function Rozmowa({
   const [sekundy, setSekundy] = useState(0);
 
   const zapamietajStrumien = (username: string, stream: MediaStream) => {
-    strumienie.current.set(username, stream);
-    setWersjaStrumieni((n) => n + 1);
+    setStrumienie((poprzednie) => {
+      // Ten sam strumień przychodzi ponownie przy każdej renegocjacji (np. gdy
+      // ktoś włączy kamerę). Nowa mapa z tą samą zawartością to przerysowanie
+      // bez powodu.
+      if (poprzednie.get(username) === stream) return poprzednie;
+      return new Map(poprzednie).set(username, stream);
+    });
   };
 
   useEffect(() => {
@@ -193,7 +211,7 @@ export function Rozmowa({
     setStan(null);
     setOdKiedy(null);
     setSekundy(0);
-    strumienie.current.clear();
+    setStrumienie(new Map());
   };
 
   /** Gasi albo zapala ścieżki danego rodzaju w lokalnym strumieniu. */
@@ -205,12 +223,37 @@ export function Rozmowa({
     for (const sciezka of sciezki) sciezka.enabled = wlaczone;
   };
 
+  /**
+   * Przycisk kamery — jeden, dwa różne działania.
+   *
+   * Gdy obraz już idzie, gasimy ścieżkę: nic nie opuszcza urządzenia, a żadne
+   * połączenie nie jest negocjowane od nowa. Gdy ścieżki nie ma — bo rozmowa
+   * zaczęła się jako głosowa — trzeba dobrać kamerę i renegocjować z każdym
+   * uczestnikiem, czym zajmuje się `Call.wlaczKamere`.
+   */
+  const przelaczKamere = async () => {
+    if (!call) return;
+
+    if (call.maWideo()) {
+      przelacz("video", !obraz);
+      setObraz((o) => !o);
+      return;
+    }
+
+    try {
+      await call.wlaczKamere();
+      setObraz(true);
+    } catch (err) {
+      // Najczęściej: odmowa dostępu do kamery albo zajęta przez inną aplikację.
+      onBlad(err);
+    }
+  };
+
   if (przychodzace) {
     return (
       <section className="przychodzaca">
         <div className="rozmowa-stan">
           <strong>{przychodzace.nadawca} dzwoni</strong>
-          <span className="wskazowka">Szyfrowane end-to-end, tak jak wiadomości.</span>
         </div>
 
         <div className="rzad-przyciskow">
@@ -238,10 +281,19 @@ export function Rozmowa({
   const uczestnicy = stan?.uczestnicy ?? [];
   const zerwane = uczestnicy.filter((u) => u.odrzuconyOdcisk).length;
 
+  /*
+   * Czy z tego urządzenia w ogóle wychodzi obraz.
+   *
+   * Ze STANU rozmowy, a nie z trybu, w którym się zaczęła: po włączeniu kamery
+   * w rozmowie głosowej `call.wideo` dalej mówi „to rozmowa audio", więc ikona
+   * i podgląd zostałyby przy nieaktualnej odpowiedzi.
+   */
+  const maObraz = stan?.wideo ?? false;
+
   return (
     <section aria-label="Trwająca rozmowa">
       <div className="rozmowa-pasek">
-        <Ikona nazwa={call.wideo ? "kamera" : "sluchawka"} rozmiar={17} />
+        <Ikona nazwa={maObraz ? "kamera" : "sluchawka"} rozmiar={17} />
 
         <span className="rozmowa-stan">
           <strong>{opisRozmowy(uczestnicy)}</strong>
@@ -264,20 +316,24 @@ export function Rozmowa({
             </span>
           </button>
 
-          {call.wideo && (
-            <button
-              className={obraz ? undefined : "aktywny"}
-              title={obraz ? "Wyłącz obraz" : "Włącz obraz"}
-              aria-pressed={!obraz}
-              onClick={() => {
-                przelacz("video", !obraz);
-                setObraz((o) => !o);
-              }}
-            >
-              <Ikona nazwa={obraz ? "kamera" : "kameraWylaczona"} rozmiar={17} />
-              <span className="tylko-dla-czytnika">{obraz ? "Wyłącz obraz" : "Włącz obraz"}</span>
-            </button>
-          )}
+          {/*
+            Przycisk kamery jest ZAWSZE, także w rozmowie głosowej.
+
+            Wcześniej pojawiał się tylko wtedy, gdy rozmowa zaczęła się
+            z obrazem — czyli decyzja podjęta w chwili dzwonienia była
+            ostateczna, mimo że sprzęt pozwala ją zmienić w każdej sekundzie.
+          */}
+          <button
+            className={maObraz ? undefined : "aktywny"}
+            title={maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
+            aria-pressed={!maObraz}
+            onClick={() => void przelaczKamere()}
+          >
+            <Ikona nazwa={maObraz ? "kamera" : "kameraWylaczona"} rozmiar={17} />
+            <span className="tylko-dla-czytnika">
+              {maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
+            </span>
+          </button>
 
           <button className="rozlacz" title="Rozłącz" onClick={rozlacz}>
             <Ikona nazwa="rozlacz" rozmiar={17} />
@@ -287,49 +343,36 @@ export function Rozmowa({
       </div>
 
       {/*
-        Droga połączenia przy każdej osobie, nie w ustawieniach.
+        Kafelki: ja i wszyscy, z którymi rozmawiam, w jednej siatce.
 
-        „Bezpośrednio" to zdanie o tym, że rozmówca zna Twój adres IP. Schowane
-        w ustawieniach byłoby informacją, której nikt nigdy nie zobaczy.
+        Wcześniej były dwie osobne rzeczy — lista nazwisk i siatka obrazów bez
+        podpisów — więc nie dało się powiedzieć, czyj obraz się właśnie widzi,
+        a własnego podglądu nie było wcale. Kafelek łączy jedno z drugim:
+        obraz albo awatar, nazwa i droga połączenia w jednym miejscu.
+
+        Droga połączenia ZOSTAJE przy każdej osobie z osobna. „Bezpośrednio" to
+        zdanie o tym, że ta osoba zna Twój adres IP, a w rozmowie mesh każda
+        para negocjuje osobno — jedna etykieta na całą rozmowę byłaby nieprawdą
+        wobec połowy uczestników.
       */}
-      <ul className="lista-osob">
+      <div className="siatka-kafelkow" data-ilu={Math.min(uczestnicy.length + 1, 4)}>
+        <Kafelek
+          nazwa="Ty"
+          stream={call.strumienLokalny()}
+          wlasny
+          obrazWlaczony={maObraz && obraz}
+        />
+
         {uczestnicy.map((uczestnik) => (
-          <li key={uczestnik.username}>
-            <span className="kto">{uczestnik.username}</span>
-            {uczestnik.odrzuconyOdcisk ? (
-              <span className="tryb uwaga">
-                <Ikona nazwa="ostrzezenie" rozmiar={12} />
-                zerwane — obcy certyfikat
-              </span>
-            ) : uczestnik.faza === "laczenie" ? (
-              <span className="tryb">
-                <Ikona nazwa="zegar" rozmiar={12} />
-                łączę…
-              </span>
-            ) : uczestnik.faza === "trwa" ? (
-              <span
-                className="tryb"
-                title={
-                  uczestnik.droga === "relay"
-                    ? "Media idą przez serwer TURN — to on zna oba adresy IP."
-                    : "Media idą wprost — ta osoba zna Twój adres IP."
-                }
-              >
-                <Ikona
-                  nazwa={uczestnik.droga === "relay" ? "przezSerwer" : "bezposrednio"}
-                  rozmiar={12}
-                />
-                {uczestnik.droga === "relay" ? "przez przekaźnik" : "bezpośrednio"}
-              </span>
-            ) : (
-              <span className="tryb">
-                <Ikona nazwa="brakSieci" rozmiar={12} />
-                rozłączony
-              </span>
-            )}
-          </li>
+          <Kafelek
+            key={uczestnik.username}
+            nazwa={uczestnik.username}
+            stream={strumienie.get(uczestnik.username) ?? null}
+            uczestnik={uczestnik}
+            obrazWlaczony
+          />
         ))}
-      </ul>
+      </div>
 
       {zerwane > 0 && (
         <p className="wskazowka">
@@ -338,20 +381,139 @@ export function Rozmowa({
           z pozostałymi trwa dalej.
         </p>
       )}
+    </section>
+  );
+}
 
-      {call.wideo && strumienie.current.size > 0 && (
-        <div className="siatka-wideo">
-          {[...strumienie.current.entries()].map(([username, stream]) => (
-            <WideoUczestnika key={`${username}-${wersjaStrumieni}`} stream={stream} />
-          ))}
-        </div>
+/** Co pokazać pod nazwą uczestnika: stan połączenia albo drogę, którą idą media. */
+function StanUczestnika({ uczestnik }: { uczestnik: PeerState }) {
+  if (uczestnik.odrzuconyOdcisk) {
+    return (
+      <span className="tryb uwaga">
+        <Ikona nazwa="ostrzezenie" rozmiar={12} />
+        obcy certyfikat
+      </span>
+    );
+  }
+
+  if (uczestnik.faza === "laczenie") {
+    return (
+      <span className="tryb">
+        <Ikona nazwa="zegar" rozmiar={12} />
+        łączę…
+      </span>
+    );
+  }
+
+  if (uczestnik.faza !== "trwa") {
+    return (
+      <span className="tryb">
+        <Ikona nazwa="brakSieci" rozmiar={12} />
+        rozłączony
+      </span>
+    );
+  }
+
+  const przekaznik = uczestnik.droga === "relay";
+
+  return (
+    <span
+      className="tryb"
+      title={
+        przekaznik
+          ? "Media idą przez serwer TURN — to on zna oba adresy IP."
+          : "Media idą wprost — ta osoba zna Twój adres IP."
+      }
+    >
+      <Ikona nazwa={przekaznik ? "przezSerwer" : "bezposrednio"} rozmiar={12} />
+      {przekaznik ? "przez przekaźnik" : "bezpośrednio"}
+    </span>
+  );
+}
+
+/**
+ * Jeden uczestnik rozmowy: obraz albo awatar, nazwa i droga połączenia.
+ *
+ * # Dlaczego element wideo stoi tu zawsze
+ *
+ * Bo to on odtwarza DŹWIĘK. Gdyby pojawiał się dopiero wraz z obrazem,
+ * włączenie kamery w trakcie rozmowy montowałoby go od nowa i przerywało
+ * dźwięk w chwili, w której nikt się tego nie spodziewa. Zamiast tego element
+ * jest od początku, a awatar przykrywa go, dopóki nie ma czego pokazać.
+ */
+function Kafelek({
+  nazwa,
+  stream,
+  uczestnik,
+  wlasny = false,
+  obrazWlaczony,
+}: {
+  nazwa: string;
+  stream: MediaStream | null;
+  uczestnik?: PeerState;
+  wlasny?: boolean;
+  obrazWlaczony: boolean;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const [maSciezke, setMaSciezke] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (element && element.srcObject !== stream) element.srcObject = stream;
+
+    if (!stream) {
+      setMaSciezke(false);
+      return;
+    }
+
+    /*
+     * Ścieżka wideo potrafi dojść PO strumieniu.
+     *
+     * Tak wygląda włączenie kamery w trakcie rozmowy: strumień jest ten sam od
+     * początku, a ścieżka dokłada się do niego po renegocjacji. Jednorazowe
+     * sprawdzenie przy montowaniu pokazywałoby wtedy awatar nad działającym
+     * obrazem do końca rozmowy.
+     */
+    const sprawdz = () => setMaSciezke(stream.getVideoTracks().length > 0);
+    sprawdz();
+
+    stream.addEventListener("addtrack", sprawdz);
+    stream.addEventListener("removetrack", sprawdz);
+
+    return () => {
+      stream.removeEventListener("addtrack", sprawdz);
+      stream.removeEventListener("removetrack", sprawdz);
+    };
+  }, [stream]);
+
+  const widacObraz = maSciezke && obrazWlaczony;
+
+  return (
+    <div className={widacObraz ? "kafelek z-obrazem" : "kafelek"}>
+      <video
+        ref={ref}
+        autoPlay
+        playsInline
+        // Własny podgląd MUSI być wyciszony — inaczej słychać siebie z opóźnieniem
+        // i rozmowa staje się nie do prowadzenia.
+        muted={wlasny}
+        // Lustrzany tylko własny: tak wygląda odbicie w lustrze, do którego
+        // wszyscy są przyzwyczajeni. Obraz rozmówcy odbity byłby po prostu
+        // odwrócony — z napisami czytanymi od tyłu włącznie.
+        className={wlasny ? "obraz-kafelka odbity" : "obraz-kafelka"}
+      />
+
+      {!widacObraz && (
+        <span className="awatar" aria-hidden="true">
+          {nazwa.slice(0, 1)}
+        </span>
       )}
 
-      {!call.wideo &&
-        [...strumienie.current.entries()].map(([username, stream]) => (
-          <AudioUczestnika key={`${username}-${wersjaStrumieni}`} stream={stream} />
-        ))}
-    </section>
+      <span className="podpis-kafelka">
+        <span className="kto">{nazwa}</span>
+        {uczestnik && <StanUczestnika uczestnik={uczestnik} />}
+      </span>
+    </div>
   );
 }
 
@@ -364,24 +526,11 @@ function opisRozmowy(uczestnicy: CallState["uczestnicy"]): string {
   return `Rozmowa · ${trwa.length} osób`;
 }
 
-/** Obraz jednego uczestnika. */
-function WideoUczestnika({ stream }: { stream: MediaStream }) {
-  const ref = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
-  }, [stream]);
-
-  return <video ref={ref} autoPlay playsInline className="rozmowa-wideo" />;
-}
-
-/** Dźwięk jednego uczestnika — bez elementu nie byłoby go słychać. */
-function AudioUczestnika({ stream }: { stream: MediaStream }) {
-  const ref = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
-  }, [stream]);
-
-  return <audio ref={ref} autoPlay />;
-}
+/*
+ * `WideoUczestnika` i `AudioUczestnika` zniknęły — zastąpił je `Kafelek`.
+ *
+ * Były dwoma składnikami robiącymi to samo (podpięcie strumienia do elementu),
+ * wybieranymi na podstawie trybu rozmowy. Odkąd tryb zmienia się w trakcie,
+ * ten wybór musiałby przemontowywać element w połowie rozmowy — czyli urywać
+ * dźwięk dokładnie wtedy, gdy ktoś włącza kamerę.
+ */

@@ -48,6 +48,23 @@ function godzina(czas: number): string {
   return GODZINA.format(new Date(czas));
 }
 
+/**
+ * Jak wiadomość brzmi na liście rozmów.
+ *
+ * Załącznik nie ma treści do zacytowania, a od kiedy własne zdjęcie jest
+ * zdjęciem (a nie napisem „wysłano: kot.jpg"), wiersz listy zostawał pusty.
+ * Rodzaj pliku mówi tyle, ile da się powiedzieć jednym słowem — nazwy pliku
+ * świadomie nie pokazujemy, bo bywa nią data i model aparatu.
+ */
+function zapowiedz(w: Wiadomosc): string {
+  if (w.tresc) return w.tresc;
+  if (!w.zalacznik) return "";
+
+  if (w.zalacznik.mimeType.startsWith("image/")) return "Zdjęcie";
+  if (w.zalacznik.mimeType.startsWith("video/")) return "Nagranie";
+  return "Plik";
+}
+
 type Galaz = "rozmowy" | "kontakty" | "konto";
 
 /** Wiadomość, której wysyłka jeszcze trwa albo się nie powiodła. */
@@ -696,7 +713,7 @@ function PanelListy({
                       {pozycja.ostatnia?.zalacznik && <Ikona nazwa="spinacz" rozmiar={13} />}
                       <span className="tekst">
                         {pozycja.ostatnia
-                          ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + pozycja.ostatnia.tresc
+                          ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + zapowiedz(pozycja.ostatnia)
                           : "brak wiadomości"}
                       </span>
                     </span>
@@ -712,10 +729,6 @@ function PanelListy({
         </ul>
       )}
 
-      <p className="wskazowka-ikona">
-        <Ikona nazwa="klucz" rozmiar={14} />
-        Historia jest tylko na tym urządzeniu — serwer jej nie ma.
-      </p>
     </aside>
   );
 }
@@ -858,7 +871,6 @@ function Watek({
           <span className={siec.uwaga ? "pasek-meta uwaga" : "pasek-meta"}>
             <Ikona nazwa={siec.ikona} rozmiar={12} />
             {siec.tekst}
-            {stanSieci === "polaczone" && " · szyfrowane end-to-end"}
           </span>
         </span>
 
@@ -909,11 +921,7 @@ function Watek({
         {/* W `<ol>` wolno stać tylko elementom `<li>` — pusty stan też. */}
         {uklad.length === 0 && (
           <li className="pusto-watku">
-            <Pusto
-              ikona="tarcza"
-              tytul="Tu jeszcze nic nie ma"
-              wskazowka="Wiadomości są szyfrowane end-to-end. Serwer nie zobaczy treści."
-            />
+            <Pusto ikona="rozmowy" tytul="Tu jeszcze nic nie ma" wskazowka="Napisz pierwszy." />
           </li>
         )}
 
@@ -1023,11 +1031,17 @@ function Dymek({
           mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem. */}
       {!wiadomosc.wlasna && !ciag && <span className="autor">{wiadomosc.autor}</span>}
 
-      {wiadomosc.zalacznik ? (
+      {/*
+        Załącznik i treść mogą stać w jednym dymku.
+
+        Wcześniej było to „albo — albo", więc wiadomość z obrazem nie miała jak
+        nieść zdania o tym, że z tego pliku nie udało się usunąć metadanych.
+        Zdanie przepadało albo zajmowało miejsce obrazu.
+      */}
+      {wiadomosc.zalacznik && (
         <Zalacznik messenger={messenger} zalacznik={wiadomosc.zalacznik} onBlad={onBlad} />
-      ) : (
-        <span className="tresc">{wiadomosc.tresc}</span>
       )}
+      {wiadomosc.tresc && <span className="tresc">{wiadomosc.tresc}</span>}
 
       <span className={stanWysylki === "przeczytane" ? "stopka-dymka przeczytana" : "stopka-dymka"}>
         {godzina(wiadomosc.czas)}
@@ -1077,18 +1091,31 @@ function DolaczPlik({
           ]);
 
           try {
-            const { stripped, messageId } = await messenger.sendFile(groupId, plik);
+            const { stripped, messageId, zalacznik } = await messenger.sendFile(groupId, plik);
 
-            // Gdy czyszczenie się nie powiodło, mówimy o tym wprost. Milczenie
-            // byłoby wprowadzaniem w błąd: użytkownik ma prawo wiedzieć, że
-            // akurat ten plik poszedł z metadanymi.
-            const opis = stripped
-              ? `wysłano: ${plik.name}`
-              : `wysłano: ${plik.name} — nie udało się usunąć metadanych`;
-
+            /*
+             * Własne zdjęcie jest ZDJĘCIEM, nie napisem „wysłano: kot.jpg".
+             *
+             * Tak było wcześniej i wyglądało na uszkodzoną wiadomość: druga
+             * strona widziała obraz, nadawca nazwę pliku. Opis załącznika wraca
+             * teraz z `sendFile`, więc własny dymek rysuje ten sam składnik co
+             * cudzy i odszyfrowuje ten sam szyfrogram.
+             *
+             * Treść zostaje pusta, gdy wszystko poszło dobrze. Nieudane
+             * czyszczenie metadanych mówimy wprost — użytkownik ma prawo
+             * wiedzieć, że akurat ten plik poszedł ze współrzędnymi, i jest to
+             * jedyna rzecz, z którą może coś zrobić.
+             */
             setWiadomosci((p) => [
               ...p,
-              { id: messageId, autor: "Ty", tresc: opis, czas: Date.now(), wlasna: true },
+              {
+                id: messageId,
+                autor: "Ty",
+                tresc: stripped ? "" : "nie udało się usunąć metadanych z tego pliku",
+                czas: Date.now(),
+                wlasna: true,
+                zalacznik,
+              },
             ]);
             setWLocie((p) => p.filter((w) => w.id !== id));
           } catch (err) {
@@ -1138,11 +1165,6 @@ function Kontakty({ onRozpocznij }: { onRozpocznij: (nazwa: string) => void }) {
             <Ikona nazwa="rozmowy" rozmiar={16} />
             Rozpocznij rozmowę · Start chat
           </button>
-
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="info" rozmiar={14} />
-            Katalog przechowuje tylko nazwy, urządzenia i key packages. Kto z kim rozmawia — nie.
-          </p>
         </form>
       </div>
     </>
@@ -1170,7 +1192,6 @@ function Konto({
     <>
       <header className="naglowek-konta">
         <h2>Konto</h2>
-        <p className="wskazowka">Wszystko poniżej dotyczy tej przeglądarki, nie serwera.</p>
       </header>
 
       <div className="siatka-konta">
@@ -1228,16 +1249,17 @@ function Konto({
             <span>Wysyłaj potwierdzenia odczytu · Read receipts</span>
           </label>
 
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="tarcza" rozmiar={14} />
-            Potwierdzenia są szyfrowane end-to-end i wysyłane zbiorczo, po losowym opóźnieniu do
-            30 sekund — serwer nie zobaczy, co i kiedy przeczytałeś. Chwili wysłania samej koperty
-            ukryć się nie da.
-          </p>
-
+          {/* Zostaje to, co zmienia decyzję: że wyłączenie działa w obie
+              strony i że samego CZASU wysłania ukryć się nie da. */}
           <p className="wskazowka">
             Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych.
             „Dostarczono" zostaje — nie mówi nic o niczyjej uwadze.
+          </p>
+
+          <p className="wskazowka-ikona">
+            <Ikona nazwa="zegar" rozmiar={14} />
+            Wysyłamy je zbiorczo, po losowym opóźnieniu do 30 sekund. Samego momentu wysłania
+            koperty ukryć się nie da.
           </p>
         </div>
 
@@ -1255,11 +1277,11 @@ function Konto({
         <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
 
         <div className="karta">
-          <strong>Klucze w tej przeglądarce</strong>
+          <strong>Klucze i historia</strong>
           <p className="wskazowka-ikona">
             <Ikona nazwa="klucz" rozmiar={14} />
-            Serwer nie ma czego wydać ani zgubić — ale też nie odtworzy niczego, gdy stracisz
-            wszystkie urządzenia. Historia leży w jednym zaszyfrowanym rekordzie IndexedDB.
+            Leżą wyłącznie w tej przeglądarce. Utrata wszystkich urządzeń znaczy utratę rozmów —
+            nikt ich nie odtworzy. Zanim zmienisz urządzenie, przenieś konto.
           </p>
         </div>
       </div>

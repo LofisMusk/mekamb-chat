@@ -1,3 +1,22 @@
 <resources>
-    <style name="Theme.Mekamb" parent="android:Theme.Material.NoActionBar" />
+    <!--
+      Motyw systemowy jest tu tylko podkładem pod okno: cały interfejs rysuje
+      Compose (`MotywNocturne`), a nie widoki Androida.
+
+      `windowBackground` ustawiamy jawnie na czerń, bo `Theme.Material` daje
+      w tym miejscu swoje `#303030` — szary błysk między pokazaniem okna
+      a pierwszą klatką Compose. Przy tle aplikacji `#161826` różnica była
+      dyskusyjna; przy czystej czerni jest widoczna od razu.
+
+      To jedna wartość na oba motywy i nie da się tego zrobić inaczej: wybór
+      motywu jest ZAPISANY przez użytkownika, a nie odczytany z systemu, więc
+      w chwili tworzenia okna Android jeszcze go nie zna (kwalifikator
+      `values-night` szedłby za systemem, czyli nierzadko wbrew wyborowi).
+      Czerń jest właściwa dla domyślnego motywu ciemnego, a dla jasnego jest
+      błyskiem — nie gorszym niż dotychczasowa szarość, która nie pasowała
+      do żadnego z nich.
+    -->
+    <style name="Theme.Mekamb" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF000000</item>
+    </style>
 </resources>

@@ -32,8 +32,8 @@ const KLUCZ = "mekamb.motyw";
 
 /** Kolor `--tlo` obu motywów. Musi zgadzać się z `styles.css` — patrz test. */
 export const TLO: Record<Motyw, string> = {
-  ciemny: "#161826",
-  jasny: "#f1f1f7",
+  ciemny: "#000000",
+  jasny: "#f9f7f8",
 };
 
 function poprawny(wartosc: string | null): wartosc is WyborMotywu {

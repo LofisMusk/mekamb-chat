@@ -86,12 +86,11 @@ fun EkranKonta(
                 }
             }
 
-            // Znaczniki mówią, co chroni to konto. Nie są ozdobą — użytkownik
-            // ma prawo wiedzieć, na czym stoi bezpieczeństwo rozmowy.
-            Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
-                Znacznik("OPAQUE + TOTP")
-                Znacznik("MLS · RFC 9420")
-            }
+            // Znaczników „OPAQUE + TOTP" i „MLS · RFC 9420" tu nie ma i to jest
+            // decyzja: nazwy protokołów pod awatarem nie zmieniają niczyjego
+            // zachowania, a udają informację. To, co robi różnicę — że hasła
+            // nikt nie odzyska i że historia jest tylko tutaj — stoi niżej,
+            // przy akcjach, których dotyczy.
 
             Karta {
                 WierszMenu(
@@ -122,11 +121,13 @@ fun EkranKonta(
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
                     Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
-                    Text("Klucze na tym urządzeniu", style = MaterialTheme.typography.labelLarge)
+                    Text("Gdy stracisz to urządzenie", style = MaterialTheme.typography.labelLarge)
                 }
+                // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
+                // po nim można zrobić coś inaczej — przenieść konto zawczasu.
                 Text(
-                    "Magazyn w Android Keystore. Serwer nie ma czego wydać ani zgubić — " +
-                        "ale też nie odtworzy niczego, gdy stracisz wszystkie urządzenia.",
+                    "Klucze są tylko tutaj i serwer nie odtworzy ich za Ciebie. Zanim " +
+                        "zmienisz telefon, przenieś konto — potem nie ma z czego.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )

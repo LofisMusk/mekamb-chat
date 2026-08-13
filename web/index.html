@@ -2,11 +2,21 @@
 <html lang="pl">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      `interactive-widget=resizes-content` mówi przeglądarce, że klawiatura ma
+      ZMNIEJSZYĆ widok, a nie przesunąć go w górę. Bez tego pole pisania na
+      telefonie wyjeżdża pod klawiaturę i trzeba przewijać, żeby je zobaczyć.
+      Nieznana wartość jest po prostu pomijana, więc nie szkodzi tam, gdzie
+      przeglądarka jej nie zna (Safari — tam robi to `--wysokosc-okna`).
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>mekamb-chat</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <!-- Ten sam odcień co --tlo w Nocturne; rozjazd widać na pasku systemowym. -->
-    <meta name="theme-color" content="#161826" />
+    <meta name="theme-color" content="#000000" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 

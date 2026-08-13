@@ -23,10 +23,10 @@ import androidx.compose.ui.unit.sp
  *
  * # Charakter
  *
- * Prawie neutralne tło i **jeden** akcent używany jako linia, nie jako
- * wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia. Główne
- * akcje są obrysowane, nie zalane kolorem — to najbardziej widoczna różnica
- * wobec domyślnego Material 3, gdzie przycisk główny jest pełną plamą.
+ * Czarne tło i **jeden** akcent używany jako linia, nie jako wypełnienie.
+ * Kontrast bierze się z rampy tonalnej, nie z nasycenia. Główne akcje są
+ * obrysowane, nie zalane kolorem — to najbardziej widoczna różnica wobec
+ * domyślnego Material 3, gdzie przycisk główny jest pełną plamą.
  *
  * Skala odstępów ma gęstość 0,70×, więc jest ciasna celowo.
  *
@@ -101,59 +101,79 @@ data class KoloryNocturne(
 /**
  * Motyw ciemny — domyślny.
  *
+ * # Dlaczego czysta czerń, a nie granat
+ *
+ * Tło jest `#000000`, a nie przygaszonym granatem jak wcześniej. Na ekranie
+ * OLED — a taki ma dziś praktycznie każdy telefon — czarny piksel po prostu
+ * nie świeci: nie zużywa prądu i daje kontrast, którego żaden odcień szarości
+ * nie osiągnie. Komunikator otwiera się dziesiątki razy dziennie, więc to nie
+ * jest różnica kosmetyczna.
+ *
+ * Cena jest konkretna i trzeba ją zapłacić świadomie: skoro tło jest najciemniejszą
+ * wartością, jaka istnieje, karta **nie może** odróżniać się od niego samą
+ * jasnością — różnica byłaby tak mała, że na jasnym słońcu zniknie. Dlatego
+ * karty i dymki niosą [linia] jako obrys, a nie tylko własne wypełnienie. Kto
+ * doda tu nową powierzchnię bez obrysu, dostanie prostokąt niewidoczny na tle.
+ *
  * Wartości identyczne z `:root` w `web/src/styles.css`.
  */
 val CIEMNE = KoloryNocturne(
-    tlo = Color(0xFF161826),
-    karta = Color(0xFF232532),
-    kartaPodniesiona = Color(0xFF2A2C3B),
-    wglebienie = Color(0xFF1C1E2B),
-    tekst = Color(0xFFE9E9ED),
-    tekstDrugi = Color(0xFF9397AB),
-    tekstTrzeci = Color(0xFF75798C),
-    linia = Color(0xFFE9E9ED).copy(alpha = 0.14f),
-    liniaMocna = Color(0xFFE9E9ED).copy(alpha = 0.26f),
-    akcent = Color(0xFF9184D9),
-    akcentTekst = Color(0xFFD2CEFD),
-    akcentTlo = Color(0xFF2B2741),
-    babelWlasny = Color(0xFF423A6A),
-    babelWlasnyTekst = Color(0xFFF1F0FF),
-    babelWlasnyMeta = Color(0xFFB5ABFC),
+    tlo = Color(0xFF000000),
+    karta = Color(0xFF0B0F12),
+    kartaPodniesiona = Color(0xFF131A1E),
+    wglebienie = Color(0xFF05080A),
+    tekst = Color(0xFFE8EFF1),
+    tekstDrugi = Color(0xFF8B9CA3),
+    tekstTrzeci = Color(0xFF6A7A81),
+    linia = Color(0xFFE8EFF1).copy(alpha = 0.14f),
+    liniaMocna = Color(0xFFE8EFF1).copy(alpha = 0.26f),
+    akcent = Color(0xFF06B6D4),
+    akcentTekst = Color(0xFF67E8F9),
+    akcentTlo = Color(0xFF052B33),
+    babelWlasny = Color(0xFF06323C),
+    babelWlasnyTekst = Color(0xFFE0F8FD),
+    babelWlasnyMeta = Color(0xFF7FD8E9),
     alarm = Color(0xFFF2B8B5),
     alarmTekst = Color(0xFFF9DEDC),
-    alarmTlo = Color(0xFF4A2330),
-    zaslona = Color(0xFF000000).copy(alpha = 0.62f),
+    alarmTlo = Color(0xFF3B171C),
+    zaslona = Color(0xFF000000).copy(alpha = 0.72f),
     jasny = false,
 )
 
 /**
  * Motyw jasny.
  *
- * Nie jest odwróceniem ciemnego. Akcent musi być **ciemniejszy** niż w motywie
- * ciemnym, bo linia w kolorze `#9184D9` na białym tle ma kontrast poniżej 3:1
- * i przestaje być widoczna jako obrys akcji — czyli znika jedyny sygnał, po
- * którym w tym systemie poznaje się akcję główną.
+ * # Dlaczego akcent jest tu inny niż w ciemnym
+ *
+ * Nie jest odwróceniem ciemnego. `#06B6D4` na tle `#F9F7F8` ma kontrast 2,3:1 —
+ * poniżej progu 3:1, od którego obrys w ogóle daje się odróżnić od sąsiedniej
+ * linii neutralnej. A w Nocturne **obrys jest jedynym sygnałem**, po którym
+ * poznaje się akcję główną: gdy zrówna się z akcją drugorzędną, ekran przestaje
+ * mieć hierarchię. Dlatego jasny motyw dostaje stopień ciemniejszy `#0891B2`.
+ *
+ * W ciemnym ten sam `#06B6D4` ma 8,5:1 i zostaje dokładnie taki — przyciemnianie
+ * go „dla spójności" popsułoby czytelność tam, gdzie była w porządku.
  */
 val JASNE = KoloryNocturne(
-    tlo = Color(0xFFF1F1F7),
+    tlo = Color(0xFFF9F7F8),
     karta = Color(0xFFFFFFFF),
-    kartaPodniesiona = Color(0xFFF6F6FB),
-    wglebienie = Color(0xFFECECF4),
-    tekst = Color(0xFF1A1B26),
-    tekstDrugi = Color(0xFF5C5F73),
-    tekstTrzeci = Color(0xFF7E8296),
-    linia = Color(0xFF1A1B26).copy(alpha = 0.13f),
-    liniaMocna = Color(0xFF1A1B26).copy(alpha = 0.26f),
-    akcent = Color(0xFF5B4FA8),
-    akcentTekst = Color(0xFF463D86),
-    akcentTlo = Color(0xFFEDEBFA),
-    babelWlasny = Color(0xFFE7E4FB),
-    babelWlasnyTekst = Color(0xFF241F52),
-    babelWlasnyMeta = Color(0xFF5B4FA8),
+    kartaPodniesiona = Color(0xFFF2EEF0),
+    wglebienie = Color(0xFFEFEAEC),
+    tekst = Color(0xFF17191A),
+    tekstDrugi = Color(0xFF575D60),
+    tekstTrzeci = Color(0xFF787E82),
+    linia = Color(0xFF17191A).copy(alpha = 0.13f),
+    liniaMocna = Color(0xFF17191A).copy(alpha = 0.26f),
+    akcent = Color(0xFF0891B2),
+    akcentTekst = Color(0xFF0E7490),
+    akcentTlo = Color(0xFFE2F6FA),
+    babelWlasny = Color(0xFFD8F2F8),
+    babelWlasnyTekst = Color(0xFF103F49),
+    babelWlasnyMeta = Color(0xFF0E7490),
     alarm = Color(0xFFB3261E),
     alarmTekst = Color(0xFF601410),
     alarmTlo = Color(0xFFFDECEA),
-    zaslona = Color(0xFF1A1B26).copy(alpha = 0.38f),
+    zaslona = Color(0xFF17191A).copy(alpha = 0.38f),
     jasny = true,
 )
 

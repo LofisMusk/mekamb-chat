@@ -112,6 +112,8 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
 
         Column(
             Modifier
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .imePadding()
                 .padding(horizontal = Odstep.l),

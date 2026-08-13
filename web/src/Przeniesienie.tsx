@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
+import { listaRozmow } from "./lib/historia";
 import {
   type KodPrzeniesienia,
   odbierzPrzeniesienie,
@@ -44,8 +45,8 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
       <div className="karta">
         <strong>Przeniesienie konta</strong>
         <p className="wskazowka">
-          Tożsamość i możliwość kontynuowania rozmów przechodzą na nowe urządzenie. To
-          urządzenie traci wtedy dostęp do konta.
+          Tożsamość, rozmowy i cała historia przechodzą na nowe urządzenie. To urządzenie
+          traci wtedy dostęp do konta.
         </p>
         <button
           disabled={pracuje}
@@ -100,8 +101,9 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
       )}
 
       <p className="wskazowka">
-        Przenoszona jest tożsamość i możliwość kontynuowania rozmów.
-        <strong> Wcześniejsze wiadomości nie</strong> — aplikacja nigdzie ich nie zapisuje.
+        Zrzut niesie tożsamość, możliwość kontynuowania rozmów <strong>i historię</strong> —
+        wszystko, co to urządzenie wie o koncie. To nie jest kopia zapasowa: kod działa raz
+        i wygasa po kwadransie.
       </p>
 
       <button
@@ -127,6 +129,120 @@ export function PrzeniesStad({ token, onBlad }: { token: string; onBlad: (e: unk
         rozmowy i żadna ze stron nie odczyta już wiadomości.
       </p>
     </section>
+  );
+}
+
+/** Gdzie zapamiętujemy, że ktoś już nie chce tej propozycji. */
+const KLUCZ_ODRZUCENIA = "mekamb.import-historii-odrzucony";
+
+function odrzucone(): boolean {
+  try {
+    return localStorage.getItem(KLUCZ_ODRZUCENIA) === "tak";
+  } catch {
+    // Prywatne okno bez magazynu. Wtedy propozycja pojawi się ponownie i to
+    // jest mniejsza szkoda niż wywrócenie startu aplikacji.
+    return false;
+  }
+}
+
+function zapamietajOdrzucenie() {
+  try {
+    localStorage.setItem(KLUCZ_ODRZUCENIA, "tak");
+  } catch {
+    // jw.
+  }
+}
+
+/**
+ * Propozycja przeniesienia historii z drugiego urządzenia.
+ *
+ * # Dlaczego to w ogóle jest potrzebne
+ *
+ * Zalogowanie się na nowym urządzeniu daje konto, ale NIE daje rozmów: historia
+ * leży zaszyfrowana na starym urządzeniu i serwer nie ma jej kopii. Pusta lista
+ * po poprawnym zalogowaniu wygląda jak awaria, a jedyne wyjście — przeniesienie
+ * konta kodem QR — było schowane w panelu konta, czyli tam, gdzie nikt nie
+ * szuka rozwiązania problemu, którego nie rozumie.
+ *
+ * # Dlaczego to nie jest okno modalne
+ *
+ * Bo nie jest pytaniem, na które trzeba odpowiedzieć, żeby korzystać
+ * z aplikacji. Kto zakłada pierwsze konto, nie ma czego przenosić i modal
+ * byłby dla niego wyłącznie przeszkodą przy pierwszym uruchomieniu. Pasek daje
+ * się zamknąć jednym kliknięciem i wtedy nie wraca.
+ *
+ * # Dlaczego rozwija się w miejscu
+ *
+ * Przejście na osobny ekran wymagałoby przeniesienia stanu zalogowania przez
+ * całą maszynę ekranów wejścia — a odbiór kodu i tak kończy się przeładowaniem
+ * strony, bo skarbiec zmienia się pod spodem. Rozwinięcie w miejscu nie zabiera
+ * nikomu kontekstu i pozwala się rozmyślić bez „wstecz".
+ */
+export function ZaproszenieDoImportu({ onBlad }: { onBlad: (e: unknown) => void }) {
+  const [widoczne, setWidoczne] = useState(false);
+  const [rozwiniete, setRozwiniete] = useState(false);
+
+  useEffect(() => {
+    if (odrzucone()) return;
+    let aktualne = true;
+
+    // Propozycja tylko przy PUSTEJ historii. Komu wiadomości już przyszły,
+    // temu nie ma czego proponować — a przeniesienie skasowałoby mu konto
+    // na drugim urządzeniu w zamian za nic.
+    void listaRozmow()
+      .then((rozmowy) => {
+        if (aktualne && rozmowy.length === 0) setWidoczne(true);
+      })
+      .catch(() => {
+        // Nieczytelna historia nie może zablokować wejścia do aplikacji.
+      });
+
+    return () => {
+      aktualne = false;
+    };
+  }, []);
+
+  if (!widoczne) return null;
+
+  if (rozwiniete) {
+    // Własne przewijanie, bo powłoka czatu ma twardą wysokość widoku: karta
+    // wyższa od niej zjadłaby wątek zamiast się przewinąć.
+    return (
+      <div className="zaproszenie-rozwiniete">
+        <OdbierzTutaj
+          // Po odebraniu przeładowujemy stronę: skarbiec zmienił się pod spodem,
+          // a wszystko, co go już wczytało, trzymałoby stan poprzedniego konta.
+          onGotowe={() => location.reload()}
+          onAnuluj={() => setRozwiniete(false)}
+          onBlad={onBlad}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="zaproszenie">
+      <Ikona nazwa="kodQr" rozmiar={16} />
+
+      <p>
+        Masz rozmowy na innym urządzeniu? Przeniesiesz je stamtąd kodem QR — razem z historią.
+        <span className="drobne">Stare urządzenie traci wtedy dostęp do konta.</span>
+      </p>
+
+      <button onClick={() => setRozwiniete(true)}>Przenieś</button>
+
+      <button
+        className="ikonowy"
+        aria-label="Nie pokazuj tego więcej"
+        title="Nie pokazuj tego więcej"
+        onClick={() => {
+          zapamietajOdrzucenie();
+          setWidoczne(false);
+        }}
+      >
+        <Ikona nazwa="zamknij" rozmiar={14} />
+      </button>
+    </div>
   );
 }
 

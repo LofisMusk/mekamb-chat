@@ -43,11 +43,24 @@ import androidx.compose.ui.unit.dp
  * schowane.
  */
 
-/** Powitanie: trzy drogi wejścia. */
+/**
+ * Powitanie: trzy drogi wejścia.
+ *
+ * # Czego tu nie ma
+ *
+ * Podtytułu „Szyfrowanie end-to-end. Serwer nie widzi treści." ani obietnicy
+ * o kluczach pod przyciskami. Były zapewnieniem, po którym nikt nie mógł
+ * podjąć innej decyzji — trzy drogi wejścia są te same niezależnie od tego,
+ * czy się w nie wierzy. Zdania o kluczach zostają tam, gdzie mają skutek:
+ * przy zakładaniu hasła, którego nikt nie odzyska, i przy przenoszeniu konta.
+ */
 @Composable
 fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = Odstep.xl),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Odstep.xl),
         verticalArrangement = Arrangement.Center,
     ) {
         Row(
@@ -58,27 +71,12 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
             Text("mekamb", style = MaterialTheme.typography.titleLarge)
         }
 
-        Spacer(Modifier.size(Odstep.m))
-        Text(
-            "Szyfrowanie end-to-end. Serwer nie widzi treści.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Nocturne.kolory.tekstDrugi,
-        )
-        Text(
-            "End-to-end encrypted. The server sees nothing.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Nocturne.kolory.tekstTrzeci,
-        )
-
         Spacer(Modifier.size(Odstep.xxl))
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
             PrzyciskGlowny("Załóż konto · Create account") { model.pokaz(Ekran.REJESTRACJA) }
             PrzyciskDrugi("Mam już konto · Sign in") { model.pokaz(Ekran.LOGOWANIE) }
             PrzyciskCichy("Przenoszę konto z innego urządzenia") { model.pokaz(Ekran.ODBIOR) }
         }
-
-        Spacer(Modifier.size(Odstep.xl))
-        Wskazowka("Klucze zostają na tym urządzeniu · Keys never leave this device", Ikony.Klucz)
     }
 }
 
@@ -221,6 +219,15 @@ fun EkranOdbioru(
                 color = Nocturne.kolory.tekstDrugi,
             )
 
+            // Zrzut przeniesienia w wersji 2 NIESIE historię rozmów. Trzeba to
+            // napisać wprost: kto tego nie wie, zaczyna od zera, mając wszystko
+            // w kodzie, który właśnie przepisuje.
+            Text(
+                "Przyjdzie tożsamość, możliwość kontynuowania rozmów oraz zapisana historia.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Nocturne.kolory.tekstDrugi,
+            )
+
             Pole(
                 "Kod przeniesienia · Transfer code",
                 kod,
@@ -252,8 +259,15 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
     var username by remember { mutableStateOf("") }
     var haslo by remember { mutableStateOf("") }
 
+    // Przewijanie i odsunięcie od klawiatury: przy otwartej klawiaturze dwa
+    // pola i przycisk „Dalej" nie mieszczą się na niskim ekranie, a przycisk,
+    // którego nie da się dosięgnąć, zatrzymuje logowanie na dobre.
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = Odstep.xl),
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(horizontal = Odstep.xl),
         verticalArrangement = Arrangement.Center,
     ) {
         OdznakaMarki()
@@ -273,12 +287,6 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         ) {
             model.zalogujHaslem(username.trim(), haslo)
         }
-
-        Spacer(Modifier.size(Odstep.l))
-        Wskazowka(
-            "Hasło liczone lokalnie (OPAQUE) — serwer widzi tylko dowód, nigdy hasła.",
-            Ikony.Klucz,
-        )
 
         Spacer(Modifier.size(Odstep.m))
         PrzyciskCichy("Przenoszę konto z innego urządzenia") { model.pokaz(Ekran.ODBIOR) }
@@ -306,7 +314,10 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Column(
-            modifier = Modifier.padding(horizontal = Odstep.xl),
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = Odstep.xl),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
             Pole("Sześć cyfr · Six digits", kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
@@ -323,11 +334,6 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             ) {
                 model.zalogujKodem(kod)
             }
-
-            Wskazowka(
-                "Po zalogowaniu urządzenie publikuje key packages do katalogu.",
-                Ikony.Klucz,
-            )
         }
     }
 }

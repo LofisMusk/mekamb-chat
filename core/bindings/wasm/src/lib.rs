@@ -296,6 +296,33 @@ impl MekambClient {
     }
 
     /// Scala commit po potwierdzeniu przez `GroupRelay`.
+    /// Usuwa urządzenie z rozmowy — odebranie dostępu zgubionemu sprzętowi.
+    ///
+    /// Zwraca `undefined`, gdy tego urządzenia w tej rozmowie nie ma. To nie
+    /// jest błąd: przy odbieraniu dostępu przechodzi się po wszystkich
+    /// rozmowach, a część mogła powstać już po zgubieniu sprzętu.
+    #[wasm_bindgen(js_name = removeDevice)]
+    pub fn remove_device(
+        &mut self,
+        group_id: &[u8],
+        credential_identity: &str,
+    ) -> Result<Option<PendingCommitJs>, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let pending = pobierz_mut(conversations, group_id)?
+            .stage_remove_device(provider, identity, credential_identity)
+            .map_err(to_js)?;
+
+        Ok(pending.map(|p| PendingCommitJs {
+            commit: p.commit,
+            welcome: p.welcome,
+        }))
+    }
+
     #[wasm_bindgen(js_name = confirmCommit)]
     pub fn confirm_commit(&mut self, group_id: &[u8]) -> Result<(), JsError> {
         let Self {
@@ -1107,6 +1134,7 @@ pub struct QrCode {
 
 /// Odbiornik animowanego kodu QR.
 #[wasm_bindgen]
+#[derive(Default)]
 pub struct OpticalReceiver {
     wnetrze: mekamb_core::optyka::OdbiornikOptyczny,
 }

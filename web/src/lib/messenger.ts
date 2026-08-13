@@ -341,8 +341,47 @@ export class Messenger {
     pakiety: Uint8Array[],
     username: string,
   ): Promise<void> {
-    const pending = this.client.addMembers(groupId, sklejPakiety(pakiety));
+    await this.zatwierdzIRozeslij(
+      groupId,
+      this.client.addMembers(groupId, sklejPakiety(pakiety)),
+      username,
+    );
+  }
 
+  /**
+   * Usuwa urządzenie ze WSZYSTKICH rozmów — odebranie dostępu zgubionemu sprzętowi.
+   *
+   * # Kolejność jest odwrotna, niż się wydaje
+   *
+   * Najpierw commity MLS, **potem** wykreślenie z katalogu. Odwrotnie
+   * stracilibyśmy sposób na zaadresowanie urządzenia, zanim zdążyłoby wypaść
+   * z drzewa — a samo wykreślenie z katalogu **niczego nie odbiera**: skład
+   * grupy żyje w drzewie MLS, którego serwer nie zna.
+   *
+   * Rozmowa, w której tego urządzenia nie ma, jest pomijana bez błędu: część
+   * rozmów mogła powstać już po jego zgubieniu.
+   */
+  async usunUrzadzenie(deviceId: string, rozmowy: Uint8Array[]): Promise<void> {
+    const tozsamosc = `${this.account.userId}:${deviceId}`;
+
+    for (const groupId of rozmowy) {
+      const pending = this.client.removeDevice(groupId, tozsamosc);
+      if (!pending) continue;
+
+      // Usunięte urządzenie dzieli z nami skrzynkę, więc commit i tak do niego
+      // trafi — i nic mu to nie da. Po scaleniu nie ma już klucza do tej epoki.
+      await this.zatwierdzIRozeslij(groupId, pending, this.account.userId);
+    }
+
+    await api.del(`/devices/${encodeURIComponent(deviceId)}`, this.token);
+  }
+
+  /** Zajmuje epokę, scala commit i rozsyła go. Wspólne dla dodawania i usuwania. */
+  private async zatwierdzIRozeslij(
+    groupId: Uint8Array,
+    pending: { commit: Uint8Array; welcome?: Uint8Array },
+    username: string,
+  ): Promise<void> {
     /*
      * Do serwera idzie sam numer epoki.
      *

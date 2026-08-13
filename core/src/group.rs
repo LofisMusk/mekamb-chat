@@ -219,6 +219,46 @@ impl Conversation {
         })
     }
 
+    /// Przygotowuje usunięcie urządzenia wskazanego jego tożsamością.
+    ///
+    /// # Dlaczego tożsamość, a nie indeks liścia
+    ///
+    /// Bo indeksu liścia nikt na zewnątrz nie zna i nie ma jak poznać:
+    /// [`members`](Self::members) zwraca same napisy `user_id:device_id`,
+    /// a kolejność w tej liście **nie jest** numeracją liści. Interfejs, który
+    /// musiałby je sobie zestawić, zestawiłby je prędzej czy później błędnie —
+    /// i usunąłby z rozmowy nie to urządzenie, co trzeba. Przy odbieraniu
+    /// dostępu skradzionemu laptopowi to jest pomyłka nie do odkręcenia.
+    ///
+    /// Zwraca `None`, gdy takiego urządzenia w grupie nie ma. To nie jest
+    /// błąd: przy usuwaniu z wielu rozmów naraz część z nich może go nie mieć,
+    /// bo dołączyło do nich po jego zgubieniu.
+    pub fn stage_remove_device(
+        &mut self,
+        provider: &Provider,
+        identity: &DeviceIdentity,
+        credential_identity: &str,
+    ) -> Result<Option<PendingCommit>> {
+        let leaf = self.group.members().find(|m| {
+            String::from_utf8_lossy(m.credential.serialized_content()) == credential_identity
+        });
+
+        let Some(leaf) = leaf else {
+            return Ok(None);
+        };
+
+        // Usunięcie samego siebie zostawiłoby klienta w grupie, do której nie
+        // ma już klucza — z własnym commitem, którego nie potrafi przetworzyć.
+        if leaf.index == self.group.own_leaf_index() {
+            return Err(Error::Group(
+                "nie można usunąć urządzenia, na którym się pracuje".into(),
+            ));
+        }
+
+        self.stage_remove_member(provider, identity, leaf.index.u32())
+            .map(Some)
+    }
+
     /// Scala commit przygotowany wcześniej — po potwierdzeniu przez relay.
     pub fn confirm_pending_commit(&mut self, provider: &Provider) -> Result<()> {
         self.group

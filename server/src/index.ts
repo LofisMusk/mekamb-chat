@@ -11,7 +11,9 @@ import {
   publishKeyPackages,
   registerDevice,
   toBytes,
+  urzadzenieNalezyDo,
   usernameFor,
+  usunUrzadzenie,
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
 import transfer, { cleanupExpiredTransfers } from "./transfer";
@@ -47,7 +49,7 @@ app.use("*", async (c, next) =>
     // PUT jest tu potrzebny dla przeniesienia konta. Jego brak nie objawia
     // się błędem serwera, tylko „Failed to fetch" w przeglądarce — żądanie
     // ginie na preflighcie i nigdy nie dociera do kodu.
-    allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     // Wymagane, żeby przeglądarka wysyłała i przyjmowała httpOnly cookie
     // tokenu odświeżającego (`/auth/refresh`). Bez tego `Set-Cookie` z
@@ -137,6 +139,28 @@ app.post("/devices", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * Wykreśla urządzenie z katalogu.
+ *
+ * # To nie odbiera dostępu do rozmów
+ *
+ * Skład grupy żyje w drzewie MLS, którego serwer nie zna. Dostęp odbiera
+ * klient, commitem usuwającym liść — ta trasa tylko sprawia, że nikt już tego
+ * urządzenia nigdzie nie doda. Wywołana sama, zostawiłaby zgubiony sprzęt
+ * czytającym wszystko, co przyjdzie.
+ */
+app.delete("/devices/:deviceId", requireAuth, async (c) => {
+  const usuniete = await usunUrzadzenie(c.env, c.req.param("deviceId"), c.get("userId"));
+
+  if (!usuniete) {
+    // Ten sam komunikat co przy cudzym urządzeniu — rozróżnienie mówiłoby
+    // pytającemu, które identyfikatory istnieją.
+    return c.json({ error: "to nie jest Twoje urządzenie" }, 403);
+  }
+
+  return c.json({ ok: true });
+});
+
 /** Pobiera jednorazowy key package, żeby dodać urządzenie do grupy. */
 app.post("/key-packages/:deviceId/claim", async (c) => {
   const blob = await consumeKeyPackage(c.env, c.req.param("deviceId"));
@@ -157,6 +181,15 @@ app.post("/key-packages/:deviceId", requireAuth, async (c) => {
   }
 
   const deviceId = c.req.param("deviceId");
+
+  // Sam ważny token nie wystarcza: bez tego sprawdzenia każde zalogowane konto
+  // wstrzykiwałoby key packages pod CUDZY identyfikator urządzenia.
+  if (!(await urzadzenieNalezyDo(c.env, deviceId, c.get("userId")))) {
+    // Ten sam komunikat co przy nieistniejącym urządzeniu: rozróżnienie
+    // mówiłoby pytającemu, które identyfikatory istnieją.
+    return c.json({ error: "to nie jest Twoje urządzenie" }, 403);
+  }
+
   const published = await publishKeyPackages(
     c.env,
     deviceId,

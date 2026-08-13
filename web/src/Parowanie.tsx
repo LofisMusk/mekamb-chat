@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Ikona } from "./Ikony";
 import { OpticalReceiver, OpticalSender, PairingKeys } from "./wasm/mekamb_wasm";
+import { api } from "./lib/api";
 import { listaRozmow, scalHistorie } from "./lib/historia";
 import type { Messenger } from "./lib/messenger";
 import {
@@ -539,6 +540,32 @@ export function Urzadzenia({
   onBlad: (e: unknown) => void;
 }) {
   const [rola, setRola] = useState<"brak" | "stare" | "nowe">("brak");
+  const [lista, setLista] = useState<{ deviceId: string }[]>([]);
+  const [usuwane, setUsuwane] = useState<string | null>(null);
+
+  const odswiez = useCallback(() => {
+    void api
+      .get<{ devices: { deviceId: string }[] }>(
+        `/directory/${encodeURIComponent(messenger.account.userId)}`,
+      )
+      .then((o) => setLista(o.devices))
+      .catch(() => setLista([]));
+  }, [messenger]);
+
+  useEffect(odswiez, [odswiez]);
+
+  const odbierzDostep = async (deviceId: string) => {
+    setUsuwane(deviceId);
+    try {
+      const rozmowy = (await listaRozmow()).map((p) => p.groupId);
+      await messenger.usunUrzadzenie(deviceId, rozmowy);
+      odswiez();
+    } catch (err) {
+      onBlad(err);
+    } finally {
+      setUsuwane(null);
+    }
+  };
 
   if (rola === "stare") return <SparujNoweUrzadzenie messenger={messenger} onBlad={onBlad} />;
   if (rola === "nowe") return <PodlaczTeUrzadzenie messenger={messenger} onBlad={onBlad} />;
@@ -564,6 +591,33 @@ export function Urzadzenia({
         <Ikona nazwa="aparat" rozmiar={16} />
         To urządzenie jest nowe — podłącz je
       </button>
+
+      {lista.length > 1 && (
+        <>
+          <p className="wskazowka">
+            Zgubione urządzenie odetnij tutaj. Przestanie odszyfrowywać wszystko, co przyjdzie
+            później — tego, co już przeczytało, nie da się cofnąć.
+          </p>
+          <ul className="lista-urzadzen">
+            {lista.map((u) => (
+              <li key={u.deviceId}>
+                <span>{u.deviceId}</span>
+                {u.deviceId === messenger.account.deviceId ? (
+                  <span className="wskazowka">to urządzenie</span>
+                ) : (
+                  <button
+                    disabled={usuwane !== null}
+                    onClick={() => void odbierzDostep(u.deviceId)}
+                  >
+                    <Ikona nazwa="kosz" rozmiar={16} />
+                    {usuwane === u.deviceId ? "Odbieram…" : "Odbierz dostęp"}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

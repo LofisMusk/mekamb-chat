@@ -286,6 +286,7 @@ pub enum Postep {
 /// który przychodzi tą samą kamerą co ramki, więc odbiornik musi umieć
 /// **zacząć zbierać, zanim pozna klucz**. Trzymanie klucza w konstruktorze
 /// zmuszałoby do wyrzucenia wszystkiego, co złapano do tej pory.
+#[derive(Default)]
 pub struct OdbiornikOptyczny {
     naglowek: Option<Opis>,
     bloki: Vec<Option<Vec<u8>>>,

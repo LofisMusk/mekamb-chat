@@ -517,6 +517,38 @@ impl MekambClient {
     }
 
     /// Scala commit po potwierdzeniu przez `GroupRelay`.
+    /// Usuwa urządzenie z rozmowy — odebranie dostępu zgubionemu sprzętowi.
+    ///
+    /// Zwraca `None`, gdy tego urządzenia w tej rozmowie nie ma. To nie jest
+    /// błąd: przy odbieraniu dostępu przechodzi się po wszystkich rozmowach,
+    /// a część mogła powstać już po zgubieniu sprzętu.
+    pub fn remove_device(
+        &self,
+        group_id: Vec<u8>,
+        credential_identity: String,
+    ) -> Result<Option<PendingCommit>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let pending = conversation.stage_remove_device(provider, identity, &credential_identity)?;
+
+        Ok(pending.map(|p| PendingCommit {
+            commit: p.commit,
+            welcome: p.welcome,
+        }))
+    }
+
     pub fn confirm_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
         let ClientState {
@@ -1267,7 +1299,7 @@ impl NadajnikOptyczny {
 }
 
 /// Odbiornik animowanego kodu QR.
-#[derive(uniffi::Object)]
+#[derive(uniffi::Object, Default)]
 pub struct OdbiornikOptyczny {
     wnetrze: std::sync::Mutex<mekamb_core::optyka::OdbiornikOptyczny>,
 }
@@ -1322,7 +1354,11 @@ impl OdbiornikOptyczny {
             powod: "klucz transferu musi mieć 32 bajty".into(),
         })?;
 
-        Ok(self.wnetrze.lock().expect("zatruty zamek").odbierz(&klucz)?)
+        Ok(self
+            .wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .odbierz(&klucz)?)
     }
 }
 

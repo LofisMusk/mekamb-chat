@@ -100,10 +100,10 @@ describe("historia rozmów", () => {
 
   /// Sedno: podniesienie numeru wersji nie może skasować historii, której nikt
   /// nie ma w kopii. Kolejne wersje różnią się polami DOKŁADANYMI — 3 nie miała
-  /// załącznika po stronie Androida, 4 nie miała stanu wysyłki — więc odczyt
-  /// starszego zapisu jest bezstratny, a brakujące pole ma sensowną wartość
-  /// domyślną.
-  it.each([3, 4])("historia z wersji %i czyta się bez straty", async (wersja) => {
+  /// załącznika po stronie Androida, 4 nie miała stanu wysyłki, 5 nie miała
+  /// śladu po rozmowie A/V — więc odczyt starszego zapisu jest bezstratny,
+  /// a brakujące pole ma sensowną wartość domyślną.
+  it.each([3, 4, 5])("historia z wersji %i czyta się bez straty", async (wersja) => {
     const klucz = Array.from(GRUPA_A, (b) => b.toString(16).padStart(2, "0")).join("");
     dysk = new TextEncoder().encode(
       JSON.stringify({
@@ -125,10 +125,44 @@ describe("historia rozmów", () => {
     expect(odczytane[0]!.tresc).toBe("sprzed migracji");
     // Brak stanu wysyłki znaczy „wysłana" — interfejs nie ma czego zgadywać.
     expect(odczytane[0]!.stan).toBeUndefined();
+    // Brak śladu po rozmowie znaczy „to nie jest rozmowa", nie „rozmowa pusta".
+    expect(odczytane[0]!.rozmowa).toBeUndefined();
 
     // …i po pierwszym zapisie leży już w bieżącej wersji.
     await zapiszRozmowe(GRUPA_A, "bartek", odczytane);
-    expect(JSON.parse(new TextDecoder().decode(dysk!)).wersja).toBe(5);
+    expect(JSON.parse(new TextDecoder().decode(dysk!)).wersja).toBe(6);
+  });
+
+  /// Sedno: ślad po rozmowie musi przeżyć zapis, razem z rozróżnieniem
+  /// „nie odebrano" od „trwała zero sekund". Brak czasu trwania i zero to dwa
+  /// różne zdarzenia, a JSON zapisany bez tej różnicy zamieniłby nieodebraną
+  /// rozmowę w odbytą i natychmiast przerwaną.
+  it("ślad po rozmowie przeżywa zapis i odczyt", async () => {
+    await zapiszRozmowe(GRUPA_A, "bartek", [
+      {
+        id: "r1",
+        autor: "Ty",
+        tresc: "",
+        czas: 10,
+        wlasna: true,
+        rozmowa: { wideo: true, sekundy: 154, wychodzaca: true },
+      },
+      {
+        id: "r2",
+        autor: "bartek",
+        tresc: "",
+        czas: 20,
+        wlasna: false,
+        rozmowa: { wideo: false, wychodzaca: false },
+      },
+    ]);
+
+    const odczytane = await wczytajRozmowe(GRUPA_A);
+
+    expect(odczytane[0]!.rozmowa).toEqual({ wideo: true, sekundy: 154, wychodzaca: true });
+    // Nieodebrana NIE MA czasu trwania — zero znaczyłoby „odebrana i przerwana".
+    expect(odczytane[1]!.rozmowa?.sekundy).toBeUndefined();
+    expect(odczytane[1]!.rozmowa?.wychodzaca).toBe(false);
   });
 
   /// Sedno: stan wysyłki musi przeżyć zapis.

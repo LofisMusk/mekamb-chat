@@ -117,6 +117,34 @@ internal fun opisTypu(mimeType: String): String = when {
     else -> "plik"
 }
 
+/**
+ * Ślad po rozmowie audio/wideo w wątku.
+ *
+ * # Dlaczego zapis LOKALNY, a nie wiadomość MLS
+ *
+ * „Nieodebrana" jest faktem o TYM urządzeniu, nie o rozmowie. Dzwoniący widzi
+ * „nikt nie odebrał", odbierający „nie odebrałeś", a trzecie urządzenie tej
+ * samej osoby nie widzi nic, bo nic się przy nim nie wydarzyło. Uzgadnianie
+ * tego kanałem MLS znaczyłoby uzgadnianie czegoś, co z każdej strony wygląda
+ * inaczej i z żadnej nie jest nieprawdą.
+ *
+ * Kształt musi zgadzać się z `ZapisRozmowy` w `web/src/lib/historia.ts` —
+ * zrzut przeniesienia konta przechodzi między klientami.
+ */
+data class ZapisRozmowy(
+    /** Czy szła z obrazem. Decyduje o ikonie — tej samej co przy dzwonieniu. */
+    val wideo: Boolean,
+    /**
+     * Ile trwała, w sekundach. `null` znaczy, że nie doszła do skutku.
+     *
+     * Zero i `null` to nie to samo: zero byłoby rozmową odebraną i natychmiast
+     * przerwaną, a `null` — taką, której nikt nie odebrał.
+     */
+    val sekundy: Long? = null,
+    /** Czy to my dzwoniliśmy. Rozstrzyga między „nikt nie odebrał" a „nieodebrana". */
+    val wychodzaca: Boolean,
+)
+
 data class Wiadomosc(
     val autor: String,
     val tresc: String,
@@ -131,6 +159,9 @@ data class Wiadomosc(
      * który przy każdym zapisie szyfrujemy w całości.
      */
     val zalacznik: Zalacznik? = null,
+
+    /** Obecne, gdy wpis jest śladem po rozmowie, a nie wiadomością. */
+    val rozmowa: ZapisRozmowy? = null,
 
     /**
      * Identyfikator z protokołu — 16 bajtów.
@@ -909,6 +940,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun zadzwon(kontekst: Context, zWideo: Boolean) {
         val klient = messenger ?: return
+        rozmowaWychodzaca = true
+        rozmowaOd = System.currentTimeMillis()
         val groupId = stan.groupId ?: return
         val ja = vault.loadAccount()?.userId.orEmpty()
 
@@ -948,6 +981,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /** Odbiera dzwoniącą rozmowę. */
     fun odbierzRozmowe(kontekst: Context, zWideo: Boolean) {
         val klient = messenger ?: return
+        rozmowaWychodzaca = false
+        rozmowaOd = System.currentTimeMillis()
         val przychodzaca = stan.przychodzacaRozmowa ?: return
 
         // Oferta idzie razem z odebraniem: `RozmowaAV` przetworzy ją dopiero
@@ -973,6 +1008,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Kończy rozmowę i zwalnia mikrofon oraz kamerę. */
     fun zakonczRozmowe() {
+        zapiszSladRozmowy(
+            wideo = stan.kameraWlaczona || stan.rozmowaZWideo,
+            // Czas liczymy od ZESTAWIENIA, a nie od naciśnięcia „zadzwoń":
+            // sekundy dzwonienia nie są rozmową, a doliczone dawałyby przy
+            // nieodebranym połączeniu „rozmowa · 0:24", czyli zdanie nieprawdziwe.
+            odbyta = stan.rozmowaAV.any { it.faza == FazaPolaczenia.POLACZONA },
+            wychodzaca = rozmowaWychodzaca,
+        )
+
         // Stan gaśnie pierwszy, żeby ekran dostał sygnał wyjścia najwcześniej,
         // jak się da. Nie wystarcza to jednak za synchronizację: Compose
         // sprząta dopiero przy kolejnej klatce, więc podglądy wideo mogą jeszcze
@@ -991,6 +1035,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun przelaczMikrofon() = rozmowa?.przelaczMikrofon()
+
+    /** Kiedy rozmowa została zestawiona i kto dzwonił — do śladu w wątku. */
+    private var rozmowaOd: Long? = null
+    private var rozmowaWychodzaca: Boolean = true
 
     /**
      * Włącza albo wyłącza obraz.
@@ -1024,7 +1072,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Odrzucona rozmowa zostaje w wątku. Zniknięcie bez śladu znaczy, że po
+        // odłożeniu telefonu nie da się już sprawdzić, kto dzwonił.
+        zapiszSladRozmowy(wideo = false, odbyta = false, wychodzaca = false)
+
         stan = stan.copy(przychodzacaRozmowa = null)
+    }
+
+    /**
+     * Dopisuje ślad po rozmowie do wątku.
+     *
+     * Wpis jest LOKALNY — patrz [ZapisRozmowy]. Trafia tą samą drogą co
+     * wiadomość, więc przeplata się z nią w czasie zamiast stać w osobnej liście
+     * wymagającej scalania dwóch porządków przy każdym rysowaniu wątku.
+     */
+    private fun zapiszSladRozmowy(wideo: Boolean, odbyta: Boolean, wychodzaca: Boolean) {
+        if (stan.groupId == null) return
+        val od = rozmowaOd
+        rozmowaOd = null
+
+        val wpis = Wiadomosc(
+            autor = if (wychodzaca) "Ty" else (stan.rozmowca ?: ""),
+            tresc = "",
+            wlasna = wychodzaca,
+            rozmowa = ZapisRozmowy(
+                wideo = wideo,
+                sekundy = if (odbyta && od != null) (System.currentTimeMillis() - od) / 1000 else null,
+                wychodzaca = wychodzaca,
+            ),
+        )
+
+        stan = stan.copy(wiadomosci = stan.wiadomosci + wpis)
+        zapiszHistorie()
     }
 
     /**

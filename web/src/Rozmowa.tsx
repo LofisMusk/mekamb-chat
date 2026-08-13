@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Ikona } from "./Ikony";
 import { Call } from "./lib/calls";
 import type { CallState, PeerState } from "./lib/calls";
+import type { ZapisRozmowy } from "./lib/historia";
 import type { Messenger } from "./lib/messenger";
 
 /** Sygnalizacja odebrana kanałem MLS, przekazana do komponentu rozmowy. */
@@ -51,12 +52,15 @@ export function Rozmowa({
   groupId,
   sygnal,
   zadanie,
+  onZdarzenie,
   onBlad,
 }: {
   messenger: Messenger;
   groupId: Uint8Array;
   sygnal: SygnalRozmowy | null;
   zadanie: ZadanieRozmowy | null;
+  /** Zgłasza ślad po rozmowie do wątku — patrz `ZapisRozmowy` w `historia.ts`. */
+  onZdarzenie: (zapis: ZapisRozmowy) => void;
   onBlad: (e: unknown) => void;
 }) {
   const [call, setCall] = useState<Call | null>(null);
@@ -91,6 +95,13 @@ export function Rozmowa({
 
   const [odKiedy, setOdKiedy] = useState<number | null>(null);
   const [sekundy, setSekundy] = useState(0);
+
+  /*
+   * Kto dzwonił. Przez referencję, bo to nie wpływa na wygląd — służy
+   * wyłącznie do rozstrzygnięcia, czy nieodebrana rozmowa była „nasza"
+   * (nikt nie odebrał), czy „ich" (nie odebraliśmy).
+   */
+  const wychodzaca = useRef(true);
 
   const zapamietajStrumien = (username: string, stream: MediaStream) => {
     setStrumienie((poprzednie) => {
@@ -151,6 +162,7 @@ export function Rozmowa({
   }, [odKiedy]);
 
   const zadzwon = async (wideo: boolean) => {
+    wychodzaca.current = true;
     try {
       const nowa = await Call.rozpocznij(
         messenger,
@@ -173,6 +185,7 @@ export function Rozmowa({
     if (!przychodzace) return;
     const zaproszenie = przychodzace;
     setPrzychodzace(null);
+    wychodzaca.current = false;
 
     try {
       const nowa = await Call.odbierz(
@@ -205,7 +218,25 @@ export function Rozmowa({
     }
   };
 
+  /**
+   * Kończy rozmowę i zostawia po niej ślad w wątku.
+   *
+   * Czas liczymy od chwili ZESTAWIENIA, nie od naciśnięcia „zadzwoń": sekundy
+   * dzwonienia nie są rozmową i doliczone do niej dawałyby przy nieodebranym
+   * połączeniu „rozmowa · 0:24", czyli zdanie wprost nieprawdziwe.
+   *
+   * Rozmowa, której nikt nie odebrał, nie ma czasu trwania — i to jest różnica
+   * między brakiem a zerem: zero znaczyłoby „odebrana i natychmiast przerwana".
+   */
   const rozlacz = () => {
+    const ktos = (stan?.uczestnicy ?? []).some((u) => u.faza === "trwa");
+
+    onZdarzenie({
+      wideo: stan?.wideo ?? false,
+      sekundy: ktos ? Math.floor(sekundy) : undefined,
+      wychodzaca: wychodzaca.current,
+    });
+
     call?.zakoncz();
     setCall(null);
     setStan(null);
@@ -265,7 +296,15 @@ export function Rozmowa({
             <Ikona nazwa="kamera" rozmiar={16} />
             Z obrazem
           </button>
-          <button className="niszczacy" onClick={() => setPrzychodzace(null)}>
+          <button
+            className="niszczacy"
+            onClick={() => {
+              // Odrzucona rozmowa zostaje w wątku. Zniknięcie bez śladu znaczy,
+              // że po odłożeniu telefonu nie da się już sprawdzić, kto dzwonił.
+              onZdarzenie({ wideo: false, wychodzaca: false });
+              setPrzychodzace(null);
+            }}
+          >
             <Ikona nazwa="rozlacz" rozmiar={16} />
             Odrzuć
           </button>

@@ -34,24 +34,26 @@ private const val LIMIT_WIADOMOSCI = 500
  * Wersja formatu.
  *
  * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania, 4 załącznik po tej
- * stronie. Numer był przy wersji 2 przez chwilę taki sam jak w kliencie
+ * stronie, 5 identyfikator i stan wysyłki, 6 ślad po rozmowie A/V.
+ * Numer był przy wersji 2 przez chwilę taki sam jak w kliencie
  * webowym mimo niezgodnego kształtu — przeniesienie konta między klientami
  * dałoby wtedy historię nie do odczytania. Każda zmiana układu idzie teraz po
  * obu stronach naraz.
  */
-private const val WERSJA = 5
+private const val WERSJA = 6
 
 /**
  * Wersje, które umiemy wczytać.
  *
- * 3 różni się od 4 wyłącznie brakiem załącznika, a 4 od 5 brakiem identyfikatora
- * wiadomości i stanu wysyłki — oba pola są opcjonalne i mają sensowne wartości
- * domyślne, więc odczyt jest bezstratny. Odrzucenie starszego zapisu byłoby
+ * 3 różni się od 4 wyłącznie brakiem załącznika, 4 od 5 brakiem identyfikatora
+ * wiadomości i stanu wysyłki, a 5 od 6 brakiem śladu po rozmowie A/V — każde
+ * z tych pól jest opcjonalne i ma sensowną wartość domyślną, więc odczyt jest
+ * bezstratny. Odrzucenie starszego zapisu byłoby
  * **skasowaniem historii użytkownika**, której serwer nie ma w kopii. Reguła
  * „numer odróżnia układy" zostaje; od odrzucania jest niezgodny układ, a nie
  * każdy inny numer.
  */
-private val CZYTANE_WERSJE = setOf(3, 4, WERSJA)
+private val CZYTANE_WERSJE = setOf(3, 4, 5, WERSJA)
 
 /**
  * Załącznik zapisany obok wiadomości.
@@ -117,6 +119,20 @@ fun ZapisanyZalacznik.doModelu(): Zalacznik = Zalacznik(
     nazwaPliku = fileName,
 )
 
+/**
+ * Ślad po rozmowie w postaci zapisywanej.
+ *
+ * Nazwy pól są DOKŁADNIE takie jak w `ZapisRozmowy` w `historia.ts` — zrzut
+ * przeniesienia konta wędruje między klientami i rozjazd jednej nazwy dałby
+ * po drugiej stronie rozmowę bez czasu trwania albo bez kierunku.
+ */
+@Serializable
+private data class ZapisanaRozmowaAV(
+    val wideo: Boolean = false,
+    val sekundy: Long? = null,
+    val wychodzaca: Boolean = false,
+)
+
 @Serializable
 private data class ZapisanaWiadomosc(
     val autor: String,
@@ -124,6 +140,8 @@ private data class ZapisanaWiadomosc(
     val wlasna: Boolean,
     val czas: Long,
     val zalacznik: ZapisanyZalacznik? = null,
+    /** Ślad po rozmowie A/V. Brak znaczy „to zwykła wiadomość". */
+    val rozmowa: ZapisanaRozmowaAV? = null,
     /**
      * Identyfikator z protokołu, szesnastkowo.
      *
@@ -205,6 +223,9 @@ class Historia(private val vault: Vault) {
                     wlasna = it.wlasna,
                     czas = it.czas,
                     zalacznik = it.zalacznik?.doModelu(),
+                    rozmowa = it.rozmowa?.let { r ->
+                        ZapisRozmowy(wideo = r.wideo, sekundy = r.sekundy, wychodzaca = r.wychodzaca)
+                    },
                     id = it.id.zHex(),
                     stan = it.stan,
                 )
@@ -233,6 +254,9 @@ class Historia(private val vault: Vault) {
                     wlasna = it.wlasna,
                     czas = it.czas,
                     zalacznik = it.zalacznik?.doZapisu(),
+                    rozmowa = it.rozmowa?.let { r ->
+                        ZapisanaRozmowaAV(wideo = r.wideo, sekundy = r.sekundy, wychodzaca = r.wychodzaca)
+                    },
                     id = it.id.hex(),
                     stan = it.stan,
                 )

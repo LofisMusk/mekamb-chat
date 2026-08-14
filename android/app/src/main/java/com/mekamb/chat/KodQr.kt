@@ -44,10 +44,24 @@ fun KodQr(tresc: String, opis: String, modifier: Modifier = Modifier) {
     // Liczenie kodu jest deterministyczne i niezależne od rysowania, więc
     // pamiętamy wynik — inaczej każde przerysowanie liczyłoby Reeda-Solomona
     // od nowa, także przy samym odliczaniu czasu obok.
-    val kod = remember(tresc) { runCatching { qrCode(tresc) }.getOrNull() }
+    val kod = remember(tresc) { runCatching { qrCode(tresc) }.getOrNull() } ?: return
 
-    if (kod == null) return
+    KodQrZMacierzy(kod, opis, modifier)
+}
 
+/**
+ * To samo, ale z gotowej macierzy.
+ *
+ * Transfer optyczny podmienia klatkę dziesięć razy na sekundę i liczy ją
+ * w rdzeniu razem z kodowaniem fountain — przepuszczanie jej przez tekst
+ * wymagałoby base64 i kosztowało jedną trzecią przepustowości.
+ */
+@Composable
+fun KodQrZMacierzy(
+    kod: uniffi.mekamb_ffi.KodQr,
+    opis: String,
+    modifier: Modifier = Modifier,
+) {
     val bok = kod.bok.toInt()
     val zMarginesem = bok + MARGINES * 2
 

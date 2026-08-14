@@ -288,9 +288,21 @@ class Messenger private constructor(
              *
              * Nowa osoba jest pomijana: dostaje `welcome`, a commitu, który ją
              * wprowadza do grupy, nie potrafi przetworzyć.
+             *
+             * Wyjątkiem jest dodawanie WŁASNEGO urządzenia: nowy członek dzieli
+             * wtedy skrzynkę z nami, więc pominięcie jej odcięłoby od commitu
+             * nasze pozostałe urządzenia i zostałyby w starej epoce. Nowe
+             * urządzenie ten commit po prostu odrzuci — nie zna jeszcze tej
+             * rozmowy, więc znacznik koperty nie pasuje do niczego.
+             *
+             * Własną skrzynkę też obsługujemy, bo bez tego drugie urządzenie
+             * nigdy nie dowiaduje się o zmianie składu.
              */
+            Echa.zapamietaj(oczekujacy.commit)
+
+            val wlasneUrzadzenie = peerUsername == account.userId
             for (osoba in uczestnicy(groupId)) {
-                if (osoba == peerUsername || osoba == account.userId) continue
+                if (!wlasneUrzadzenie && osoba == peerUsername) continue
                 api.deposit(osoba, oczekujacy.commit)
             }
 
@@ -379,7 +391,33 @@ class Messenger private constructor(
      * urządzenia odbiorcy.
      */
     private suspend fun wyslijWelcome(peerUsername: String, welcome: ByteArray) {
+        // Przy dołączaniu własnego urządzenia zaproszenie ląduje we własnej
+        // skrzynce, więc wróci także tutaj — a tego zaproszenia nie mamy po co
+        // przetwarzać, bo w tej grupie już jesteśmy.
+        Echa.zapamietaj(welcome)
         wyslij(peerUsername, urzadzenie = null, koperta = welcome)
+    }
+
+    /**
+     * Wrzuca kopertę także do WŁASNEJ skrzynki.
+     *
+     * # Po co
+     *
+     * Bez tego wiadomość wysłana z telefonu nie istnieje dla laptopa. Cudze
+     * wiadomości docierały na wszystkie urządzenia od zawsze, bo skrzynka jest
+     * wspólna — brakowało wyłącznie echa własnych, i to ono sprawiało, że dwa
+     * urządzenia widziały dwie różne historie tej samej rozmowy.
+     *
+     * # Czemu niepowodzenie nie jest błędem
+     *
+     * Do rozmówcy wiadomość już poszła. Wywrócenie wysyłki na tym etapie
+     * pokazałoby błąd przy wiadomości, która **została** dostarczona — gorzej
+     * niż chwilowy rozjazd między własnymi urządzeniami, który i tak naprawi
+     * scalenie historii.
+     */
+    private suspend fun echoDoSiebie(koperta: ByteArray) {
+        Echa.zapamietaj(koperta)
+        runCatching { api.deposit(account.userId, koperta, portfel?.wez()?.naglowek()) }
     }
 
     /**
@@ -401,10 +439,13 @@ class Messenger private constructor(
         vault.saveState(client.exportState())
 
         val urzadzenie = drogaBezposrednia(recipient)
-        WyslanaWiadomosc(
-            sposob = wyslij(recipient, urzadzenie, zapakowana.koperta),
-            messageId = zapakowana.messageId,
-        )
+        val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
+
+        // Dopiero po rozmówcy: gdyby echo szło pierwsze, nieudana wysyłka
+        // pokazałaby wiadomość jako błędną tutaj, a jako wysłaną na laptopie.
+        echoDoSiebie(zapakowana.koperta)
+
+        WyslanaWiadomosc(sposob = sposob, messageId = zapakowana.messageId)
     }
 
     /**
@@ -433,6 +474,11 @@ class Messenger private constructor(
 
         val urzadzenie = drogaBezposrednia(recipient)
         wyslij(recipient, urzadzenie, koperta)
+
+        // Potwierdzenie odczytu jedzie też do nas: przeczytane na telefonie ma
+        // znaczyć przeczytane również na laptopie, inaczej drugie urządzenie
+        // świeci licznikiem rozmowy, którą właśnie przejrzeliśmy.
+        echoDoSiebie(koperta)
     }
 
     /**
@@ -491,6 +537,10 @@ class Messenger private constructor(
 
         val urzadzenie = drogaBezposrednia(recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
+
+        // Szyfrogram leży w R2, a klucz jedzie w tej kopercie — drugie własne
+        // urządzenie otworzy załącznik dokładnie tą samą drogą co rozmówca.
+        echoDoSiebie(zapakowana.koperta)
 
         WyslanyZalacznik(
             zalacznik = Zalacznik(
@@ -670,7 +720,23 @@ class Messenger private constructor(
                 obsluzRamke(
                     ramka = ramka,
                     licznik = licznik,
-                    przetworz = { koperta -> onEvent(przetworzKoperte(koperta), DeliveryMode.MAILBOX) },
+                    przetworz = { koperta ->
+                        /*
+                         * Własne echo odsiewamy przed przetwarzaniem.
+                         *
+                         * Wysyłamy także do własnej skrzynki, żeby wiadomość
+                         * z telefonu dotarła na laptopa — więc koperta wraca do
+                         * nadawcy, a MLS nie pozwala przetworzyć własnej
+                         * wiadomości. Bez tego wpadłaby w ponawianie i wisiała
+                         * w kolejce przez trzy połączenia.
+                         *
+                         * Pominięcie kończy się powodzeniem, więc `obsluzRamke`
+                         * od razu ją potwierdza i koperta znika z kolejki.
+                         */
+                        if (!Echa.czyWlasna(koperta)) {
+                            onEvent(przetworzKoperte(koperta), DeliveryMode.MAILBOX)
+                        }
+                    },
                     potwierdz = potwierdz,
                 )
             }

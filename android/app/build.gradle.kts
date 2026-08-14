@@ -147,6 +147,14 @@ dependencies {
     // webowy ma je od dawna, więc bez tego jedna strona nigdy nie odbierze.
     implementation(libs.webrtc)
 
+    // Parowanie drugiego urządzenia: podgląd z aparatu i dekoder kodów QR.
+    // Razem około 2 MB przy 5,4 MB wydania — cena za to, że konta da się
+    // używać na dwóch urządzeniach bez wysyłania historii na serwer.
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
+
     // Wymagane przez kod generowany przez UniFFI.
     implementation(variantOf(libs.jna) { artifactType("aar") })
 

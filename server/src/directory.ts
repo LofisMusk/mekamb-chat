@@ -110,6 +110,67 @@ export async function usernameFor(env: Env, userId: string): Promise<string | nu
 }
 
 /**
+ * Wykreśla urządzenie z katalogu razem z jego zapasem key packages.
+ *
+ * # Czego to NIE robi
+ *
+ * Nie odbiera dostępu do rozmów. Członkiem grupy MLS jest urządzenie, a skład
+ * grupy żyje w drzewie MLS, którego serwer nie zna i znać nie może — usunięcie
+ * z rozmów robi klient commitem `removeDevice`. Ta trasa tylko sprawia, że
+ * nikt nowy już tego urządzenia do niczego nie doda.
+ *
+ * Kolejność ma znaczenie i jest odwrotna, niż się wydaje: **najpierw** commity
+ * MLS, **potem** wykreślenie z katalogu. Odwrotnie stracilibyśmy możliwość
+ * zaadresowania go w drzewie, zanim zdążyłoby z niego wypaść.
+ */
+export async function usunUrzadzenie(
+  env: Env,
+  deviceId: string,
+  userId: string,
+): Promise<boolean> {
+  if (!(await urzadzenieNalezyDo(env, deviceId, userId))) return false;
+
+  // Key packages najpierw: zostawione po skasowanym urządzeniu byłyby
+  // wydawane każdemu, kto o nie poprosi, i wprowadzałyby do rozmów liść,
+  // którego nikt już nie obsłuży.
+  await env.DB.prepare("DELETE FROM key_packages WHERE device_id = ?").bind(deviceId).run();
+  await env.DB.prepare("DELETE FROM refresh_tokens WHERE device_id = ?").bind(deviceId).run();
+  await env.DB.prepare("DELETE FROM devices WHERE id = ? AND user_id = ?")
+    .bind(deviceId, userId)
+    .run();
+
+  return true;
+}
+
+/**
+ * Czy to urządzenie należy do tego konta.
+ *
+ * # Po co
+ *
+ * `POST /key-packages/:deviceId` sprawdzał wyłącznie, że wołający ma WAŻNY
+ * token — nie że `:deviceId` jest jego. Każde zalogowane konto mogło więc
+ * wstrzykiwać key packages pod cudzy identyfikator urządzenia. Przed
+ * najgorszym skutkiem ratowała walidacja po stronie dodającego klienta
+ * (`deserialize_key_package` sprawdza credential i podpis, więc podrobiony
+ * pakiet nie przejdzie), ale sam katalog stał otworem: dało się zapchać komuś
+ * zapas albo podmienić go na pakiety, których nikt nie odbierze.
+ *
+ * Przy parowaniu drugiego urządzenia to przestaje być teoretyczne, bo cała
+ * ścieżka opiera się teraz na pobraniu key package po `deviceId`.
+ */
+export async function urzadzenieNalezyDo(
+  env: Env,
+  deviceId: string,
+  userId: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT 1 AS jest FROM devices WHERE id = ? AND user_id = ?")
+    .bind(deviceId, userId)
+    .first<{ jest: number }>();
+
+  return row !== null;
+}
+
+/**
  * Wydaje jeden niezużyty key package i od razu oznacza go jako zużyty.
  *
  * # Dlaczego to jedno zapytanie, a nie SELECT plus UPDATE

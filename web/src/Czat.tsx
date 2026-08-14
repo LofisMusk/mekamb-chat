@@ -5,6 +5,7 @@ import { Rozmowa, type SygnalRozmowy, type ZadanieRozmowy } from "./Rozmowa";
 import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
 import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { Urzadzenia } from "./Parowanie";
 import { PrzeniesStad } from "./Przeniesienie";
 import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
@@ -287,12 +288,23 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
 
   const dodaj = useCallback(
     (odebrana: ReceivedMessage) => {
+      /*
+       * Wiadomość z DRUGIEGO WŁASNEGO urządzenia jest nasza.
+       *
+       * Odkąd wysyłamy także do własnej skrzynki, telefon dostaje to, co
+       * napisaliśmy na laptopie. Bez tego sprawdzenia stanęłoby to po lewej
+       * stronie, podpisane naszym własnym identyfikatorem, jak wypowiedź obcej
+       * osoby. Rozstrzyga `sender_user_id` z credentiala MLS — jedyne
+       * wiarygodne źródło, bo pola spoza kanału MLS można podmienić.
+       */
+      const wlasna = odebrana.senderUserId === messenger.account.userId;
+
       const wiadomosc: Wiadomosc = {
         id: idWiadomosci(odebrana.messageId),
-        autor: odebrana.senderUserId,
+        autor: wlasna ? "Ty" : odebrana.senderUserId,
         tresc: odebrana.text,
         czas: odebrana.sentAtMs,
-        wlasna: false,
+        wlasna,
         zalacznik: odebrana.attachment,
       };
 
@@ -325,6 +337,14 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           });
       }
 
+      const klucz = kluczRozmowy(odebrana.groupId);
+      grupyPoKluczu.current.set(klucz, odebrana.groupId);
+
+      // Za własną wiadomość nie potwierdzamy dostarczenia. Rozmówca dostałby
+      // „dostarczono" na wiadomość, której nie wysłał — bezużyteczny ruch,
+      // który przy okazji zdradza, ile mamy urządzeń.
+      if (wlasna) return;
+
       /*
        * Dostarczenie potwierdzamy przy odbiorze, a nie przy pokazaniu.
        *
@@ -332,12 +352,35 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
        * i tak nie dokłada osobnego zdarzenia w czasie, bo koperta i tak
        * właśnie przyszła.
        */
-      const klucz = kluczRozmowy(odebrana.groupId);
-      grupyPoKluczu.current.set(klucz, odebrana.groupId);
       zbieracz.current.dodaj(klucz, "delivered", idWiadomosci(odebrana.messageId));
       zaplanujWysylke();
     },
-    [zaplanujWysylke, nazwaGrupy],
+    [messenger, zaplanujWysylke, nazwaGrupy],
+  );
+
+  /**
+   * Przenosi znacznik przeczytania z drugiego własnego urządzenia.
+   *
+   * Chwilę bierzemy z najnowszej **wymienionej** wiadomości, a nie z `Date.now()`:
+   * potwierdzenia wychodzą z losowym opóźnieniem do 30 s, więc „teraz"
+   * oznaczyłoby jako przeczytane także to, co przyszło w międzyczasie.
+   */
+  const przenieRoznacznikOdczytu = useCallback(
+    async (groupId: Uint8Array, identyfikatory: string[]) => {
+      const zbior = new Set(identyfikatory);
+      const zapisane = await wczytajRozmowe(groupId);
+
+      let najnowsza = 0;
+      for (const w of zapisane) {
+        if (zbior.has(w.id) && w.czas > najnowsza) najnowsza = w.czas;
+      }
+
+      if (najnowsza === 0) return;
+
+      await oznaczPrzeczytane(groupId, najnowsza);
+      setRozmowy(await listaRozmow());
+    },
+    [],
   );
 
   /**
@@ -412,7 +455,14 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
            * jednostronna wymiana byłaby korzystaniem z czegoś, czego się nie
            * oddaje. Dostarczenie zostaje — nie mówi nic o niczyjej uwadze.
            */
-          if (odebrana.receipt.kind === "delivered" || odczytRef.current) {
+          if (odebrana.senderUserId === messenger.account.userId) {
+            // Potwierdzenie od nas samych nie mówi nic o rozmówcy, za to mówi
+            // wszystko o drugim naszym urządzeniu: przeczytane na telefonie ma
+            // znaczyć przeczytane również tutaj.
+            if (odebrana.receipt.kind === "read") {
+              void przenieRoznacznikOdczytu(odebrana.groupId, odebrana.receipt.messageIds);
+            }
+          } else if (odebrana.receipt.kind === "delivered" || odczytRef.current) {
             nanieStan(
               odebrana.groupId,
               odebrana.receipt.messageIds,
@@ -454,7 +504,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         }
       }
     },
-    [messenger, dodaj, nanieStan, otworzRozmowe],
+    [messenger, dodaj, nanieStan, przenieRoznacznikOdczytu, otworzRozmowe],
   );
 
   // Ustawienie przez referencję: obsługa koperty nie może zależeć od stanu,
@@ -1668,6 +1718,8 @@ function Konto({
           <strong>Wygląd</strong>
           <WyborMotywuUI />
         </div>
+
+        <Urzadzenia messenger={messenger} onBlad={onBlad} />
 
         <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
 

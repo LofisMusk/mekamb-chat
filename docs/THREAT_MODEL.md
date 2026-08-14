@@ -182,6 +182,51 @@ raz i podpisanej. Ograniczamy ryzyko powtarzalnymi buildami i publikowanymi
 hashami, ale nie da się go usunąć. Użytkownik o najwyższych wymaganiach powinien
 korzystać z klienta natywnego.
 
+### Nagranie ekranu podczas transferu optycznego
+
+Historia sprzed sparowania idzie z ekranu jednego urządzenia do aparatu
+drugiego. Kto ustawi obok własną kamerę i nagra całą transmisję, ma **wszystkie
+ramki**.
+
+Ramki są zaszyfrowane kluczem uzgodnionym przez ECDH, a kod z kluczem publicznym
+odbiorcy pokazuje się na **drugim** urządzeniu — filmujący ekran nadajnika go nie
+widział. To wystarcza przeciwko kamerze skierowanej na jeden ekran i **nie
+wystarcza** przeciwko komuś, kto sfilmował oba. Parowanie jest czynnością na
+kilkadziesiąt sekund i wykonuje się je tam, gdzie nikt nie patrzy przez ramię.
+
+Czego to nie zastępuje: gdyby ktoś podstawił własne urządzenie i to on
+zeskanował kod zaproszenia, wszedłby do rozmów jako nowy liść. Obroną jest to,
+że zgodę podpisuje urządzenie już zaufane, a **rozmówcy zobaczą zmianę safety
+numberu**. Ten sygnał jest jedynym, który wykrywa taką podmianę, i dlatego nie
+wolno go ukrywać.
+
+### Metadana „ta osoba coś wysłała"
+
+Odkąd nadawca wrzuca kopertę także do własnej skrzynki — inaczej jego drugie
+urządzenie nigdy się o niej nie dowie — serwer widzi jeden depozyt pod nazwą
+nadawcy przy każdej wysłanej wiadomości.
+
+Wcześniej widział wyłącznie depozyty pod nazwami odbiorców. **Kto do kogo pisze,
+nadal pozostaje nieznane** (depozyt nie niesie tożsamości nadawcy, § 9), ale
+„ten użytkownik jest aktywny w tej chwili" stało się czytelne wprost, bez
+wnioskowania z ruchu odbiorców.
+
+To jest cena za działające drugie urządzenie i jest zapłacona świadomie.
+
+### Zgubione urządzenie
+
+**Powstrzymany dopiero po odebraniu dostępu.** Sparowane urządzenie jest
+pełnoprawnym członkiem rozmów: czyta wszystko, co przychodzi, dopóki nie zostanie
+usunięte commitem MLS z każdej rozmowy.
+
+Usunięcie działa **wprzód**: od nowej epoki urządzenie nie odszyfruje niczego.
+Tego, co już przeczytało i zapisało lokalnie, nie da się cofnąć — historia leży
+na jego dysku, zaszyfrowana kluczem skarbca.
+
+Odebranie dostępu wymaga innego, działającego urządzenia. Kto miał tylko jedno
+i je zgubił, nie ma czym podpisać commitu — serwer tego nie zrobi, bo nie zna
+składu grup.
+
 ## Przeciwnicy
 
 ### Pasywny obserwator sieci

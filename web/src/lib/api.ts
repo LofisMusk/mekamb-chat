@@ -62,6 +62,13 @@ export const api = {
 
   get: <T>(path: string) => request<T>(path),
 
+  /** Usuwa zasób. Używane wyłącznie do wykreślania własnego urządzenia. */
+  del: <T>(path: string, token: string) =>
+    request<T>(path, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
   /** Zostawia szyfrogram w skrzynce odbiorcy. */
   /**
    * Zostawia kopertę w skrzynce odbiorcy.

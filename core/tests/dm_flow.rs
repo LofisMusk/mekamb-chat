@@ -530,3 +530,113 @@ fn dodanie_pustej_listy_urzadzen_jest_bledem() {
             .is_err()
     );
 }
+
+/// Odebranie dostępu zgubionemu urządzeniu.
+///
+/// # Sedno
+///
+/// Sparowanie drugiego urządzenia dopiero czyni ten problem realnym: dopóki
+/// konto żyło na jednym sprzęcie, „zgubiony laptop" znaczyło tyle samo co
+/// „utracone konto". Teraz laptop może zostać w pociągu, a konto działać dalej
+/// na telefonie — i wtedy musi istnieć sposób, żeby tamten przestał czytać.
+///
+/// Usuwamy po TOŻSAMOŚCI, bo indeksu liścia nikt na zewnątrz nie zna, a lista
+/// z `members()` nie jest numeracją liści. Interfejs zestawiający je sobie sam
+/// usunąłby prędzej czy później nie to urządzenie co trzeba — przy odbieraniu
+/// dostępu skradzionemu sprzętowi to pomyłka nie do odkręcenia.
+#[test]
+fn usuniete_urzadzenie_nie_czyta_dalej() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob_telefon = Uczestnik::nowy("bob", "telefon");
+    let bob_laptop = Uczestnik::nowy("bob", "laptop");
+
+    let pakiety: Vec<_> = [&bob_telefon, &bob_laptop]
+        .into_iter()
+        .map(|urzadzenie| {
+            let bundle =
+                Conversation::create_key_package(&urzadzenie.provider, &urzadzenie.tozsamosc)
+                    .unwrap();
+            deserialize_key_package(
+                &alice.provider,
+                &serialize_key_package(bundle.key_package()).unwrap(),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let mut u_alice = Conversation::create(&alice.provider, &alice.tozsamosc).unwrap();
+    let oczekujacy = u_alice
+        .stage_add_members(&alice.provider, &alice.tozsamosc, &pakiety)
+        .unwrap();
+    u_alice.confirm_pending_commit(&alice.provider).unwrap();
+
+    let welcome = oczekujacy.welcome.as_ref().unwrap();
+    let mut u_telefonu = Conversation::join_from_welcome(&bob_telefon.provider, welcome).unwrap();
+    let mut u_laptopa = Conversation::join_from_welcome(&bob_laptop.provider, welcome).unwrap();
+
+    // Laptop ginie. Alice usuwa go z rozmowy.
+    let usuniecie = u_alice
+        .stage_remove_device(&alice.provider, &alice.tozsamosc, "bob:laptop")
+        .unwrap()
+        .expect("laptop jest w grupie");
+    u_alice.confirm_pending_commit(&alice.provider).unwrap();
+
+    // Telefon przetwarza commit i zostaje w grupie.
+    u_telefonu
+        .receive(&bob_telefon.provider, &usuniecie.commit)
+        .unwrap();
+
+    assert_eq!(u_alice.members().len(), 2, "zostają Alice i telefon");
+    assert_eq!(u_alice.epoch(), u_telefonu.epoch());
+
+    // Wiadomość po usunięciu: telefon czyta, laptop już nie.
+    let wyslana = ChatMessage::text("po odebraniu dostepu", 1_700_000_001_000);
+    let szyfrogram = u_alice
+        .send(&alice.provider, &alice.tozsamosc, &wyslana)
+        .unwrap();
+
+    assert!(
+        u_telefonu
+            .receive(&bob_telefon.provider, &szyfrogram)
+            .is_ok(),
+        "telefon zostaje w rozmowie"
+    );
+
+    // Laptop nie przetworzył commitu usuwającego go — i tak nie ma czym.
+    assert!(
+        u_laptopa
+            .receive(&bob_laptop.provider, &szyfrogram)
+            .is_err(),
+        "usunięte urządzenie NIE MOŻE odszyfrować niczego, co przyszło później"
+    );
+}
+
+/// Usunięcie urządzenia, którego w grupie nie ma, nie jest błędem.
+///
+/// Przy odbieraniu dostępu przechodzi się po wszystkich rozmowach naraz,
+/// a część z nich mogła powstać już po zgubieniu sprzętu. Wyjątek zatrzymałby
+/// tam całą operację i zostawił dostęp odebrany w połowie.
+#[test]
+fn usuwanie_nieobecnego_urzadzenia_jest_bezpieczne() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let mut u_alice = Conversation::create(&alice.provider, &alice.tozsamosc).unwrap();
+
+    let wynik = u_alice
+        .stage_remove_device(&alice.provider, &alice.tozsamosc, "bob:laptop")
+        .unwrap();
+
+    assert!(wynik.is_none());
+}
+
+/// Usunięcie samego siebie zostawiłoby klienta w grupie bez klucza.
+#[test]
+fn nie_da_sie_usunac_wlasnego_urzadzenia() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let mut u_alice = Conversation::create(&alice.provider, &alice.tozsamosc).unwrap();
+
+    assert!(
+        u_alice
+            .stage_remove_device(&alice.provider, &alice.tozsamosc, "alice:telefon")
+            .is_err()
+    );
+}

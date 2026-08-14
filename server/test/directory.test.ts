@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +7,7 @@ import {
   lookupDevices,
   publishKeyPackages,
 } from "../src/directory";
+import { issueToken } from "../src/crypto";
 
 /**
  * Key packages muszą być jednorazowe.
@@ -157,5 +158,158 @@ describe("katalog urządzeń", () => {
 
     expect(urzadzenia).toHaveLength(2);
     expect(urzadzenia[0]!.deviceId).toBe(zywe);
+  });
+});
+
+/**
+ * Kto może publikować key packages pod danym urządzeniem.
+ *
+ * # Sedno
+ *
+ * `POST /key-packages/:deviceId` sprawdzał wyłącznie, że wołający ma WAŻNY
+ * token — nie że `:deviceId` jest jego. Każde zalogowane konto mogło więc
+ * wstrzykiwać pakiety pod cudzy identyfikator: zapchać komuś zapas albo
+ * podmienić go na pakiety, których nikt nie odbierze. Przed najgorszym
+ * ratowała walidacja u dodającego klienta, ale sam katalog stał otworem.
+ *
+ * Przy parowaniu drugiego urządzenia przestaje to być teoretyczne, bo cała
+ * ścieżka opiera się na pobraniu key package po `deviceId`.
+ */
+describe("właściciel urządzenia", () => {
+  async function konto(): Promise<{ userId: string; deviceId: string; token: string }> {
+    const userId = crypto.randomUUID();
+    const deviceId = crypto.randomUUID();
+    const now = Date.now();
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, `nazwa-${userId}`, now)
+      .run();
+
+    await env.DB.prepare(
+      `INSERT INTO devices
+         (id, user_id, mls_public_key, transport_key, transport_addresses, addr_signature, created_at, last_seen_at)
+       VALUES (?, ?, X'00', 'node', '{}', X'00', ?, ?)`,
+    )
+      .bind(deviceId, userId, now, now)
+      .run();
+
+    const token = await issueToken(env.TOKEN_SIGNING_KEY, {
+      userId,
+      deviceId,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    return { userId, deviceId, token };
+  }
+
+  function publikuj(deviceId: string, token: string) {
+    return SELF.fetch(`https://mekamb/key-packages/${deviceId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ keyPackages: [btoa("pakiet")] }),
+    });
+  }
+
+  it("właściciel publikuje pod swoim urządzeniem", async () => {
+    const { deviceId, token } = await konto();
+
+    expect((await publikuj(deviceId, token)).status).toBe(200);
+  });
+
+  /** Najważniejszy przypadek: napastnik MA własne konto i własny ważny token. */
+  it("cudzy token nie publikuje pod cudzym urządzeniem", async () => {
+    const ofiara = await konto();
+    const napastnik = await konto();
+
+    expect((await publikuj(ofiara.deviceId, napastnik.token)).status).toBe(403);
+    expect(await availableKeyPackages(env, ofiara.deviceId)).toBe(0);
+  });
+
+  it("nieistniejące urządzenie odpowiada tak samo jak cudze", async () => {
+    const { token } = await konto();
+
+    // Rozróżnienie mówiłoby pytającemu, które identyfikatory istnieją.
+    expect((await publikuj(crypto.randomUUID(), token)).status).toBe(403);
+  });
+});
+
+/**
+ * Wykreślanie urządzenia z katalogu.
+ *
+ * # Czego ta trasa NIE robi
+ *
+ * Nie odbiera dostępu do rozmów — skład grupy żyje w drzewie MLS, którego
+ * serwer nie zna. To robi klient commitem. Ta trasa tylko sprawia, że nikt już
+ * tego urządzenia nigdzie nie doda; wywołana sama, zostawiłaby zgubiony sprzęt
+ * czytającym wszystko, co przyjdzie.
+ */
+describe("wykreślenie urządzenia", () => {
+  async function konto(): Promise<{ deviceId: string; token: string }> {
+    const userId = crypto.randomUUID();
+    const deviceId = crypto.randomUUID();
+    const now = Date.now();
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, `nazwa-${userId}`, now)
+      .run();
+
+    await env.DB.prepare(
+      `INSERT INTO devices
+         (id, user_id, mls_public_key, transport_key, transport_addresses, addr_signature, created_at, last_seen_at)
+       VALUES (?, ?, X'00', 'node', '{}', X'00', ?, ?)`,
+    )
+      .bind(deviceId, userId, now, now)
+      .run();
+
+    const token = await issueToken(env.TOKEN_SIGNING_KEY, {
+      userId,
+      deviceId,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    return { deviceId, token };
+  }
+
+  function usun(deviceId: string, token: string) {
+    return SELF.fetch(`https://mekamb/devices/${deviceId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  it("właściciel wykreśla swoje urządzenie", async () => {
+    const { deviceId, token } = await konto();
+
+    expect((await usun(deviceId, token)).status).toBe(200);
+  });
+
+  /**
+   * Zapas zostawiony po skasowanym urządzeniu byłby wydawany każdemu, kto
+   * o niego poprosi, i wprowadzałby do rozmów liść, którego nikt już nie
+   * obsłuży.
+   */
+  it("zabiera ze sobą zapas key packages", async () => {
+    const { deviceId, token } = await konto();
+    await publishKeyPackages(env, deviceId, [pakiet(1), pakiet(2)]);
+    expect(await availableKeyPackages(env, deviceId)).toBe(2);
+
+    await usun(deviceId, token);
+
+    expect(await consumeKeyPackage(env, deviceId)).toBeNull();
+  });
+
+  it("cudze urządzenie zostaje nietknięte", async () => {
+    const ofiara = await konto();
+    const napastnik = await konto();
+
+    expect((await usun(ofiara.deviceId, napastnik.token)).status).toBe(403);
+    expect(await lookupDevices(env, `nazwa-x`)).toEqual([]);
+    // Urządzenie ofiary nadal przyjmuje key packages, czyli nadal istnieje.
+    await publishKeyPackages(env, ofiara.deviceId, [pakiet(9)]);
+    expect(await availableKeyPackages(env, ofiara.deviceId)).toBe(1);
   });
 });

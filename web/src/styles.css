@@ -2019,3 +2019,35 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   background: var(--linia-mocna);
   border-radius: 4px;
 }
+
+/*
+ * Lista urządzeń w panelu konta.
+ *
+ * Identyfikator urządzenia jest techniczny i długi, więc łamie się jak każdy
+ * inny napis bez spacji — bez `min-width: 0` rozpychałby kartę na szerokość
+ * ekranu i wypychał przycisk poza widok.
+ */
+.lista-urzadzen {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .5rem;
+}
+
+.lista-urzadzen li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .5rem 0;
+  border-top: 1px solid var(--linia);
+}
+
+.lista-urzadzen li > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--tekst-drugi);
+}

@@ -10,6 +10,7 @@ import init, {
   stripMetadata,
 } from "../wasm/mekamb_wasm";
 import { ApiError, api } from "./api";
+import { czyWlasna, zapamietaj } from "./echa";
 import { WYSCIG, odmowaRelaya } from "./relay";
 import { naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
@@ -303,8 +304,85 @@ export class Messenger {
       );
     }
 
-    const pending = this.client.addMembers(groupId, sklejPakiety(pakiety));
+    await this.wprowadzCzlonkow(groupId, pakiety, username);
+  }
 
+  /**
+   * Wprowadza WŁASNE, świeżo sparowane urządzenie do rozmowy.
+   *
+   * # Czemu nie zwykłe `addMember` z własną nazwą
+   *
+   * Bo tamto pobiera z katalogu **wszystkie** urządzenia i dodaje je hurtem —
+   * łącznie z tymi, które już w grupie są. MLS odrzuciłby taki commit, a przy
+   * kilku rozmowach zostawiłby konto dodane w połowie.
+   *
+   * Urządzenie już będące w grupie pomijamy po cichu: przy powtórzonym
+   * parowaniu albo wznowieniu po zerwaniu to jest normalny stan, nie awaria.
+   */
+  async dodajWlasneUrzadzenie(groupId: Uint8Array, deviceId: string): Promise<void> {
+    const tozsamosc = `${this.account.userId}:${deviceId}`;
+    if (this.client.members(groupId).includes(tozsamosc)) return;
+
+    const pakiety = await this.pobierzPakiety([{ deviceId }]);
+    if (pakiety.length === 0) {
+      throw new Error(
+        "nowe urządzenie nie ma wolnych key packages — otwórz na nim aplikację i spróbuj ponownie",
+      );
+    }
+
+    // Welcome idzie na NASZĄ nazwę: nowe urządzenie dzieli z nami skrzynkę.
+    await this.wprowadzCzlonkow(groupId, pakiety, this.account.userId);
+  }
+
+  /**
+   * Zajmuje epokę, scala commit i rozsyła go — wspólne dla obu dróg dodawania.
+   */
+  private async wprowadzCzlonkow(
+    groupId: Uint8Array,
+    pakiety: Uint8Array[],
+    username: string,
+  ): Promise<void> {
+    await this.zatwierdzIRozeslij(
+      groupId,
+      this.client.addMembers(groupId, sklejPakiety(pakiety)),
+      username,
+    );
+  }
+
+  /**
+   * Usuwa urządzenie ze WSZYSTKICH rozmów — odebranie dostępu zgubionemu sprzętowi.
+   *
+   * # Kolejność jest odwrotna, niż się wydaje
+   *
+   * Najpierw commity MLS, **potem** wykreślenie z katalogu. Odwrotnie
+   * stracilibyśmy sposób na zaadresowanie urządzenia, zanim zdążyłoby wypaść
+   * z drzewa — a samo wykreślenie z katalogu **niczego nie odbiera**: skład
+   * grupy żyje w drzewie MLS, którego serwer nie zna.
+   *
+   * Rozmowa, w której tego urządzenia nie ma, jest pomijana bez błędu: część
+   * rozmów mogła powstać już po jego zgubieniu.
+   */
+  async usunUrzadzenie(deviceId: string, rozmowy: Uint8Array[]): Promise<void> {
+    const tozsamosc = `${this.account.userId}:${deviceId}`;
+
+    for (const groupId of rozmowy) {
+      const pending = this.client.removeDevice(groupId, tozsamosc);
+      if (!pending) continue;
+
+      // Usunięte urządzenie dzieli z nami skrzynkę, więc commit i tak do niego
+      // trafi — i nic mu to nie da. Po scaleniu nie ma już klucza do tej epoki.
+      await this.zatwierdzIRozeslij(groupId, pending, this.account.userId);
+    }
+
+    await api.del(`/devices/${encodeURIComponent(deviceId)}`, this.token);
+  }
+
+  /** Zajmuje epokę, scala commit i rozsyła go. Wspólne dla dodawania i usuwania. */
+  private async zatwierdzIRozeslij(
+    groupId: Uint8Array,
+    pending: { commit: Uint8Array; welcome?: Uint8Array },
+    username: string,
+  ): Promise<void> {
     await this.zajmijEpoke(groupId);
 
     this.client.confirmCommit(groupId);
@@ -321,14 +399,28 @@ export class Messenger {
      * a commitu wprowadzającego ją do grupy nie potrafi przetworzyć.
      */
     const koperta = encodeEnvelope(groupId, "commit", pending.commit);
+    await zapamietaj(koperta);
+
+    /*
+     * Nowa osoba commitu nie dostaje — dla niej jest `welcome`.
+     *
+     * Wyjątkiem jest dodawanie WŁASNEGO urządzenia: nowy członek dzieli wtedy
+     * skrzynkę z nami, więc pominięcie jej odcięłoby od commitu nasze
+     * pozostałe urządzenia i zostałyby w starej epoce. Nowe urządzenie ten
+     * commit po prostu odrzuci — nie zna jeszcze tej rozmowy, więc znacznik
+     * koperty nie pasuje do niczego i `matchEnvelope` zwraca `null`.
+     */
+    const wlasneUrzadzenie = username === this.account.userId;
     await Promise.all(
-      this.recipients(groupId)
-        .filter((osoba) => osoba !== username)
+      this.skrzynkiRozmowy(groupId)
+        .filter((osoba) => wlasneUrzadzenie || osoba !== username)
         .map((osoba) => api.deposit(osoba, koperta)),
     );
 
     if (pending.welcome) {
-      await api.deposit(username, encodeEnvelope(groupId, "welcome", pending.welcome));
+      const zaproszenie = encodeEnvelope(groupId, "welcome", pending.welcome);
+      await zapamietaj(zaproszenie);
+      await api.deposit(username, zaproszenie);
     }
   }
 
@@ -438,9 +530,22 @@ export class Messenger {
     return [...new Set(osoby)];
   }
 
-  /** Uczestnicy rozmowy poza nami — odbiorcy wysyłanych wiadomości. */
-  private recipients(groupId: Uint8Array): string[] {
-    return this.memberUserIds(groupId).filter((osoba) => osoba !== this.account.userId);
+  /**
+   * Skrzynki, do których trafia to, co wysyłamy — **łącznie z naszą własną**.
+   *
+   * # Dlaczego wysyłamy też do siebie
+   *
+   * Bez tego wiadomość wysłana z laptopa nie istnieje dla telefonu. Cudze
+   * wiadomości docierały na wszystkie urządzenia od zawsze, bo skrzynka jest
+   * wspólna — brakowało wyłącznie echa własnych, i to ono sprawiało, że dwa
+   * urządzenia widziały dwie różne historie tej samej rozmowy.
+   *
+   * Koperta wraca wtedy także do nadawcy, który nie potrafi jej odszyfrować
+   * (MLS nie pozwala przetworzyć własnej wiadomości). Rozpoznaje ją
+   * [`echa.ts`] i potwierdza bez przetwarzania.
+   */
+  private skrzynkiRozmowy(groupId: Uint8Array): string[] {
+    return this.memberUserIds(groupId);
   }
 
   /**
@@ -472,8 +577,12 @@ export class Messenger {
    * ze sobą po stronie serwera.
    */
   private async rozeslij(groupId: Uint8Array, envelope: Uint8Array): Promise<void> {
+    // Zapamiętanie MUSI wyprzedzić nadanie: przy podłączonym gnieździe echo
+    // wraca natychmiast i zdążyłoby przyjść przed wpisem do mapy.
+    await zapamietaj(envelope);
+
     await Promise.all(
-      this.recipients(groupId).map((userId) => {
+      this.skrzynkiRozmowy(groupId).map((userId) => {
         const token = wezToken();
         return api.deposit(userId, envelope, token ? naglowekTokenu(token) : undefined);
       }),
@@ -600,10 +709,35 @@ export class Messenger {
    * przykład niosła commit albo zaproszenie do grupy.
    */
   async handleEnvelope(bytes: Uint8Array): Promise<ReceivedMessage | null> {
+    /*
+     * Własne echo odsiewamy PRZED czymkolwiek innym.
+     *
+     * Wysyłamy także do własnej skrzynki, żeby wiadomość z laptopa dotarła na
+     * telefon — więc koperta wraca do nadawcy, a MLS nie pozwala przetworzyć
+     * własnej wiadomości. Bez tego wpadłaby w ponawianie z `koperty.ts`
+     * i wisiała w kolejce przez trzy połączenia.
+     */
+    if (await czyWlasna(bytes)) return null;
+
     const envelope = decodeEnvelope(bytes);
 
     if (envelope.kind === "welcome") {
-      this.client.joinFromWelcome(envelope.payload);
+      /*
+       * Zaproszenie trafia do całej skrzynki, więc przy kilku własnych
+       * urządzeniach dostaną je także te, które już są w grupie.
+       *
+       * Dawniej nieudane `joinFromWelcome` znaczyło realną awarię i miało
+       * prawo przejść ścieżką ponawiania. Odkąd jedna osoba ma wiele urządzeń,
+       * powtórka jest normalna — ale zostawiamy ślad w konsoli, bo
+       * niedoręczone zaproszenie zepsuło już kiedyś doręczanie po cichu
+       * i nie chcemy drugi raz zgadywać.
+       */
+      try {
+        this.client.joinFromWelcome(envelope.payload);
+      } catch (blad) {
+        console.warn("zaproszenie odrzucone (zapewne już jesteśmy w grupie)", blad);
+        return null;
+      }
       await this.persist();
       return null;
     }

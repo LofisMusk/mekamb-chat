@@ -43,6 +43,10 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 thiserror = "2"
 tracing = "0.1"
 hex = "0.4"
+# Deflate dla transferu optycznego. `miniz_oxide` zamiast `flate2`, bo jest
+# czysto rustowe — wariant z zlib kompiluje kod C, a to ta sama klasa problemu,
+# przez którą odpadł iroh, i dodatkowo psułoby budowanie pod WASM.
+miniz_oxide = "0.8"
 
 # OpenMLS używa `debug_assert!(false, "Ciphertext decryption failed")` w ścieżce
 # deszyfrowania. To założenie ma sens w bibliotece testowanej na poprawnych

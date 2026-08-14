@@ -517,6 +517,38 @@ impl MekambClient {
     }
 
     /// Scala commit po potwierdzeniu przez `GroupRelay`.
+    /// Usuwa urządzenie z rozmowy — odebranie dostępu zgubionemu sprzętowi.
+    ///
+    /// Zwraca `None`, gdy tego urządzenia w tej rozmowie nie ma. To nie jest
+    /// błąd: przy odbieraniu dostępu przechodzi się po wszystkich rozmowach,
+    /// a część mogła powstać już po zgubieniu sprzętu.
+    pub fn remove_device(
+        &self,
+        group_id: Vec<u8>,
+        credential_identity: String,
+    ) -> Result<Option<PendingCommit>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let pending = conversation.stage_remove_device(provider, identity, &credential_identity)?;
+
+        Ok(pending.map(|p| PendingCommit {
+            commit: p.commit,
+            welcome: p.welcome,
+        }))
+    }
+
     pub fn confirm_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
         let ClientState {
@@ -1197,4 +1229,165 @@ pub fn token_odslon(
         ziarno: token.ziarno.to_vec(),
         odslonione: token.odslonione.to_vec(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Transfer optyczny
+// ---------------------------------------------------------------------------
+
+/// Jak poszło przyjęcie ramki.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum PostepOptyczny {
+    /// Przyjęta; brakuje jeszcze bloków.
+    Trwa,
+    /// Komplet — można wołać `zloz`.
+    Gotowe,
+    /// Ramka z **innego** transferu: aparat patrzy na inny ekran.
+    Obca,
+    /// Nieczytelna albo w nieznanej wersji formatu.
+    Niepoprawna,
+}
+
+/// Nadajnik animowanego kodu QR.
+///
+/// Jedna implementacja dla obu klientów — format ramki, kody fountain i sam
+/// generator QR siedzą w [`mekamb_core::optyka`]. Druga implementacja po
+/// drugiej stronie rozjechałaby się z pierwszą, a objawem byłby transfer,
+/// który nigdy się nie kończy: ramki widać, tylko nie składają się w całość.
+#[derive(uniffi::Object)]
+pub struct NadajnikOptyczny {
+    wnetrze: std::sync::Mutex<mekamb_core::optyka::NadajnikOptyczny>,
+}
+
+#[uniffi::export]
+impl NadajnikOptyczny {
+    /// `dane` idą przez kompresję i AES-GCM, potem w bloki.
+    #[uniffi::constructor]
+    pub fn new(dane: Vec<u8>, klucz: Vec<u8>) -> Result<Self, MekambError> {
+        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: "klucz transferu musi mieć 32 bajty".into(),
+        })?;
+
+        // Rozmiar bloku dobrany pod największy kod QR przy korekcji L —
+        // wołający nie ma jak tego policzyć, bo zna tylko wynik.
+        let rozmiar = mekamb_core::qr::maks_bajtow(mekamb_core::qr::Korekcja::L)
+            - mekamb_core::optyka::NAGLOWEK;
+
+        Ok(NadajnikOptyczny {
+            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::NadajnikOptyczny::nowy(
+                &dane, &klucz, rozmiar,
+            )?),
+        })
+    }
+
+    /// Ile bloków ma transfer — tyle klatek wystarczy przy czystym ujęciu.
+    pub fn ile_blokow(&self) -> u32 {
+        self.wnetrze.lock().expect("zatruty zamek").ile_blokow()
+    }
+
+    /// Kolejna klatka, gotowa do narysowania. Strumień jest nieskończony.
+    pub fn nastepna_klatka(&self) -> Result<KodQr, MekambError> {
+        let ramka = self.wnetrze.lock().expect("zatruty zamek").nastepna_ramka();
+
+        let macierz = mekamb_core::qr::qr_matrix_bajty(&ramka, mekamb_core::qr::Korekcja::L)?;
+
+        Ok(KodQr {
+            bok: macierz.len() as u32,
+            moduly: macierz.into_iter().flatten().collect(),
+        })
+    }
+}
+
+/// Odbiornik animowanego kodu QR.
+#[derive(uniffi::Object, Default)]
+pub struct OdbiornikOptyczny {
+    wnetrze: std::sync::Mutex<mekamb_core::optyka::OdbiornikOptyczny>,
+}
+
+#[uniffi::export]
+impl OdbiornikOptyczny {
+    /// Bez klucza: zbieranie ramek go nie potrzebuje.
+    ///
+    /// Przy parowaniu klucz uzgadnia się z materiałem przychodzącym tą samą
+    /// kamerą, więc odbiornik musi umieć zacząć zbierać, zanim go pozna.
+    #[uniffi::constructor]
+    pub fn new() -> Self {
+        OdbiornikOptyczny {
+            wnetrze: std::sync::Mutex::new(mekamb_core::optyka::OdbiornikOptyczny::nowy()),
+        }
+    }
+
+    /// Przyjmuje ramkę odczytaną z kamery.
+    pub fn dodaj_ramke(&self, ramka: Vec<u8>) -> PostepOptyczny {
+        use mekamb_core::optyka::Postep;
+
+        match self
+            .wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .dodaj_ramke(&ramka)
+        {
+            Postep::Trwa { .. } => PostepOptyczny::Trwa,
+            Postep::Gotowe => PostepOptyczny::Gotowe,
+            Postep::Obca => PostepOptyczny::Obca,
+            Postep::Niepoprawna => PostepOptyczny::Niepoprawna,
+        }
+    }
+
+    /// Ile bloków już odzyskano.
+    pub fn odzyskane(&self) -> u32 {
+        self.wnetrze.lock().expect("zatruty zamek").odzyskane()
+    }
+
+    /// Ile bloków ma transfer; zero, dopóki nie przyszła żadna ramka.
+    pub fn wszystkich(&self) -> u32 {
+        self.wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .wszystkich()
+            .unwrap_or(0)
+    }
+
+    /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
+    pub fn zloz(&self, klucz: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        let klucz: [u8; 32] = klucz.try_into().map_err(|_| MekambError::InvalidInput {
+            powod: "klucz transferu musi mieć 32 bajty".into(),
+        })?;
+
+        Ok(self
+            .wnetrze
+            .lock()
+            .expect("zatruty zamek")
+            .odbierz(&klucz)?)
+    }
+}
+
+/// Efemeryczna para kluczy do sparowania drugiego urządzenia.
+///
+/// Klucz publiczny jedzie w kodzie QR pokazanym przez **nowe** urządzenie.
+/// Kierunek nie jest dowolny: filmujący ekran starego urządzenia — tego, które
+/// nadaje historię — nie widział tamtego kodu, więc nie zna sekretu.
+#[derive(uniffi::Object)]
+pub struct ParaParowania {
+    wnetrze: mekamb_core::parowanie::ParaParowania,
+}
+
+#[uniffi::export]
+impl ParaParowania {
+    #[uniffi::constructor]
+    pub fn new() -> Result<Self, MekambError> {
+        Ok(ParaParowania {
+            wnetrze: mekamb_core::parowanie::ParaParowania::nowa()?,
+        })
+    }
+
+    /// Klucz publiczny — to on trafia do kodu QR.
+    pub fn publiczny(&self) -> Vec<u8> {
+        self.wnetrze.publiczny().to_vec()
+    }
+
+    /// Uzgadnia klucz transferu z kluczem publicznym drugiej strony.
+    pub fn klucz_transferu(&self, obcy_publiczny: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        Ok(self.wnetrze.klucz_transferu(&obcy_publiczny)?.to_vec())
+    }
 }

@@ -296,6 +296,33 @@ impl MekambClient {
     }
 
     /// Scala commit po potwierdzeniu przez `GroupRelay`.
+    /// Usuwa urządzenie z rozmowy — odebranie dostępu zgubionemu sprzętowi.
+    ///
+    /// Zwraca `undefined`, gdy tego urządzenia w tej rozmowie nie ma. To nie
+    /// jest błąd: przy odbieraniu dostępu przechodzi się po wszystkich
+    /// rozmowach, a część mogła powstać już po zgubieniu sprzętu.
+    #[wasm_bindgen(js_name = removeDevice)]
+    pub fn remove_device(
+        &mut self,
+        group_id: &[u8],
+        credential_identity: &str,
+    ) -> Result<Option<PendingCommitJs>, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let pending = pobierz_mut(conversations, group_id)?
+            .stage_remove_device(provider, identity, credential_identity)
+            .map_err(to_js)?;
+
+        Ok(pending.map(|p| PendingCommitJs {
+            commit: p.commit,
+            welcome: p.welcome,
+        }))
+    }
+
     #[wasm_bindgen(js_name = confirmCommit)]
     pub fn confirm_commit(&mut self, group_id: &[u8]) -> Result<(), JsError> {
         let Self {
@@ -1039,4 +1066,167 @@ pub fn token_unblind(
         seed: token.ziarno.to_vec(),
         unblinded: token.odslonione.to_vec(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Transfer optyczny
+// ---------------------------------------------------------------------------
+
+/// Nadajnik animowanego kodu QR.
+///
+/// Jedna implementacja dla obu klientów — format ramki, kody fountain i sam
+/// generator QR siedzą w [`mekamb_core::optyka`]. Druga implementacja po
+/// drugiej stronie rozjechałaby się z pierwszą, a objawem byłby transfer,
+/// który nigdy się nie kończy: ramki widać, tylko nie składają się w całość.
+#[wasm_bindgen]
+pub struct OpticalSender {
+    wnetrze: mekamb_core::optyka::NadajnikOptyczny,
+}
+
+#[wasm_bindgen]
+impl OpticalSender {
+    /// `data` idzie przez kompresję i AES-GCM, potem w bloki.
+    #[wasm_bindgen(constructor)]
+    pub fn new(data: &[u8], key: &[u8]) -> Result<OpticalSender, JsError> {
+        let klucz: [u8; 32] = key
+            .try_into()
+            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
+
+        // Rozmiar bloku dobrany pod największy kod QR przy korekcji L —
+        // wołający nie ma jak tego policzyć, bo zna tylko wynik.
+        let rozmiar = mekamb_core::qr::maks_bajtow(mekamb_core::qr::Korekcja::L)
+            - mekamb_core::optyka::NAGLOWEK;
+
+        Ok(OpticalSender {
+            wnetrze: mekamb_core::optyka::NadajnikOptyczny::nowy(data, &klucz, rozmiar)
+                .map_err(|e| JsError::new(&e.to_string()))?,
+        })
+    }
+
+    /// Ile bloków ma transfer — tyle klatek wystarczy przy czystym ujęciu.
+    #[wasm_bindgen(js_name = blockCount)]
+    pub fn block_count(&self) -> u32 {
+        self.wnetrze.ile_blokow()
+    }
+
+    /// Kolejna klatka, gotowa do narysowania. Strumień jest nieskończony.
+    #[wasm_bindgen(js_name = nextFrame)]
+    pub fn next_frame(&mut self) -> Result<QrCode, JsError> {
+        let ramka = self.wnetrze.nastepna_ramka();
+        let macierz = mekamb_core::qr::qr_matrix_bajty(&ramka, mekamb_core::qr::Korekcja::L)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        Ok(QrCode {
+            side: macierz.len() as u32,
+            // Bajty, nie `bool`: `wasm_bindgen` nie przenosi `Vec<bool>`,
+            // a `Uint8Array` po stronie JS i tak rysuje się szybciej.
+            modules: macierz.into_iter().flatten().map(u8::from).collect(),
+        })
+    }
+}
+
+/// Macierz kodu QR: `side × side` modułów, `true` znaczy ciemny.
+#[wasm_bindgen(getter_with_clone)]
+pub struct QrCode {
+    pub side: u32,
+    pub modules: Vec<u8>,
+}
+
+/// Odbiornik animowanego kodu QR.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct OpticalReceiver {
+    wnetrze: mekamb_core::optyka::OdbiornikOptyczny,
+}
+
+#[wasm_bindgen]
+impl OpticalReceiver {
+    /// Bez klucza: zbieranie ramek go nie potrzebuje.
+    ///
+    /// Przy parowaniu klucz uzgadnia się z materiałem przychodzącym tą samą
+    /// kamerą, więc odbiornik musi umieć zacząć zbierać, zanim go pozna.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> OpticalReceiver {
+        OpticalReceiver {
+            wnetrze: mekamb_core::optyka::OdbiornikOptyczny::nowy(),
+        }
+    }
+
+    /// Przyjmuje ramkę odczytaną z kamery.
+    ///
+    /// Zwraca `"trwa" | "gotowe" | "obca" | "niepoprawna"`. Napis, a nie liczba:
+    /// po stronie TypeScriptu i tak trafia w `switch`, a literał widać
+    /// w debuggerze bez zaglądania do tabeli kodów.
+    #[wasm_bindgen(js_name = addFrame)]
+    pub fn add_frame(&mut self, frame: &[u8]) -> String {
+        use mekamb_core::optyka::Postep;
+
+        match self.wnetrze.dodaj_ramke(frame) {
+            Postep::Trwa { .. } => "trwa",
+            Postep::Gotowe => "gotowe",
+            Postep::Obca => "obca",
+            Postep::Niepoprawna => "niepoprawna",
+        }
+        .to_string()
+    }
+
+    /// Ile bloków już odzyskano.
+    #[wasm_bindgen(js_name = recovered)]
+    pub fn recovered(&self) -> u32 {
+        self.wnetrze.odzyskane()
+    }
+
+    /// Ile bloków ma transfer; zero, dopóki nie przyszła żadna ramka.
+    #[wasm_bindgen(js_name = total)]
+    pub fn total(&self) -> u32 {
+        self.wnetrze.wszystkich().unwrap_or(0)
+    }
+
+    /// Składa całość. Błąd, dopóki brakuje choć jednego bloku.
+    #[wasm_bindgen(js_name = finish)]
+    pub fn finish(&self, key: &[u8]) -> Result<Vec<u8>, JsError> {
+        let klucz: [u8; 32] = key
+            .try_into()
+            .map_err(|_| JsError::new("klucz transferu musi mieć 32 bajty"))?;
+
+        self.wnetrze
+            .odbierz(&klucz)
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+}
+
+/// Efemeryczna para kluczy do sparowania drugiego urządzenia.
+///
+/// Klucz publiczny jedzie w kodzie QR pokazanym przez **nowe** urządzenie.
+/// Kierunek nie jest dowolny: filmujący ekran starego urządzenia — tego, które
+/// nadaje historię — nie widział tamtego kodu, więc nie zna sekretu.
+#[wasm_bindgen]
+pub struct PairingKeys {
+    wnetrze: mekamb_core::parowanie::ParaParowania,
+}
+
+#[wasm_bindgen]
+impl PairingKeys {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Result<PairingKeys, JsError> {
+        Ok(PairingKeys {
+            wnetrze: mekamb_core::parowanie::ParaParowania::nowa().map_err(to_js)?,
+        })
+    }
+
+    /// Klucz publiczny — to on trafia do kodu QR.
+    #[wasm_bindgen(js_name = publicKey)]
+    pub fn public_key(&self) -> Vec<u8> {
+        self.wnetrze.publiczny().to_vec()
+    }
+
+    /// Uzgadnia klucz transferu z kluczem publicznym drugiej strony.
+    #[wasm_bindgen(js_name = transferKey)]
+    pub fn transfer_key(&self, peer_public_key: &[u8]) -> Result<Vec<u8>, JsError> {
+        Ok(self
+            .wnetrze
+            .klucz_transferu(peer_public_key)
+            .map_err(to_js)?
+            .to_vec())
+    }
 }

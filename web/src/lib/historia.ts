@@ -1,5 +1,5 @@
 import type { ReceivedAttachment } from "./messenger";
-import type { StanWiadomosci } from "./potwierdzenia";
+import { type StanWiadomosci, wyzszyStan } from "./potwierdzenia";
 import { loadHistory, saveHistory } from "./vault";
 
 /**
@@ -306,6 +306,143 @@ export async function dopiszWiadomosc(
     };
     await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
   });
+}
+
+/**
+ * Klucz tożsamości wiadomości przy scalaniu.
+ *
+ * `id` pochodzi z rdzenia (`sendText` zwraca `message_id`) i jest tym samym
+ * po obu stronach rozmowy, więc jako klucz nadaje się idealnie. Zapisy sprzed
+ * wersji 5 mają go **pustego** — dla nich zostaje treść, autor i czas. To
+ * gorszy klucz: dwie identyczne wiadomości wysłane w tej samej milisekundzie
+ * zlałyby się w jedną. Zdarza się to na tyle rzadko, a alternatywa —
+ * zdublowanie całej starej historii przy każdym parowaniu — jest na tyle
+ * gorsza, że wybór nie jest trudny.
+ */
+function kluczWiadomosci(w: Wiadomosc): string {
+  return w.id ? `id:${w.id}` : `t:${w.autor} ${w.czas} ${w.tresc}`;
+}
+
+/** Łączy dwa zapisy tej samej wiadomości. */
+function polaczWiadomosci(a: Wiadomosc, b: Wiadomosc): Wiadomosc {
+  return {
+    ...a,
+    // Załącznik mógł nie dojść do jednego z urządzeń.
+    zalacznik: a.zalacznik ?? b.zalacznik,
+    // Stan idzie tylko w górę: „przeczytane" na telefonie nie ma się cofać
+    // do „wysłane" dlatego, że laptop nie dostał jeszcze potwierdzenia.
+    stan:
+      a.stan && b.stan ? wyzszyStan(a.stan, b.stan) : (a.stan ?? b.stan),
+  };
+}
+
+/**
+ * Scala dwa zbiory wiadomości tej samej rozmowy.
+ *
+ * # Dlaczego to nie jest „merge" w sensie gita
+ *
+ * Wiadomości są niezmienne i rozłączne — nie ma konfliktów do rozstrzygania,
+ * jest suma zbiorów po identyfikatorze. Cała trudność siedzi w kolejności
+ * i w tym, czego scalać NIE wolno.
+ *
+ * # Kolejność
+ *
+ * Sortowanie po `(czas, id)`, nie po samym czasie. `czas` to `Date.now()`
+ * nadawcy, więc rozjazd zegara laptopa i telefonu realnie miesza kolejność,
+ * a przy równych znacznikach potrzebny jest rozstrzygnik, który da **ten sam**
+ * wynik po obu stronach — inaczej dwa urządzenia pokazywałyby wątek inaczej
+ * po tym samym scaleniu.
+ *
+ * # Czego nie scalamy
+ *
+ * Śladów po rozmowach A/V. „Nieodebrana" jest faktem o TYM urządzeniu, nie
+ * o rozmowie — uzasadnienie przy [`ZapisRozmowy`]. Wpisy przychodzące z drugiego
+ * urządzenia są więc pomijane; własne zostają nietknięte.
+ */
+export function scalWiadomosci(nasze: Wiadomosc[], obce: Wiadomosc[]): Wiadomosc[] {
+  const poKluczu = new Map<string, Wiadomosc>();
+
+  for (const w of nasze) {
+    poKluczu.set(kluczWiadomosci(w), w);
+  }
+
+  for (const w of obce) {
+    if (w.rozmowa) continue;
+
+    const klucz = kluczWiadomosci(w);
+    const juz = poKluczu.get(klucz);
+    poKluczu.set(klucz, juz ? polaczWiadomosci(juz, w) : w);
+  }
+
+  return (
+    [...poKluczu.values()]
+      .sort((a, b) => a.czas - b.czas || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      // Przycinamy PO scaleniu, nie przed. Odwrotna kolejność gubi wiadomości
+      // istniejące tylko po jednej stronie: dwa ogony po 500 dają w sumie
+      // więcej niż 500, a obcięcie każdego z osobna wyrzuca to, czego drugie
+      // urządzenie nigdy nie widziało.
+      .slice(-LIMIT_WIADOMOSCI)
+  );
+}
+
+/** Ile czego doszło przy scalaniu — do pokazania użytkownikowi. */
+export interface WynikScalania {
+  rozmow: number;
+  wiadomosci: number;
+}
+
+/**
+ * Wciąga historię z drugiego urządzenia.
+ *
+ * `surowe` to dokładnie to, co zwraca `loadHistory()` po tamtej stronie —
+ * ten sam kształt, ta sama wersja formatu. Przyjmujemy te same numery co przy
+ * zwykłym odczycie: układ jest identyczny, więc odrzucenie znanej starszej
+ * wersji byłoby skasowaniem historii bez powodu.
+ *
+ * Zwraca `null`, gdy zrzut jest nieczytelny albo w nieznanym układzie — a nie
+ * pusty wynik, bo „nic nie doszło" i „nie dało się odczytać" to dla
+ * użytkownika stojącego z dwoma telefonami zupełnie różne komunikaty.
+ */
+export async function scalHistorie(surowe: Uint8Array): Promise<WynikScalania | null> {
+  let obca: ZapisanaHistoria;
+  try {
+    obca = JSON.parse(new TextDecoder().decode(surowe)) as ZapisanaHistoria;
+  } catch {
+    return null;
+  }
+
+  if (!obca || typeof obca !== "object" || !CZYTANE_WERSJE.has(obca.wersja)) return null;
+  if (!obca.rozmowy || typeof obca.rozmowy !== "object") return null;
+
+  const zapis = await wczytajWszystko();
+  let rozmow = 0;
+  let wiadomosci = 0;
+
+  for (const [klucz, przychodzaca] of Object.entries(obca.rozmowy)) {
+    const nasza = zapis.rozmowy[klucz];
+    const przed = nasza?.wiadomosci.length ?? 0;
+
+    const scalone = scalWiadomosci(
+      (nasza?.wiadomosci ?? []).map(zZapisu),
+      (przychodzaca.wiadomosci ?? []).map(zZapisu),
+    );
+
+    if (!nasza) rozmow += 1;
+    wiadomosci += Math.max(0, scalone.length - przed);
+
+    zapis.rozmowy[klucz] = {
+      // Nazwa rozmówcy z naszej strony, jeśli ją mamy: jest tu od dawna
+      // i mogła zostać poprawiona ręcznie.
+      rozmowca: nasza?.rozmowca || przychodzaca.rozmowca,
+      wiadomosci: scalone.map(doZapisu) as Wiadomosc[],
+      // Znacznik przeczytania idzie w górę — przeczytane na telefonie ma
+      // znaczyć przeczytane, a nie odczytać się z powrotem jako nowe.
+      przeczytaneDo: Math.max(nasza?.przeczytaneDo ?? 0, przychodzaca.przeczytaneDo ?? 0) || undefined,
+    };
+  }
+
+  await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  return { rozmow, wiadomosci };
 }
 
 /**

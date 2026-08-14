@@ -103,10 +103,10 @@ describe("kod QR", () => {
     expect(odczytaj(uri)).toBe(uri);
   });
 
-  /// Realny ładunek drugiego zastosowania — przeniesienie konta.
-  it("kod przeniesienia konta jest odczytywalny", () => {
+  /// Realny ładunek drugiego zastosowania — kod parowania urządzenia.
+  it("kod parowania jest odczytywalny", () => {
     const kod =
-      "mekamb://transfer?i=vX3kQ9pLmN2rT7wYbC4dEg&k=n8Kp2mQ7vR4tY6uI9oP1aS3dF5gH7jK0lZ8xC2vB4nM&f=12345 67890 12345 67890";
+      "mekamb://parowanie?d=web-1a2b3c4d&k=n8Kp2mQ7vR4tY6uI9oP1aS3dF5gH7jK0lZ8xC2vB4nM";
     expect(odczytaj(kod)).toBe(kod);
   });
 

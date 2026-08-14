@@ -164,8 +164,8 @@ export async function loadState(): Promise<Uint8Array | null> {
 /**
  * Historia rozmów — szyfrowana tak samo jak reszta skarbca.
  *
- * Serwer jej nie ma i mieć nie będzie. Trafia w całości do zrzutu przy
- * przeniesieniu konta, więc rośnie razem z nim — stąd limit po stronie
+ * Serwer jej nie ma i mieć nie będzie. Trafia w całości do transferu optycznego
+ * przy parowaniu, więc rośnie razem z nim — stąd limit po stronie
  * [`historia.ts`].
  */
 export async function saveHistory(history: Uint8Array): Promise<void> {
@@ -213,8 +213,8 @@ export async function loadRefreshToken(): Promise<string | null> {
   const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(REFRESH_ID));
   if (!packed) return null;
 
-  // Skarbiec przeniesiony z innego urządzenia albo uszkodzony wpis nie może
-  // wywrócić startu — brak tokenu znaczy tyle, co ekran logowania.
+  // Uszkodzony albo niepełny wpis nie może wywrócić startu — brak tokenu
+  // znaczy tyle, co ekran logowania.
   return await decrypt(packed)
     .then((bytes) => new TextDecoder().decode(bytes))
     .catch(() => null);

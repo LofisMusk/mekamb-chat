@@ -1,14 +1,12 @@
 //! Uzgodnienie klucza przy parowaniu drugiego urządzenia.
 //!
-//! # Czym to się różni od przeniesienia konta
+//! # Każde urządzenie ma własne ziarno
 //!
-//! Przeniesienie **kopiuje ziarno**, więc oba urządzenia dzielą jeden liść MLS
-//! i jeden ratchet — rozjeżdżają się nieodwracalnie i dlatego źródło jest
-//! kasowane. Parowanie działa odwrotnie: nowe urządzenie ma **własne ziarno**
-//! i wchodzi do rozmów jako osobny członek, przez zwykły commit MLS. Oba
-//! urządzenia działają dalej, równolegle.
-//!
-//! Do przeniesienia zostaje jego własne zastosowanie: przesiadka na inny sprzęt.
+//! Nowe urządzenie NIE kopiuje ziarna starego — ma **własne** i wchodzi do
+//! rozmów jako osobny członek, przez zwykły commit MLS. Oba urządzenia działają
+//! dalej, równolegle. Współdzielenie jednego ziarna (jednego liścia MLS i
+//! jednego ratcheta) rozjechałoby je nieodwracalnie, gdy tylko oba zaczną
+//! wysyłać — dlatego parowanie celowo tego nie robi.
 //!
 //! # Po co tu w ogóle klucz
 //!

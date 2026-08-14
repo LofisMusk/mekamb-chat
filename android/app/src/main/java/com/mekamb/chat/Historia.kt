@@ -36,9 +36,9 @@ private const val LIMIT_WIADOMOSCI = 500
  * 2 dołożyła nazwę rozmówcy, 3 znacznik przeczytania, 4 załącznik po tej
  * stronie, 5 identyfikator i stan wysyłki, 6 ślad po rozmowie A/V.
  * Numer był przy wersji 2 przez chwilę taki sam jak w kliencie
- * webowym mimo niezgodnego kształtu — przeniesienie konta między klientami
- * dałoby wtedy historię nie do odczytania. Każda zmiana układu idzie teraz po
- * obu stronach naraz.
+ * webowym mimo niezgodnego kształtu — transfer optyczny historii między
+ * klientami dałby wtedy historię nie do odczytania. Każda zmiana układu idzie
+ * teraz po obu stronach naraz.
  */
 private const val WERSJA = 6
 
@@ -122,8 +122,8 @@ fun ZapisanyZalacznik.doModelu(): Zalacznik = Zalacznik(
 /**
  * Ślad po rozmowie w postaci zapisywanej.
  *
- * Nazwy pól są DOKŁADNIE takie jak w `ZapisRozmowy` w `historia.ts` — zrzut
- * przeniesienia konta wędruje między klientami i rozjazd jednej nazwy dałby
+ * Nazwy pól są DOKŁADNIE takie jak w `ZapisRozmowy` w `historia.ts` — historia
+ * wędruje między klientami transferem optycznym i rozjazd jednej nazwy dałby
  * po drugiej stronie rozmowę bez czasu trwania albo bez kierunku.
  */
 @Serializable

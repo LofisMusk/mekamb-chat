@@ -50,18 +50,9 @@ import uniffi.mekamb_ffi.DeliveryMode
 
 class MainActivity : ComponentActivity() {
 
-    /**
-     * Kod przeniesienia, z którym aplikację otwarto.
-     *
-     * Trafia tu, gdy użytkownik zeskanuje kod QR aparatem systemowym. Trzymany
-     * jako stan, bo intencja może przyjść też do już działającej aplikacji.
-     */
-    private var kodZIntencji by mutableStateOf<String?>(null)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        kodZIntencji = kodPrzeniesienia(intent)
 
         setContent {
             /*
@@ -82,8 +73,6 @@ class MainActivity : ComponentActivity() {
                     containerColor = Nocturne.kolory.tlo,
                 ) { wciecia ->
                     Zawartosc(
-                        kodZIntencji = kodZIntencji,
-                        onKodZuzyty = { kodZIntencji = null },
                         wyborMotywu = wybor,
                         onMotyw = {
                             wybor = it
@@ -120,17 +109,6 @@ class MainActivity : ComponentActivity() {
         Rdzen.naWierzchu = false
         super.onStop()
     }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        kodPrzeniesienia(intent)?.let { kodZIntencji = it }
-    }
-
-    private fun kodPrzeniesienia(intent: Intent?): String? {
-        if (intent?.action != Intent.ACTION_VIEW) return null
-        val dane: Uri = intent.data ?: return null
-        return dane.toString().takeIf(Przeniesienie::czyKodPrzeniesienia)
-    }
 }
 
 /**
@@ -159,8 +137,6 @@ private fun PasekSystemowy() {
 
 @Composable
 private fun Zawartosc(
-    kodZIntencji: String?,
-    onKodZuzyty: () -> Unit,
     wyborMotywu: WyborMotywu,
     onMotyw: (WyborMotywu) -> Unit,
     modifier: Modifier = Modifier,
@@ -177,7 +153,6 @@ private fun Zawartosc(
     // z rozmowy przez skasowanie `groupId` odcięłoby drogę powrotną, bo bez
     // niego nie da się do rozmowy wrócić.
     var wRozmowie by remember { mutableStateOf(false) }
-    var wPrzeniesieniu by remember { mutableStateOf(false) }
 
     // Wideo albo sam głos — o co poprosimy system, zanim zaczniemy rozmowę.
     var rozmowaZWideo by remember { mutableStateOf(false) }
@@ -276,13 +251,12 @@ private fun Zawartosc(
     BackHandler(enabled = stan.przychodzacaRozmowa != null) { model.odrzucRozmowe() }
 
     BackHandler(enabled = wZgloszeniu) { wZgloszeniu = false }
-    BackHandler(enabled = !wZgloszeniu && wPrzeniesieniu) { wPrzeniesieniu = false }
-    BackHandler(enabled = !wPrzeniesieniu && wUstawieniach) { wUstawieniach = false }
-    BackHandler(enabled = !wPrzeniesieniu && !wUstawieniach && wUczestnikach) {
+    BackHandler(enabled = !wZgloszeniu && wUstawieniach) { wUstawieniach = false }
+    BackHandler(enabled = !wUstawieniach && wUczestnikach) {
         wUczestnikach = false
     }
 
-    val wGlebi = wPrzeniesieniu || wUstawieniach || wUczestnikach || wZgloszeniu
+    val wGlebi = wUstawieniach || wUczestnikach || wZgloszeniu
 
     // Rozmowa wraca do listy — nie do gałęzi, z której ją otwarto.
     BackHandler(enabled = !wGlebi && stan.zalogowany && wRozmowie) {
@@ -309,22 +283,13 @@ private fun Zawartosc(
     }
     BackHandler(
         enabled = !stan.zalogowany && stan.ekran in
-            setOf(Ekran.REJESTRACJA, Ekran.LOGOWANIE, Ekran.ODBIOR, Ekran.POTWIERDZENIE),
+            setOf(Ekran.REJESTRACJA, Ekran.LOGOWANIE, Ekran.POTWIERDZENIE),
     ) {
         // Z potwierdzenia wychodzi się z konsekwencją: konto już istnieje, ale
         // bez kodu jest bezużyteczne, a jego nazwy nie da się zająć drugi raz.
         // Ekran mówi o tym wprost, zamiast po cichu cofnąć.
         if (stan.ekran == Ekran.POTWIERDZENIE) model.ostrzezONiepotwierdzonymKoncie()
         model.pokaz(Ekran.POWITANIE)
-    }
-
-    // Kod zeskanowany aparatem otwiera od razu ekran odbioru. Robimy to tylko
-    // przed zalogowaniem: odebranie konta na zalogowanym urządzeniu podmieniłoby
-    // skarbiec pod działającym klientem.
-    LaunchedEffect(kodZIntencji, stan.zalogowany) {
-        if (kodZIntencji != null && !stan.zalogowany) {
-            model.pokaz(Ekran.ODBIOR)
-        }
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
@@ -385,9 +350,6 @@ private fun Zawartosc(
             stan.zalogowany && wZgloszeniu ->
                 EkranZgloszenia(model, onWstecz = { wZgloszeniu = false })
 
-            stan.zalogowany && wPrzeniesieniu ->
-                EkranPrzeniesienia(model, onWstecz = { wPrzeniesieniu = false })
-
             stan.zalogowany && wUstawieniach ->
                 EkranUstawien(
                     model,
@@ -410,7 +372,6 @@ private fun Zawartosc(
             stan.zalogowany && galaz == Galaz.KONTO ->
                 EkranKonta(
                     model = model,
-                    onPrzeniesienie = { wPrzeniesieniu = true },
                     onUczestnicy = {
                         model.odswiezUczestnikow()
                         wUczestnikach = true
@@ -446,7 +407,6 @@ private fun Zawartosc(
                 )
             stan.ekran == Ekran.REJESTRACJA -> EkranRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)
-            stan.ekran == Ekran.ODBIOR -> EkranOdbioru(model, kodZIntencji, onKodZuzyty)
             stan.ekran == Ekran.LOGOWANIE -> EkranLogowania(model)
             stan.ekran == Ekran.KOD_LOGOWANIA -> EkranKoduLogowania(model)
             else -> EkranPowitania(model)
@@ -515,11 +475,4 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
     }
 }
 
-/**
- * Odbiór konta przeniesionego z innego urządzenia.
- *
- * Kod zeskanowany aparatem systemowym trafia tu sam — Android otwiera
- * aplikację odnośnikiem `mekamb://transfer`. Pole tekstowe zostaje dla tych,
- * którzy wolą przepisać, i na wypadek gdyby aparat nie rozpoznał kodu.
- */
 private fun stanZajety(model: ChatViewModel) = model.stan.pracuje

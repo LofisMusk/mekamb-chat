@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Czat } from "./Czat";
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
-import { OdbierzTutaj, ZaproszenieDoImportu } from "./Przeniesienie";
 import { PasekBledu, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import {
   confirmRegistration,
@@ -69,7 +68,6 @@ type Ekran =
   | { nazwa: "rejestracja" }
   | { nazwa: "potwierdzenie"; username: string; totpSecret: string; otpauthUri: string }
   | { nazwa: "logowanie" }
-  | { nazwa: "odbior-przeniesienia" }
   | { nazwa: "drugi-skladnik"; username: string; sesja: LoginSession }
   | { nazwa: "czat"; messenger: Messenger };
 
@@ -86,7 +84,6 @@ const TYTULY: Partial<Record<Ekran["nazwa"], { pl: string; en: string }>> = {
   potwierdzenie: { pl: "Drugi składnik", en: "Second factor" },
   logowanie: { pl: "Logowanie", en: "Sign in" },
   "drugi-skladnik": { pl: "Kod z authenticatora", en: "Authenticator code" },
-  "odbior-przeniesienia": { pl: "Przeniesienie konta", en: "Account transfer" },
 };
 
 export function App() {
@@ -186,8 +183,7 @@ export function App() {
     ekran.nazwa === "rejestracja" ||
     ekran.nazwa === "potwierdzenie" ||
     ekran.nazwa === "logowanie" ||
-    ekran.nazwa === "drugi-skladnik" ||
-    ekran.nazwa === "odbior-przeniesienia";
+    ekran.nazwa === "drugi-skladnik";
 
   useWstecz(wEkranieZPowrotem, wstecz, ekran.nazwa);
 
@@ -197,10 +193,6 @@ export function App() {
     return (
       <main className="aplikacja">
         {blad && <PasekBledu tekst={blad} onZamknij={() => setBlad(null)} />}
-
-        {/* Nad czatem, bo dotyczy całej aplikacji, a nie pojedynczej rozmowy —
-            i znika sam, gdy jest już jakakolwiek historia. */}
-        <ZaproszenieDoImportu onBlad={zglosBlad} />
 
         <Czat messenger={ekran.messenger} onBlad={zglosBlad} />
       </main>
@@ -261,22 +253,7 @@ export function App() {
             onBlad={zglosBlad}
             onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
           />
-          <button onClick={() => setEkran({ nazwa: "odbior-przeniesienia" })}>
-            <Ikona nazwa="kodQr" rozmiar={16} />
-            Przenoszę konto z innego urządzenia · Transfer
-          </button>
         </div>
-      )}
-
-      {ekran.nazwa === "odbior-przeniesienia" && (
-        <OdbierzTutaj
-          // Po odebraniu przeładowujemy stronę zamiast przechodzić dalej
-          // w miejscu: skarbiec zmienił się pod spodem, a wszystko, co go już
-          // wczytało, trzymałoby stan poprzedniego konta.
-          onGotowe={() => location.reload()}
-          onAnuluj={() => setEkran({ nazwa: "powitanie" })}
-          onBlad={zglosBlad}
-        />
       )}
 
       {ekran.nazwa === "rejestracja" && (

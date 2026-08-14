@@ -16,7 +16,6 @@ import {
   usunUrzadzenie,
 } from "./directory";
 import { MAX_ENVELOPE_BYTES, type Env } from "./env";
-import transfer, { cleanupExpiredTransfers } from "./transfer";
 import {
   MAX_TOKENOW_NA_RAZ,
   kluczPubliczny,
@@ -47,10 +46,7 @@ app.use("*", async (c, next) =>
         .filter(Boolean);
       return dozwolone.includes(origin) ? origin : null;
     },
-    // PUT jest tu potrzebny dla przeniesienia konta. Jego brak nie objawia
-    // się błędem serwera, tylko „Failed to fetch" w przeglądarce — żądanie
-    // ginie na preflighcie i nigdy nie dociera do kodu.
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     // Wymagane, żeby przeglądarka wysyłała i przyjmowała httpOnly cookie
     // tokenu odświeżającego (`/auth/refresh`). Bez tego `Set-Cookie` z
@@ -63,7 +59,6 @@ app.use("*", async (c, next) =>
 app.route("/auth", auth);
 app.route("/attachments", attachments);
 app.route("/calls", calls);
-app.route("/transfer", transfer);
 app.route("/zgloszenia", zgloszenia);
 
 /**
@@ -466,8 +461,7 @@ function fromBase64(value: string): ArrayBuffer {
  *
  * Skrzynki czyszczą się same alarmami Durable Objects; R2 nie ma takiego
  * mechanizmu, więc potrzebuje osobnego przebiegu. Dotyczy to osieroconych
- * załączników i porzuconych zrzutów przeniesienia — te drugie kasują się przy
- * odbiorze, więc zostają tylko takie, po które nikt nie przyszedł.
+ * załączników — tych, po które nikt nie przyszedł.
  */
 export default {
   fetch: app.fetch,
@@ -483,13 +477,5 @@ export default {
 
     // Ślady po zużytych tokenach rosną z każdą wysłaną wiadomością.
     if (tokenyWlaczone(env)) ctx.waitUntil(posprzatajTokeny(env));
-
-    ctx.waitUntil(
-      cleanupExpiredTransfers(env).then((usuniete) => {
-        if (usuniete > 0) {
-          console.log(`sprzątanie R2: usunięto ${usuniete} porzuconych zrzutów przeniesienia`);
-        }
-      }),
-    );
   },
 };

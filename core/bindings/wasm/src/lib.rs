@@ -219,7 +219,7 @@ impl MekambClient {
     /// Otwiera rozmowę zapisaną w magazynie.
     ///
     /// Zwraca `false`, gdy magazyn tej grupy nie zna — rozmowa jest w historii,
-    /// ale bez stanu MLS (np. po przeniesieniu konta).
+    /// ale bez stanu MLS (np. na świeżo sparowanym urządzeniu).
     ///
     /// Wołający musi to zrobić dla każdej znanej rozmowy PO odtworzeniu klienta.
     /// Bez tego klient ma pełny stan na dysku i pustą listę otwartych rozmów,
@@ -261,9 +261,8 @@ impl MekambClient {
     ///
     /// `key_packages` to sklejone pakiety, każdy poprzedzony swoją długością
     /// (`u32` big-endian). `wasm_bindgen` nie przenosi tablicy tablic bajtów,
-    /// a to samo ramkowanie z długością z przodu jest już w `storage.rs`
-    /// i w zrzucie przeniesienia konta. Składa je `sklejPakiety`
-    /// w `web/src/lib/messenger.ts`.
+    /// a to samo ramkowanie z długością z przodu jest już w `storage.rs`.
+    /// Składa je `sklejPakiety` w `web/src/lib/messenger.ts`.
     #[wasm_bindgen(js_name = addMembers)]
     pub fn add_members(
         &mut self,

@@ -78,8 +78,8 @@ class Messenger private constructor(
     /**
      * Token dostępowy.
      *
-     * Widoczny na zewnątrz, bo przeniesienie konta wysyła zrzut własnym
-     * żądaniem — nie przez `Messenger`, który zajmuje się rozmowami.
+     * Widoczny na zewnątrz, bo część żądań idzie z pominięciem `Messenger`
+     * (zgłoszenia błędów, zarządzanie kontem) — a on zajmuje się rozmowami.
      */
     val token: String,
 ) {
@@ -139,8 +139,8 @@ class Messenger private constructor(
      * wysłanie i odebranie kończyło się „nie ma takiej rozmowy w tym kliencie".
      *
      * Identyfikatory znamy z własnej historii, więc otwieramy je sami. Rozmowa
-     * bez stanu MLS (np. po przeniesieniu konta) po prostu się nie otworzy —
-     * zostaje w historii do czytania i tyle.
+     * bez stanu MLS (np. na świeżo sparowanym urządzeniu) po prostu się nie
+     * otworzy — zostaje w historii do czytania i tyle.
      */
     fun otworzZnaneRozmowy(groupIds: List<ByteArray>) {
         for (groupId in groupIds) {

@@ -115,7 +115,7 @@ describe("historia rozmów", () => {
   });
 
   /// Historia rośnie bez końca, a cały rekord jest szyfrowany przy każdym
-  /// zapisie i jedzie w zrzucie przeniesienia.
+  /// zapisie i jedzie transferem optycznym przy parowaniu.
   it("najstarsze wiadomości są obcinane", async () => {
     const duzo = Array.from({ length: 900 }, (_, i) => wiadomosc(String(i), i));
     await zapiszRozmowe(GRUPA_A, "ala", duzo);
@@ -217,7 +217,7 @@ describe("historia rozmów", () => {
 
   /// Numer wersji ma odróżniać UKŁADY, nie tylko datę zmiany. Przez chwilę
   /// oba klienty deklarowały wersję 1 przy niezgodnych kształtach, więc
-  /// przeniesienie konta między nimi dawało historię nie do odczytania.
+  /// transfer optyczny historii między nimi dawał historię nie do odczytania.
   it("nazwa rozmówcy wraca razem z rozmową", async () => {
     await zapiszRozmowe(GRUPA_A, "bartek", [wiadomosc("a")]);
 

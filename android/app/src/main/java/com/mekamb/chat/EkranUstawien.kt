@@ -111,19 +111,17 @@ fun EkranUstawien(
                     onZmiana = onOdczyt,
                 )
 
-                // Zdanie zostaje, bo jest o kompromisie pod tym przełącznikiem:
-                // wysyłanie potwierdzeń zostawia ślad w RUCHU, którego treść
-                // ukryć się da, a chwili nadania nie.
+                /*
+                 * Zostaje jedno zdanie: to, które zmienia decyzję.
+                 *
+                 * Opóźnienie, zbiorcza wysyłka i „chwila wysłania koperty"
+                 * opisywały, JAK to zrobiliśmy — a pod przełącznikiem stoi
+                 * pytanie, czy go zostawić włączonym. Na to odpowiada
+                 * wyłącznie wzajemność. Słowo „koperta" znaczy zresztą coś
+                 * tylko dla nas.
+                 */
                 Text(
-                    "Wysyłane zbiorczo, po losowym opóźnieniu do 30 sekund. Ptaszek pojawia " +
-                        "się więc z opóźnieniem — chwili wysłania samej koperty ukryć się nie da.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-
-                Text(
-                    "Wyłączenie działa w obie strony: nie wysyłasz i nie widzisz cudzych. " +
-                        "„Dostarczono\" zostaje — nie mówi nic o niczyjej uwadze.",
+                    "Kiedy je wyłączysz, przestaniesz też widzieć cudze.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -200,7 +198,7 @@ fun EkranUstawien(
             )
 
             Text(
-                "mekamb-chat · ${BuildConfig.VERSION_NAME} · rdzeń Rust przez UniFFI",
+                "mekamb ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelSmall,
                 color = Nocturne.kolory.tekstTrzeci,
             )

@@ -199,6 +199,33 @@ async function wczytajWszystko(): Promise<ZapisanaHistoria> {
   }
 }
 
+/**
+ * Kolejka mutacji historii — jeden rekord, jeden zapis naraz.
+ *
+ * # Dlaczego to musi być zserializowane
+ *
+ * Cała historia leży w JEDNYM zaszyfrowanym rekordzie, więc każda zmiana to
+ * `wczytaj → zmień → zapisz`, a odczyt i zapis są asynchroniczne (szyfrowanie
+ * + IndexedDB). Dwie takie operacje puszczone naraz czytają ten sam stan i
+ * zapisują po kolei — a ta, która pisze DRUGA, przywraca to, co przeczytała na
+ * starcie, kasując zmianę pierwszej.
+ *
+ * Tak właśnie znikał znacznik odczytu: wejście do rozmowy odpala z tej samej
+ * zmiany `wiadomosci` i `oznaczPrzeczytane`, i `zapiszRozmowe`. Pierwsze
+ * podnosiło `przeczytaneDo`, drugie — zachowując `przeczytaneDo` odczytane
+ * PRZED tą zmianą — przepisywało je z powrotem na starą wartość. Licznik
+ * nieprzeczytanych zostawał na „1" mimo że rozmowa była właśnie otwarta.
+ */
+let kolejkaHistorii: Promise<unknown> = Promise.resolve();
+
+function zSerializacja<T>(operacja: () => Promise<T>): Promise<T> {
+  const wynik = kolejkaHistorii.then(operacja, operacja);
+  // Łańcuch nie może się urwać na błędzie jednej mutacji — kolejne muszą
+  // wystartować niezależnie od tego, czy poprzednia się powiodła.
+  kolejkaHistorii = wynik.catch(() => {});
+  return wynik;
+}
+
 /** Wczytuje historię jednej rozmowy. */
 export async function wczytajRozmowe(groupId: Uint8Array): Promise<Wiadomosc[]> {
   const zapis = await wczytajWszystko();
@@ -220,22 +247,65 @@ export async function rozmowcaRozmowy(groupId: Uint8Array): Promise<string | nul
  */
 export async function zapiszRozmowe(
   groupId: Uint8Array,
-  rozmowca: string,
+  /**
+   * Nazwa rozmówcy — albo `undefined`, gdy wywołujący jej nie zna.
+   *
+   * To rozróżnienie jest konieczne, odkąd zapisujemy rozmowy, których nie ma
+   * na ekranie: nanoszenie ptaszka albo śladu po rozmowie na wątek otwarty
+   * gdzie indziej nie wie, jak ta rozmowa się nazywa. Pusty napis podany
+   * zamiast tego KASOWAŁBY nazwę i wiersz na liście zostawał bez imienia —
+   * z powodu wyłącznie technicznego, po zdarzeniu, które nazwy nie dotyczyło.
+   */
+  rozmowca: string | undefined,
   wiadomosci: Wiadomosc[],
 ): Promise<void> {
-  const zapis = await wczytajWszystko();
-  const klucz = kluczRozmowy(groupId);
+  await zSerializacja(async () => {
+    const zapis = await wczytajWszystko();
+    const klucz = kluczRozmowy(groupId);
 
-  // Obcinamy od początku — najstarsze idą pierwsze.
-  const przyciete = wiadomosci.slice(-LIMIT_WIADOMOSCI);
-  zapis.rozmowy[klucz] = {
-    rozmowca,
-    wiadomosci: przyciete.map(doZapisu) as Wiadomosc[],
-    // Zapis nie jest przeczytaniem — znacznik zostaje taki, jaki był.
-    przeczytaneDo: zapis.rozmowy[klucz]?.przeczytaneDo,
-  };
+    // Obcinamy od początku — najstarsze idą pierwsze.
+    const przyciete = wiadomosci.slice(-LIMIT_WIADOMOSCI);
+    zapis.rozmowy[klucz] = {
+      rozmowca: rozmowca ?? zapis.rozmowy[klucz]?.rozmowca ?? "",
+      wiadomosci: przyciete.map(doZapisu) as Wiadomosc[],
+      // Zapis nie jest przeczytaniem — znacznik zostaje taki, jaki był.
+      przeczytaneDo: zapis.rozmowy[klucz]?.przeczytaneDo,
+    };
 
-  await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+    await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  });
+}
+
+/**
+ * Dopisuje jedną wiadomość do rozmowy — atomowo względem innych zapisów.
+ *
+ * Osobno od [`zapiszRozmowe`], bo tu odczyt i zapis MUSZĄ być jedną operacją:
+ * dwie wiadomości, które przyjdą tuż po sobie do wątku spoza ekranu, czytałyby
+ * ten sam stan dysku i druga nadpisałaby pierwszą — wiadomość przepadłaby bez
+ * śladu. Dedup po identyfikatorze, bo ta sama koperta może dojść dwa razy
+ * (ponowne dostarczenie ze skrzynki przy zerwanym połączeniu).
+ */
+export async function dopiszWiadomosc(
+  groupId: Uint8Array,
+  rozmowca: string | undefined,
+  wiadomosc: Wiadomosc,
+): Promise<void> {
+  await zSerializacja(async () => {
+    const zapis = await wczytajWszystko();
+    const klucz = kluczRozmowy(groupId);
+    const istniejaca = zapis.rozmowy[klucz];
+    const poprzednie = istniejaca ? istniejaca.wiadomosci.map(zZapisu) : [];
+    if (poprzednie.some((w) => w.id === wiadomosc.id)) return;
+
+    const wiadomosci = [...poprzednie, wiadomosc].slice(-LIMIT_WIADOMOSCI);
+    zapis.rozmowy[klucz] = {
+      rozmowca: rozmowca ?? istniejaca?.rozmowca ?? "",
+      wiadomosci: wiadomosci.map(doZapisu) as Wiadomosc[],
+      // Dopisanie nie jest przeczytaniem — znacznik zostaje taki, jaki był.
+      przeczytaneDo: istniejaca?.przeczytaneDo,
+    };
+    await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  });
 }
 
 /**
@@ -382,12 +452,32 @@ export async function scalHistorie(surowe: Uint8Array): Promise<WynikScalania | 
  * naprawdę na nią patrzy, a nie gdy wiadomość tylko dotarła.
  */
 export async function oznaczPrzeczytane(groupId: Uint8Array, doChwili: number): Promise<void> {
-  const zapis = await wczytajWszystko();
-  const rozmowa = zapis.rozmowy[kluczRozmowy(groupId)];
-  if (!rozmowa || (rozmowa.przeczytaneDo ?? 0) >= doChwili) return;
+  await zSerializacja(async () => {
+    const zapis = await wczytajWszystko();
+    const rozmowa = zapis.rozmowy[kluczRozmowy(groupId)];
+    if (!rozmowa || (rozmowa.przeczytaneDo ?? 0) >= doChwili) return;
 
-  rozmowa.przeczytaneDo = doChwili;
-  await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+    rozmowa.przeczytaneDo = doChwili;
+    await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  });
+}
+
+/**
+ * Usuwa rozmowę z historii tego urządzenia.
+ *
+ * Kasuje tylko lokalny zapis — grupa MLS i pozostałe urządzenia zostają
+ * nietknięte. To celowe: „usuń" znaczy „nie chcę tego widzieć u siebie", a nie
+ * „opuść grupę". Wiadomość przysłana po skasowaniu założy wiersz na nowo.
+ */
+export async function usunRozmowe(groupId: Uint8Array): Promise<void> {
+  await zSerializacja(async () => {
+    const zapis = await wczytajWszystko();
+    const klucz = kluczRozmowy(groupId);
+    if (!(klucz in zapis.rozmowy)) return;
+
+    delete zapis.rozmowy[klucz];
+    await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  });
 }
 
 /** Ile wiadomości czeka nieprzeczytanych we wszystkich rozmowach. */

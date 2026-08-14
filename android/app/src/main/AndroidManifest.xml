@@ -7,6 +7,30 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
+      Usługa pierwszoplanowa utrzymująca połączenie ze skrzynką.
+
+      Bez niej Android zabija proces po schowaniu aplikacji i przestajemy
+      odbierać: wiadomość wysłana w tym czasie leżała na serwerze do następnego
+      uruchomienia. Push byłby tańszy dla baterii, ale wymaga przepuszczenia
+      sygnału przez serwery Google — czyli oddania im informacji o tym, ŻE
+      i KIEDY ktoś do nas pisze. Treści by nie zobaczyli, metadane owszem.
+
+      `DATA_SYNC` jest właściwym typem: utrzymujemy połączenie, którym płyną
+      dane użytkownika. Od Androida 14 typ jest obowiązkowy i musi zgadzać się
+      z tym podanym przy `startForeground` — rozbieżność to wyjątek zamiast
+      uruchomionej usługi.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--
+      Baner dzwoniącej rozmowy na zablokowanym ekranie. Bez tego przychodzące
+      połączenie byłoby zwykłym wierszem na liście powiadomień, czyli czymś,
+      co się zauważa po fakcie.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!--
       Mikrofon i aparat WYŁĄCZNIE do rozmów A/V. Prosimy o nie dopiero
       w chwili dzwonienia, a nie przy starcie aplikacji: uprawnienie, którego
       użytkownik nie umie powiązać z konkretną czynnością, jest uprawnieniem
@@ -65,5 +89,14 @@
                 <data android:scheme="mekamb" android:host="transfer" />
             </intent-filter>
         </activity>
+
+        <!--
+          `exported="false"`: usługę uruchamia wyłącznie ta aplikacja. Wystawiona
+          na zewnątrz pozwalałaby dowolnej innej aplikacji ją wystartować.
+        -->
+        <service
+            android:name=".UslugaNasluchu"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

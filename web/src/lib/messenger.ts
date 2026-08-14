@@ -9,8 +9,9 @@ import init, {
   sealAttachment,
   stripMetadata,
 } from "../wasm/mekamb_wasm";
-import { api } from "./api";
+import { ApiError, api } from "./api";
 import { czyWlasna, zapamietaj } from "./echa";
+import { WYSCIG, odmowaRelaya } from "./relay";
 import { naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
 import { loadSeed, loadState, saveSeed, saveState } from "./vault";
@@ -382,30 +383,7 @@ export class Messenger {
     pending: { commit: Uint8Array; welcome?: Uint8Array },
     username: string,
   ): Promise<void> {
-    /*
-     * Do serwera idzie sam numer epoki.
-     *
-     * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
-     * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
-     * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
-     */
-    const epoch = this.client.epoch(groupId);
-    const response = await api.post<{ accepted: boolean; epoch: number }>(
-      // Adres relaya jest OSOBNO wyprowadzony, nie jest identyfikatorem
-      // rozmowy: serwer widzi go w adresie żądania, a z niego nie da się
-      // policzyć znaczników kopert.
-      `/groups/${relayId(groupId)}/commit`,
-      { epoch: Number(epoch) },
-      this.token,
-    );
-
-    if (!response.accepted) {
-      // Ktoś był szybszy. Porzucamy własny commit; jego commit dotrze do nas
-      // skrzynką i po jego przetworzeniu można spróbować ponownie.
-      this.client.discardCommit(groupId);
-      await this.persist();
-      throw new Error("ktoś zmienił grupę w międzyczasie — spróbuj ponownie");
-    }
+    await this.zajmijEpoke(groupId);
 
     this.client.confirmCommit(groupId);
     await this.persist();
@@ -444,6 +422,67 @@ export class Messenger {
       await zapamietaj(zaproszenie);
       await api.deposit(username, zaproszenie);
     }
+  }
+
+  /**
+   * Zajmuje epokę w `GroupRelay` dla przygotowanego commitu.
+   *
+   * # Do serwera idzie sam numer epoki
+   *
+   * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
+   * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
+   * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
+   *
+   * # Odmowa musi porzucić commit, a nie tylko rzucić błędem
+   *
+   * Przygotowany i nieporzucony commit blokuje w MLS **całą rozmowę**: kolejna
+   * zmiana składu i zwykłe wysłanie wiadomości kończą się wtedy błędem
+   * o oczekującym commicie. Rzucenie samego wyjątku zostawiało rozmowę w tym
+   * stanie aż do przeładowania strony — patrz `relay.ts`, gdzie reguła jest
+   * opisana i sprawdzona testem.
+   */
+  private async zajmijEpoke(groupId: Uint8Array): Promise<void> {
+    const epoch = this.client.epoch(groupId);
+
+    try {
+      const odpowiedz = await api.post<{ accepted: boolean; epoch: number }>(
+        // Adres relaya jest OSOBNO wyprowadzony, nie jest identyfikatorem
+        // rozmowy: serwer widzi go w adresie żądania, a z niego nie da się
+        // policzyć znaczników kopert.
+        `/groups/${relayId(groupId)}/commit`,
+        { epoch: Number(epoch) },
+        this.token,
+      );
+
+      if (odpowiedz.accepted) return;
+    } catch (e) {
+      const odmowa = e instanceof ApiError ? odmowaRelaya(e.status) : null;
+
+      // Nie wiadomo, czy relay zdążył epokę zająć — stanu MLS nie ruszamy.
+      if (!odmowa) throw e;
+
+      // Do konsoli oryginał, użytkownikowi zdanie po ludzku: komunikat serwera
+      // mówi o listach i epokach, więc nadaje się do diagnozy, a nie na ekran.
+      console.warn("relay odrzucił zajęcie epoki", e);
+      await this.porzucCommit(groupId, odmowa);
+    }
+
+    // Odpowiedź 200 z `accepted: false` — serwer odpowiedział, epoki nie zajął.
+    await this.porzucCommit(groupId, WYSCIG);
+  }
+
+  /** Porzuca przygotowany commit, zapisuje stan i zgłasza powód wywołującemu. */
+  private async porzucCommit(groupId: Uint8Array, komunikat: string): Promise<never> {
+    // Porzucenie może się nie udać (np. commitu już nie ma) — to nie może
+    // przesłonić powodu, dla którego tu jesteśmy.
+    try {
+      this.client.discardCommit(groupId);
+      await this.persist();
+    } catch (e) {
+      console.warn("nie udało się porzucić przygotowanego commitu", e);
+    }
+
+    throw new Error(komunikat);
   }
 
   /**

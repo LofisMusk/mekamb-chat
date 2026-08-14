@@ -1,0 +1,123 @@
+name: Wdrożenie backendu
+
+# ---------------------------------------------------------------------------
+# Po co to istnieje
+#
+# Klient webowy wdraża się sam przy każdym scaleniu do `main`, APK powstaje przy
+# etykiecie — a Worker szedł na produkcję tylko wtedy, gdy ktoś pamiętał
+# o `wrangler deploy` z własnego terminala. Kontrakt między klientem a serwerem
+# zmienia się razem z kodem, więc taki układ musiał kiedyś rozjechać się po
+# cichu. Rozjechał się: PR #12 zdjął z `POST /groups/:id/commit` skład grupy
+# i samą kopertę, klienci zaczęli wysyłać samą epokę, a wdrożony Worker wciąż
+# wymagał listy członków i odpowiadał na to `400 „oczekiwano niepustej listy
+# członków"`. Dla użytkownika znaczyło to tyle, że **nie dało się dodać kontaktu
+# ani założyć rozmowy** (zgłoszenie #18) — komunikatem, którego nie da się
+# zrozumieć ani obejść.
+#
+# Wdrożenie przy każdym scaleniu jest tańsze niż pamiętanie o nim.
+#
+# Wdrażamy przy KAŻDYM scaleniu, nie tylko przy zmianach w `server/`: rozjazd
+# bierze się ze zmiany kontraktu, a ta bywa zapisana wyłącznie po stronie
+# klienta. Ponowne wdrożenie niezmienionego Workera nic nie kosztuje.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Jedno wdrożenie naraz i bez anulowania w locie: przerwana migracja D1
+# zostawiłaby bazę w połowie.
+concurrency:
+  group: wdrozenie-serwera
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    name: Cloudflare Worker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      # Brak poświadczeń sprawdzamy PRZED instalacją i testami, żeby błąd
+      # w konfiguracji repozytorium nie ukrywał się na końcu kilkuminutowego
+      # przebiegu.
+      - name: Sprawdź poświadczenia
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Brak sekretu CLOUDFLARE_API_TOKEN — Worker nie zostanie wdrożony."
+            echo "Ustaw go w Settings → Secrets and variables → Actions → Secrets."
+            echo "Token utwórz w panelu Cloudflare z szablonu „Edit Cloudflare Workers”;"
+            echo "musi obejmować D1, bo ten przebieg wykonuje też migracje bazy."
+            echo "Gdy konto ma więcej niż jedno konto Cloudflare, dołóż CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # Testy przed wdrożeniem, mimo że CI biegnie na tym samym commicie:
+      # oba przebiegi startują równolegle, więc bez tego kroku zepsuty serwer
+      # trafiłby na produkcję, zanim CI zdąży to zauważyć. Działają na workerd,
+      # czyli tym samym silniku co produkcja.
+      - name: Testy
+        run: npm test
+
+      # Migracje PRZED publikacją: nowy kod może liczyć na nowe kolumny,
+      # a stary działa na bazie z dodatkowymi bez szkody. Wrangler pamięta,
+      # które migracje już poszły, więc powtórzony przebieg nic nie zmienia.
+      - name: Migracje D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 migrations apply mekamb --remote
+
+      - name: Publikacja
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # Sprawdzenie, że wdrożony Worker to naprawdę TA wersja.
+      #
+      # `/tokens/key` istnieje od czasu tokenów doręczeniowych i odpowiada 503
+      # na wdrożeniu bez skonfigurowanego klucza — ale 404 znaczy, że pod tym
+      # adresem stoi Worker starszy niż ten kod. Dokładnie tak wyglądała
+      # usterka #18 i dokładnie tego nie chcemy przegapić drugi raz.
+      - name: Sprawdź wdrożenie
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::warning::Brak zmiennej API_URL — pomijam sprawdzenie wdrożonej wersji."
+            exit 0
+          fi
+
+          # Kilka podejść: propagacja wdrożenia bywa kwestią sekund, a jedno
+          # nieudane zapytanie tuż po publikacji nie jest jeszcze dowodem.
+          for _ in 1 2 3 4 5; do
+            KOD="$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/tokens/key")"
+            echo "GET $API_URL/tokens/key → $KOD"
+            [ "$KOD" = "404" ] || break
+            sleep 5
+          done
+
+          if [ "$KOD" = "404" ]; then
+            echo "::error::Pod $API_URL stoi Worker starszy niż ten kod."
+            echo "Sprawdź, czy CLOUDFLARE_API_TOKEN wdraża na to samo konto, na które wskazuje API_URL."
+            exit 1
+          fi

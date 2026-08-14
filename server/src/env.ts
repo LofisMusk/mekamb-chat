@@ -47,6 +47,22 @@ export interface Env {
   DELIVERY_TOKEN_KEY?: string;
 
   /**
+   * Token GitHuba do zakładania issues ze zgłoszeń z aplikacji.
+   *
+   * Opcjonalny: bez niego przycisk zgłaszania mówi wprost, że na tym serwerze
+   * zgłoszenia nie działają, zamiast udawać, że coś wysłał. Uprawnienie wystarczy
+   * jedno — zapis do issues w JEDNYM repozytorium; token o szerszym zakresie
+   * daje przy tym samym pożytku dostęp do kodu.
+   *
+   * **Nigdy nie trafia do klienta.** Klient prosi serwer, serwer zakłada issue —
+   * patrz `zgloszenia.ts`.
+   */
+  GITHUB_TOKEN?: string;
+
+  /** Repozytorium zgłoszeń jako `wlasciciel/nazwa`. Domyślnie to nasze. */
+  GITHUB_REPO?: string;
+
+  /**
    * Czy nadanie bez tokenu jest odrzucane.
    *
    * Osobno od samego klucza, bo to dwie różne decyzje: „umiem wydawać tokeny"

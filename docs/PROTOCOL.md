@@ -86,21 +86,29 @@ Ta sama ścieżka obsługuje założenie DM-a i rozbudowę grupy — bo DM to gr
 o rozmiarze 2.
 
 ```
-1. Pobierz key package urządzenia dodawanej osoby
-2. Przygotuj commit (stage_add_member)
-3. Wyślij do GroupRelay: { epoka, koperta z commitem, NOWY skład }
-4a. Przyjęty  → scal lokalnie, wyślij Welcome nowej osobie
-4b. Odrzucony → porzuć commit; cudzy commit dotrze skrzynką, po nim ponów
+1. Pobierz key package KAŻDEGO urządzenia dodawanej osoby
+2. Przygotuj commit jednym wywołaniem (stage_add_members)
+3. Wyślij do GroupRelay: { epoka } — i nic poza tym
+4a. Przyjęta  → scal lokalnie, roześlij commit do skrzynek pozostałych członków,
+                a Welcome do nowej osoby
+4b. Odrzucona → porzuć commit; cudzy commit dotrze skrzynką, po nim ponów
 ```
 
-`GroupRelay` rozsyła kopertę pozostałym członkom **z pominięciem nadawcy**:
-ten scalił commit u siebie, a przetworzenie własnego commitu w MLS kończy się
-błędem.
+**Do relaya idzie sam numer epoki.** Ani commit, ani skład grupy: rozstrzyga on
+wyłącznie KOLEJNOŚĆ, a rozsyłkę robi nadawca, który skład zna z drzewa MLS.
+Wcześniej szło tędy jedno i drugie — i była to jedyna w systemie struktura
+mówiąca serwerowi wprost, kto z kim rozmawia.
 
-Skład aktualizowany jest **po** przyjęciu commitu. Przy odrzuceniu lista zostaje
-nietknięta, więc nieudana próba nie psuje routingu grupy. Nadawcę serwer bierze
-z tokenu, a nie z ciała żądania — inaczej dałoby się wykluczyć z rozsyłki
-dowolną osobę i po cichu odciąć ją od grupy.
+Nadawca rozsyła commit **z pominięciem siebie i nowej osoby**: sam scalił go
+u siebie, a nowa dostaje Welcome, bo commitu wprowadzającego ją do grupy nie
+potrafi przetworzyć.
+
+**Odmowa musi porzucić przygotowany commit** — i to dotyczy każdej odmowy,
+o której wiadomo, że epoka nie została zajęta, nie tylko wyścigu. Commit
+przygotowany i nieporzucony blokuje w MLS całą rozmowę: nie da się już ani
+zmienić składu, ani wysłać zwykłej wiadomości. Odpowiedź, która nie rozstrzyga
+(5xx, brak sieci), nie zmienia stanu MLS: relay mógł epokę zająć, zanim
+przestał odpowiadać. Reguła: `web/src/lib/relay.ts` i `android/.../Relay.kt`.
 
 **Nowa osoba nie widzi wcześniejszych wiadomości.** To wynika wprost z MLS:
 dołącza w bieżącej epoce i nie ma materiału klucza z poprzednich. Zamierzone.
@@ -150,16 +158,23 @@ Commit zmienia epokę, więc dwa równoległe commity muszą zostać rozstrzygni
 Rozstrzyga `GroupRelay`, bo Durable Object jest jednowątkowy.
 
 ```
-1. Klient przygotowuje commit          → stage_add_member / stage_remove_member
-2. Wysyła go do GroupRelay
-3a. Relay potwierdza (był pierwszy)    → confirm_pending_commit  → epoka +1
-3b. Relay odrzuca (ktoś go ubiegł)     → discard_pending_commit  → epoka bez zmian,
+1. Klient przygotowuje commit          → stage_add_members / stage_remove_member
+2. Zgłasza relayowi numer epoki
+3a. Relay potwierdza (był pierwszy)    → confirm_pending_commit  → epoka +1,
+                                          rozsyłka do skrzynek
+3b. Relay odmawia (rozstrzygalnie)     → discard_pending_commit  → epoka bez zmian,
                                           przetwórz cudzy commit i ponów
+3c. Relay nie odpowiada (5xx, sieć)    → nie ruszaj stanu MLS: nie wiadomo,
+                                          czy epoka została zajęta
 ```
 
 **Commit nie jest scalany przed potwierdzeniem.** Scalenie od razu przy
 odrzuceniu zostawiłoby klienta w epoce, której reszta grupy nie zna — czyli poza
 rozmową.
+
+**Commit nie może też zostać przygotowany i zapomniany.** Dopóki wisi, MLS
+odmawia w tej rozmowie wszystkiego — również wysłania zwykłej wiadomości —
+więc klient, który przy odmowie tylko pokaże błąd, psuje rozmowę do restartu.
 
 ### Transport P2P
 

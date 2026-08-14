@@ -232,21 +232,7 @@ class Messenger private constructor(
         val groupId = client.createConversation()
         val oczekujacy = client.addMembers(groupId, pakiety)
 
-        /*
-         * Do serwera idzie sam numer epoki.
-         *
-         * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
-         * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
-         * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
-         */
-        val przyjety = api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
-        if (!przyjety) {
-            // Relay odrzucił commit — ktoś zmienił grupę w międzyczasie.
-            // Scalenie na siłę wypchnęłoby nas poza rozmowę.
-            client.discardCommit(groupId)
-            vault.saveState(client.exportState())
-            error("ktoś zmienił grupę w międzyczasie — spróbuj ponownie")
-        }
+        zajmijEpoke(groupId)
 
         client.confirmCommit(groupId)
         vault.saveState(client.exportState())
@@ -288,13 +274,7 @@ class Messenger private constructor(
             val pakiety = pobierzPakiety(urzadzenia, peerUsername)
             val oczekujacy = client.addMembers(groupId, pakiety)
 
-            val przyjety = api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
-
-            if (!przyjety) {
-                client.discardCommit(groupId)
-                vault.saveState(client.exportState())
-                error("ktoś zmienił grupę w międzyczasie — spróbuj ponownie")
-            }
+            zajmijEpoke(groupId)
 
             client.confirmCommit(groupId)
             vault.saveState(client.exportState())
@@ -328,6 +308,49 @@ class Messenger private constructor(
 
             oczekujacy.welcome?.let { wyslijWelcome(peerUsername, it) }
         }
+
+    /**
+     * Zajmuje epokę w `GroupRelay` dla przygotowanego commitu.
+     *
+     * # Do serwera idzie sam numer epoki
+     *
+     * Ani commit, ani skład grupy — serwer rozstrzyga wyłącznie KOLEJNOŚĆ.
+     * Wcześniej dostawał jedno i drugie, bo sam rozsyłał commity, i była to
+     * jedyna w systemie struktura mówiąca mu wprost, kto z kim rozmawia.
+     *
+     * # Odmowa musi porzucić commit, a nie tylko rzucić wyjątkiem
+     *
+     * Przygotowany i nieporzucony commit blokuje w MLS **całą rozmowę**:
+     * kolejna zmiana składu i zwykłe wysłanie wiadomości kończą się wtedy
+     * błędem o oczekującym commicie. Sam wyjątek zostawiał rozmowę w tym stanie
+     * aż do restartu aplikacji — patrz [Relay], gdzie reguła jest opisana
+     * i sprawdzona testem.
+     */
+    private suspend fun zajmijEpoke(groupId: ByteArray) {
+        val przyjety = try {
+            api.zajmijEpoke(token, client.relayId(groupId), client.epoch(groupId))
+        } catch (e: Api.ApiException) {
+            // Odmowa nierozstrzygalna (5xx) leci dalej nietknięta: nie wiadomo,
+            // czy relay zdążył epokę zająć, więc stanu MLS nie ruszamy.
+            val komunikat = Relay.odmowa(e.status) ?: throw e
+            porzucCommit(groupId, komunikat)
+        }
+
+        // Odpowiedź 200 z `accepted: false` — serwer odpowiedział, epoki nie zajął.
+        if (!przyjety) porzucCommit(groupId, Relay.WYSCIG)
+    }
+
+    /** Porzuca przygotowany commit, zapisuje stan i zgłasza powód wywołującemu. */
+    private fun porzucCommit(groupId: ByteArray, komunikat: String): Nothing {
+        // Porzucenie może się nie udać (np. commitu już nie ma) — to nie może
+        // przesłonić powodu, dla którego tu jesteśmy.
+        runCatching {
+            client.discardCommit(groupId)
+            vault.saveState(client.exportState())
+        }
+
+        error(komunikat)
+    }
 
     /**
      * Pobiera po jednym key package na urządzenie.

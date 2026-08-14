@@ -204,6 +204,27 @@
   --bezpiecznie-lewo: env(safe-area-inset-left, 0px);
   --bezpiecznie-prawo: env(safe-area-inset-right, 0px);
 
+  /*
+   * Margines treści, mierzony SZEROKOŚCIĄ EKRANU, a nie stałą liczbą.
+   *
+   * # Dlaczego nie stała
+   *
+   * Bo „dobrze wyglądający margines" na iPhonie 15 Pro Max jest tą samą liczbą
+   * pikseli co połowa rozsądnego marginesu na SE — a te dwa telefony różnią się
+   * szerokością o jedną trzecią. Stała była ustawiana pod jeden z nich i na
+   * drugim wychodziła albo ciasno, albo tak szeroko, że dymki zaczynały się
+   * w połowie ekranu.
+   *
+   * `vw` to rozdzielczość, o którą chodzi: przeglądarka podaje ją sama, w tych
+   * samych jednostkach, w których liczy resztę układu. Pytanie systemu o model
+   * telefonu dawałoby tę samą liczbę okrężną drogą — i wymagałoby tablicy
+   * modeli, którą trzeba by dopisywać przy każdym nowym.
+   *
+   * `clamp()` domyka oba końce: na wąskim ekranie margines nie schodzi poniżej
+   * czytelności, na monitorze nie rośnie w nieskończoność razem z oknem.
+   */
+  --margines-tresci: clamp(.6rem, 3.2vw, 1.05rem);
+
   /* Jeden czas dla wszystkiego, co reaguje na kursor. */
   --szybko: .12s;
   --wolno: .22s;
@@ -945,6 +966,45 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   white-space: nowrap;
 }
 
+/*
+ * Przeciągnięcie wiersza w lewo odsłania kosz spod spodu.
+ *
+ * Wiersz jest nieprzezroczysty (kryje kosz w spoczynku) i przesuwa się nad nim;
+ * `overflow: hidden` na pozycji obcina to, co wyjechało poza krawędź. Kolor
+ * kosza to `--alarm-tlo`, nie nasycona czerwień — Nocturne trzyma akcent i alarm
+ * jako linię, a nie plamę.
+ */
+.pozycja-rozmowy {
+  position: relative;
+  overflow: hidden;
+  list-style: none;
+}
+.pozycja-rozmowy .wiersz-rozmowy {
+  position: relative;
+  z-index: 1;
+  background: var(--tlo);
+  /* Poziom obsługujemy sami; pion zostawiamy przewijaniu listy. */
+  touch-action: pan-y;
+}
+.pozycja-rozmowy .wiersz-rozmowy.otwarta { background: var(--karta); }
+.wiersz-usun {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 5.5rem;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .15rem;
+  min-height: 0;
+  border: none;
+  background: var(--alarm-tlo);
+  color: var(--alarm);
+  font-size: .6875rem;
+}
+.wiersz-usun:hover { background: color-mix(in srgb, var(--alarm) 20%, var(--alarm-tlo)); }
+
 .pusto {
   display: flex;
   flex-direction: column;
@@ -1027,7 +1087,21 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * Bez tego dziedziczy tło, obrys i promienie dymka — i data wygląda jak
  * wiadomość wysłana przez nikogo.
  */
-.wiadomosci li:not(.dzien):not(.zdarzenie) {
+/*
+ * `:not(.dzien, .zdarzenie)` — JEDEN `:not` z listą, nie dwa po kolei.
+ *
+ * To nie jest skrót zapisu, tylko warunek poprawności. Specyficzność `:not()`
+ * to specyficzność jego NAJBARDZIEJ szczegółowego argumentu, więc wersja
+ * z listą waży tyle samo co dawne `:not(.dzien)`. Dwa `:not` napisane obok
+ * siebie sumują się i podnoszą tę regułę PONAD `.wiadomosci li.wlasna` —
+ * a wtedy własne wiadomości dostają wyrównanie i tło cudzych, bo reguła ogólna
+ * zaczyna wygrywać ze szczegółową.
+ *
+ * Dokładnie tak się to zepsuło przy dokładaniu śladu po rozmowie: dymki
+ * ustawiły się po lewej i straciły swój kolor, mimo że reguła `.wlasna` była
+ * nietknięta. Tak samo cicho przestały działać `.nieudana` i `.pusto-watku`.
+ */
+.wiadomosci li:not(.dzien, .zdarzenie) {
   background: var(--babel);
   border: 1px solid var(--linia);
   border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
@@ -1304,29 +1378,105 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 /* --- Rozmowa A/V --------------------------------------------------------- */
 
 /*
- * Trwająca rozmowa jest najważniejszą rzeczą na ekranie.
+ * Rozmowa jest OSOBNYM EKRANEM, nie paskiem doklejonym nad wiadomościami.
  *
- * Dlatego stoi NAD wiadomościami i ma własny obrys akcentu — nie da się jej
- * przewinąć poza widok tak, jak przewija się wiadomości.
+ * Pasek stawiał obok siebie dwie rzeczy o zupełnie różnej pilności: rozmowę,
+ * która dzieje się teraz, i historię, która poczeka. Miejsca na ekranie
+ * dostawała ta druga, bo jest jej po prostu więcej — a przyciski rozmowy,
+ * z „Rozłącz" włącznie, ściskały się w jednym rzędzie u góry. Przy otwartej
+ * klawiaturze potrafiły wyjechać poza widok razem z całym wątkiem.
+ *
+ * Ekran bierze całą wysokość widoku (nie `100dvh` — patrz `okno.ts`) i sam
+ * dokłada sobie wcięcia bezpieczne, bo nie leży już w środku powłoki, która
+ * by to za niego zrobiła.
  */
-.rozmowa-pasek {
+.ekran-rozmowy {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  background: var(--tlo);
+  padding:
+    max(var(--odstep-4), var(--bezpiecznie-gora))
+    max(var(--odstep-4), var(--bezpiecznie-prawo))
+    max(var(--odstep-4), var(--bezpiecznie-dol))
+    max(var(--odstep-4), var(--bezpiecznie-lewo));
+}
+
+.rozmowa-naglowek {
   display: flex;
   align-items: center;
   gap: var(--odstep-3);
-  border: 1px solid var(--akcent);
-  background: var(--akcent-tlo);
-  border-radius: var(--promien-m);
-  padding: var(--odstep-3) var(--odstep-4);
-  margin-top: var(--odstep-3);
+  flex: none;
   font-size: .875rem;
+  color: var(--akcent);
 }
 .rozmowa-stan { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rozmowa-stan strong { color: var(--tekst); }
 .rozmowa-stan .czas { font-size: .6875rem; color: var(--tekst-drugi); font-variant-numeric: tabular-nums; }
 
-.rozmowa-akcje { display: flex; gap: var(--odstep-2); flex: none; }
-.rozmowa-akcje button { width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }
-.rozmowa-akcje button.rozlacz { border-color: var(--alarm); color: var(--alarm); }
-.rozmowa-akcje button.rozlacz:hover { background: color-mix(in srgb, var(--alarm) 14%, transparent); }
+/*
+ * Przyciski na dole, w zasięgu kciuka, i wyraźnie większe niż w pasku.
+ *
+ * `margin-top: auto` dosuwa je do krawędzi niezależnie od tego, ile miejsca
+ * zajęły kafelki — jedna osoba w rozmowie głosowej to jeden mały kafelek,
+ * a przyciski i tak mają być tam, gdzie zawsze.
+ */
+.rozmowa-przyciski {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--odstep-4);
+  flex: none;
+  margin-top: auto;
+  padding-top: var(--odstep-3);
+  flex-wrap: wrap;
+}
+.rozmowa-przyciski button.ikonowy {
+  width: 3.25rem;
+  height: 3.25rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+.rozmowa-przyciski button.rozlacz {
+  width: 3.25rem;
+  height: 3.25rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+.rozmowa-przyciski button.rozlacz:hover {
+  background: color-mix(in srgb, var(--alarm) 14%, transparent);
+}
+
+/* Ekran dzwonienia: kto dzwoni na środku, odpowiedź pod spodem. */
+.ekran-rozmowy.dzwoni { justify-content: center; text-align: center; }
+.rozmowa-kto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-3);
+  margin: auto 0;
+}
+.rozmowa-kto strong { font-size: 1.375rem; }
+.rozmowa-podpis { color: var(--tekst-drugi); font-size: .875rem; }
+.awatar.duzy { width: 5rem; height: 5rem; font-size: 2rem; }
+
+/* Dzwoniąc, odpowiedź jest wyborem z trzech, nie trzema ikonami. */
+.ekran-rozmowy.dzwoni .rozmowa-przyciski button {
+  flex: 1;
+  min-width: 8rem;
+  border-radius: var(--promien-m);
+}
+.ekran-rozmowy.dzwoni .rozmowa-przyciski button.niszczacy {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
 
 /*
  * Siatka kafelków: ja i rozmówcy, każdy z nazwą i drogą połączenia.
@@ -1341,7 +1491,11 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--odstep-2);
-  margin-top: var(--odstep-3);
+  /* Bierze miejsce, które zostało po nagłówku i przyciskach — na osobnym
+     ekranie obraz ma być duży, a nie wysokości paska. `min-height: 0` musi
+     tu być, bo bez niego siatka rozpycha rodzica zamiast się w nim zmieścić. */
+  flex: 1;
+  min-height: 0;
 }
 .siatka-kafelkow[data-ilu="3"], .siatka-kafelkow[data-ilu="4"] {
   grid-template-columns: 1fr 1fr;
@@ -1437,15 +1591,12 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   color: var(--tekst-drugi);
 }
 
-.przychodzaca {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-4);
-  border: 1px solid var(--akcent);
-  border-radius: var(--promien-m);
-  padding: var(--odstep-6);
-  background: var(--akcent-tlo);
-}
+/*
+ * `.przychodzaca` zniknęła — dzwonienie jest ekranem (`.ekran-rozmowy.dzwoni`),
+ * a nie kartą wciśniętą między nagłówek wątku a wiadomości. Karta w środku
+ * wątku znaczyła, że telefon dzwoni tylko wtedy, gdy patrzy się akurat na tę
+ * jedną rozmowę.
+ */
 
 /* --- Zaproszenie do przeniesienia historii -------------------------------- */
 
@@ -1718,16 +1869,38 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  */
 @media (max-width: 46rem) {
   /*
-   * Na dole zero marginesu: pasek nawigacji jest przyklejony do krawędzi
-   * i sam dokłada sobie wcięcie bezpieczne. Margines powłoki byłby drugim.
+   * Na telefonie powłoka NIE MA marginesu — ma tylko wcięcia bezpieczne.
+   *
+   * # Dlaczego margines zszedł z powłoki na panele
+   *
+   * Bo powłoka trzyma także tła: pasek zakładek, nagłówek wątku, pole pisania.
+   * Margines na niej odsuwał od krawędzi ekranu WSZYSTKO naraz, więc wokół
+   * całej aplikacji szła ramka w kolorze tła — na wąskim ekranie widoczna
+   * i kosztowna, bo zabierała szerokość dokładnie tam, gdzie jest jej najmniej.
+   * To jest ten „za duży margines": nie jedna wartość za duża, tylko margines
+   * postawiony o jeden poziom za wysoko.
+   *
+   * Teraz tła sięgają krawędzi, tak jak w każdym innym komunikatorze, a odsunięty
+   * jest sam TEKST — o `--margines-tresci`, czyli o tyle, ile wynika
+   * z szerokości ekranu tego konkretnego telefonu.
+   *
+   * Wcięcia bezpieczne zostają na powłoce, bo dotyczą całości: pod wcięciem
+   * w ekranie nie ma prawa znaleźć się ani tekst, ani tło paska.
+   *
+   * Na dole zero: pasek nawigacji jest ostatnim wierszem układu i sam dokłada
+   * sobie wcięcie. Margines powłoki byłby drugim.
    */
   .aplikacja:has(.uklad) {
     padding:
-      max(var(--odstep-4), var(--bezpiecznie-gora))
-      max(var(--odstep-4), var(--bezpiecznie-prawo))
+      var(--bezpiecznie-gora)
+      var(--bezpiecznie-prawo)
       0
-      max(var(--odstep-4), var(--bezpiecznie-lewo));
+      var(--bezpiecznie-lewo);
   }
+
+  /* Margines wraca przy treści — osobno w każdym panelu, bo osobno się
+     przewijają i każdy ma własną krawędź. */
+  .panel-listy, .watek, .inspektor { padding-inline: var(--margines-tresci); }
 
   /*
    * Na telefonie układ jest KOLUMNĄ, nie siatką z pływającym paskiem.
@@ -1792,7 +1965,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     transform: translateX(.4rem);
   }
 
-  .wiadomosci li:not(.dzien):not(.zdarzenie) { max-width: 86%; }
+  .wiadomosci li:not(.dzien, .zdarzenie) { max-width: 86%; }
   .siatka-konta { grid-template-columns: minmax(0, 1fr); }
 }
 

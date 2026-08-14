@@ -54,8 +54,8 @@ describe("wybór rozmowy jeden na jeden", () => {
     expect(znajdzRozmowe1na1(rozmowy, wszystkie, JA, "celina")).toBe(rozmowy[2]);
   });
 
-  /// Grupa, której nie ma w stanie MLS (np. po przeniesieniu konta), nie może
-  /// przerwać szukania — inaczej jedna uszkodzona pozycja blokowałaby
+  /// Grupa, której nie ma w stanie MLS (np. na świeżo sparowanym urządzeniu),
+  /// nie może przerwać szukania — inaczej jedna uszkodzona pozycja blokowałaby
   /// odnalezienie każdej następnej.
   it("pomija rozmowę, której stan MLS nie zna, i szuka dalej", () => {
     const rozmowy = [rozmowa(9), rozmowa(1)];

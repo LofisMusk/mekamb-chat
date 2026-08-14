@@ -336,7 +336,7 @@ pub fn own_sdp_fingerprint(sdp: String) -> Result<String, MekambError> {
 /// Generuje kod QR.
 ///
 /// Jedna implementacja dla obu klientów — patrz [`mekamb_core::qr`]. Kod niesie
-/// klucz przeniesienia konta i sekret TOTP, więc druga implementacja po drugiej
+/// klucz parowania urządzenia i sekret TOTP, więc druga implementacja po drugiej
 /// stronie prędzej czy później rozjechałaby się z pierwszą.
 #[uniffi::export]
 pub fn qr_code(text: String) -> Result<KodQr, MekambError> {
@@ -574,7 +574,7 @@ impl MekambClient {
     /// Otwiera rozmowę zapisaną w magazynie.
     ///
     /// Zwraca `false`, gdy magazyn tej grupy nie zna — rozmowa jest w historii,
-    /// ale bez stanu MLS (np. po przeniesieniu konta).
+    /// ale bez stanu MLS (np. na świeżo sparowanym urządzeniu).
     ///
     /// Wołający musi to zrobić dla każdej znanej rozmowy PO odtworzeniu klienta.
     /// Bez tego klient ma pełny stan na dysku i pustą listę otwartych rozmów,

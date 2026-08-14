@@ -156,7 +156,7 @@ export const SCIEZKI: Record<NazwaIkony, string> = {
     " M12 12 V18 M7.5 15 V17.5",
   /** Rzecz zamknięta hasłem albo passkeyem. */
   blokada: "M6.5 10.5 H17.5 V20 H6.5 Z M8.5 10.5 V7.5 A3.5 3.5 0 0 1 15.5 7.5 V10.5 M12 14 V16.5",
-  /** Przeniesienie konta i sekret TOTP — dane, których nie przepisuje się ręcznie. */
+  /** Parowanie urządzenia i sekret TOTP — dane, których nie przepisuje się ręcznie. */
   kodQr: "M4 4 H9 V9 H4 Z M15 4 H20 V9 H15 Z M4 15 H9 V20 H4 Z M15 15 H17 M19 15 H20" +
     " M15 17 V20 M17 19 H20",
   /** Stan, z którym trzeba coś zrobić — np. magazyn, który system może skasować. */

@@ -25,10 +25,10 @@ describe("kod parowania", () => {
     expect(zbudujZaproszenie("web-1a2b3c4d", KLUCZ)).not.toMatch(/ala|user|nazwa/i);
   });
 
-  it("kod przeniesienia konta nie jest kodem parowania", () => {
-    // Dwa różne kody z tym samym schematem `mekamb://` — pomylenie ich
-    // znaczyłoby skasowanie konta zamiast dodania urządzenia.
-    expect(odczytajZaproszenie("mekamb://transfer?i=abc&k=def")).toBeNull();
+  it("inny odnośnik mekamb:// nie jest kodem parowania", () => {
+    // Ten sam schemat `mekamb://`, inny host — parser nie może go wziąć za
+    // zaproszenie i dodać urządzenia na podstawie cudzego kodu.
+    expect(odczytajZaproszenie("mekamb://cos-innego?i=abc&k=def")).toBeNull();
   });
 
   it("obce napisy są odrzucane", () => {

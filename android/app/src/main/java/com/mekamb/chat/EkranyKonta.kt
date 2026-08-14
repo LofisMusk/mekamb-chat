@@ -33,13 +33,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /**
- * Panel konta i przenoszenie go na inne urządzenie.
- *
- * # Dlaczego przeniesienie dostaje cały ekran
- *
- * Bo jest tam ostrzeżenie, które musi zostać przeczytane: kto zobaczy kod,
- * przejmuje konto. Schowane w arkuszu albo w wierszu listy przeszłoby
- * niezauważone, a skutek jest nieodwracalny.
+ * Panel konta.
  */
 
 /** Panel konta — gałąź dolnej nawigacji. */
@@ -47,7 +41,6 @@ import kotlinx.coroutines.delay
 fun EkranKonta(
     model: ChatViewModel,
     modifier: Modifier = Modifier,
-    onPrzeniesienie: () -> Unit,
     onUczestnicy: () -> Unit,
     onUstawienia: () -> Unit,
     onZgloszenie: () -> Unit,
@@ -95,13 +88,6 @@ fun EkranKonta(
 
             Karta {
                 WierszMenu(
-                    ikona = Ikony.KodQr,
-                    tytul = "Przenieś na inne urządzenie",
-                    opis = "Kod QR, ważny 15 minut",
-                    onClick = onPrzeniesienie,
-                )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
-                WierszMenu(
                     ikona = Ikony.Odcisk,
                     tytul = "Kody bezpieczeństwa",
                     opis = "Do porównania z rozmówcą poza aplikacją",
@@ -132,10 +118,11 @@ fun EkranKonta(
                     Text("Gdy stracisz to urządzenie", style = MaterialTheme.typography.labelLarge)
                 }
                 // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
-                // po nim można zrobić coś inaczej — przenieść konto zawczasu.
+                // po nim można zrobić coś inaczej — sparować drugie urządzenie
+                // zawczasu, żeby konto nie zależało od jednego telefonu.
                 Text(
                     "Klucze są tylko tutaj i serwer nie odtworzy ich za Ciebie. Zanim " +
-                        "zmienisz telefon, przenieś konto — potem nie ma z czego.",
+                        "zmienisz telefon, sparuj drugie urządzenie — potem nie ma z czego.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -154,129 +141,6 @@ fun EkranKonta(
 
         DolnaNawigacja(biezaca = Galaz.KONTO, onGalaz = onGalaz)
     }
-}
-
-/**
- * Ekran przeniesienia konta.
- *
- * # To jest przeniesienie, nie sklonowanie
- *
- * Dwa urządzenia z tą samą tożsamością MLS dzielą liść w drzewie grupy; gdy oba
- * zaczną wysyłać, ratchet się rozjedzie i obie strony przestaną się
- * rozszyfrowywać. Nie da się tego wykryć po fakcie ani naprawić, więc ekran
- * kończy się skasowaniem konta ze źródła, a nie sugestią.
- */
-@Composable
-fun EkranPrzeniesienia(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz: () -> Unit) {
-    val kod = model.stan.kodPrzeniesienia
-    var zostalo by remember(kod) { mutableIntStateOf(kod?.wygasaZaSekund ?: 0) }
-
-    // Odliczanie jest tu istotne, nie ozdobne: kod przestaje działać bez
-    // ostrzeżenia, a użytkownik stoi wtedy z dwoma telefonami w rękach.
-    LaunchedEffect(kod) {
-        while (zostalo > 0) {
-            delay(1000)
-            zostalo -= 1
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (kod == null) model.przygotujPrzeniesienie()
-    }
-
-    Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Przenieś konto", "Move to another device", onWstecz = onWstecz)
-
-        Column(
-            Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Odstep.l),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
-        ) {
-            if (kod == null) {
-                Text(
-                    if (model.stan.pracuje) "Przygotowuję…" else "Nie udało się przygotować kodu.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-            } else if (zostalo <= 0) {
-                Ostrzezenie("Kod wygasł. Wróć i zacznij od nowa.")
-            } else {
-                Text(
-                    "Zeskanuj ten kod na nowym urządzeniu.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-
-                KodQr(
-                    tresc = kod.tresc,
-                    opis = "Kod QR do przeniesienia konta",
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-
-                Row(
-                    Modifier.align(Alignment.CenterHorizontally),
-                    horizontalArrangement = Arrangement.spacedBy(Odstep.s),
-                ) {
-                    Znacznik("%d:%02d".format(zostalo / 60, zostalo % 60), akcent = true)
-                    Znacznik("jednorazowy")
-                }
-
-                Ostrzezenie(
-                    "Kto zobaczy ten kod, przejmuje konto. Nie fotografuj go i nie wysyłaj — " +
-                        "pokaż wprost z ekranu na ekran.",
-                )
-
-                Karta {
-                    Text(
-                        "Nowe urządzenie nie ma aparatu?",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Nocturne.kolory.tekstDrugi,
-                    )
-                    Text(
-                        kod.tresc,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Nocturne.kolory.tekstDrugi,
-                    )
-                }
-            }
-
-            Text(
-                "Przenoszona jest tożsamość, możliwość kontynuowania rozmów oraz zapisana " +
-                    "historia. Kod działa raz i wygasa po kwadransie.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Nocturne.kolory.tekstDrugi,
-            )
-
-            PrzyciskNiszczacy("Odebrane — usuń konto z tego telefonu") { model.usunKonto() }
-
-            Text(
-                "Trzeba to zrobić. Dwa urządzenia z tym samym kontem rozsypią szyfrowanie " +
-                    "rozmowy i żadna ze stron nie odczyta już wiadomości.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Nocturne.kolory.tekstTrzeci,
-            )
-
-            Spacer(Modifier.height(Odstep.l))
-        }
-    }
-}
-
-/** Mały znacznik — etykieta z obrysem. */
-@Composable
-private fun Znacznik(tekst: String, akcent: Boolean = false) {
-    Text(
-        tekst,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (akcent) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
-        modifier = Modifier
-            .background(
-                if (akcent) Nocturne.kolory.akcentTlo else Nocturne.kolory.wglebienie,
-                RoundedCornerShape(4.dp),
-            )
-            .padding(horizontal = Odstep.m, vertical = Odstep.xs),
-    )
 }
 
 /** Wiersz menu: ikona, tytuł, opis. */

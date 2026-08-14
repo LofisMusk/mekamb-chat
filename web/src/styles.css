@@ -1598,46 +1598,6 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * jedną rozmowę.
  */
 
-/* --- Zaproszenie do przeniesienia historii -------------------------------- */
-
-/*
- * Pasek, nie okno modalne.
- *
- * Propozycja przeniesienia historii dotyczy tylko tych, którzy mają ją na
- * drugim urządzeniu — dla zakładającego pierwsze konto jest szumem. Modal
- * kazałby wszystkim odpowiadać na pytanie zadane części z nich; pasek stoi
- * z boku drogi i zamyka się jednym kliknięciem.
- */
-.zaproszenie {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-  border: 1px solid var(--linia);
-  border-left: 2px solid var(--akcent);
-  border-radius: 0 var(--promien-m) var(--promien-m) 0;
-  background: var(--karta);
-  padding: var(--odstep-3) var(--odstep-4);
-  font-size: .8125rem;
-  flex: none;
-}
-.zaproszenie > .ikona { color: var(--akcent); }
-.zaproszenie p { margin: 0; flex: 1; min-width: 0; }
-.zaproszenie button { flex: none; min-height: var(--dotyk-ikona); }
-
-/* Konsekwencja w drugiej linii, mniejsza — ale przed kliknięciem, nie po. */
-.zaproszenie .drobne {
-  display: block;
-  color: var(--tekst-drugi);
-  font-size: .75rem;
-}
-
-/* Na wąskim ekranie pasek nie mieści się w jednym wierszu — zawija, zamiast
-   ściskać tekst do dwóch słów na linię. */
-@media (max-width: 40rem) {
-  .zaproszenie { flex-wrap: wrap; }
-  .zaproszenie p { flex-basis: 100%; order: -1; }
-}
-
 /*
  * Rozwinięta karta odbioru ma własne przewijanie i własny sufit wysokości.
  *
@@ -1772,7 +1732,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   color: var(--akcent-tekst);
 }
 
-/* --- Kody QR i przeniesienie konta --------------------------------------- */
+/* --- Kody QR i podgląd aparatu ------------------------------------------- */
 
 .kod-qr {
   /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu

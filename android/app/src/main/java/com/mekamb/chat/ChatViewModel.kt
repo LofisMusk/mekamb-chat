@@ -31,7 +31,6 @@ enum class Ekran {
     KOD_LOGOWANIA,
     REJESTRACJA,
     POTWIERDZENIE,
-    ODBIOR,
 }
 
 data class StanCzatu(
@@ -44,8 +43,6 @@ data class StanCzatu(
     val wiadomosci: List<Wiadomosc> = emptyList(),
     /** Wszystkie rozmowy z dysku, od najświeższej. */
     val rozmowy: List<PozycjaListy> = emptyList(),
-    /** Kod przeniesienia, gdy ekran przenoszenia jest otwarty. */
-    val kodPrzeniesienia: Przeniesienie.Kod? = null,
     /** Skład rozmowy z drzewa MLS — nie własna lista w interfejsie. */
     val uczestnicy: List<String> = emptyList(),
     /** Kod bezpieczeństwa bieżącej rozmowy. */
@@ -129,7 +126,7 @@ internal fun opisTypu(mimeType: String): String = when {
  * inaczej i z żadnej nie jest nieprawdą.
  *
  * Kształt musi zgadzać się z `ZapisRozmowy` w `web/src/lib/historia.ts` —
- * zrzut przeniesienia konta przechodzi między klientami.
+ * historia przechodzi między klientami transferem optycznym przy parowaniu.
  */
 data class ZapisRozmowy(
     /** Czy szła z obrazem. Decyduje o ikonie — tej samej co przy dzwonieniu. */
@@ -437,7 +434,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Nazwa rozmowy z drzewa MLS — kto w niej jest poza nami.
      *
-     * `null`, gdy stanu tej grupy nie ma (np. po przeniesieniu konta) albo
+     * `null`, gdy stanu tej grupy nie ma (np. na świeżo sparowanym urządzeniu,
+     * które ma historię, ale nie zostało dodane do tej grupy) albo
      * zostaliśmy w niej sami. Wywołujący zostaje wtedy przy nazwie zapisanej
      * na dysku: stara jest lepsza niż żadna.
      */
@@ -459,29 +457,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Konto z magazynu — do pokazania w panelu. */
     val konto: Account? get() = vault.loadAccount()
-
-    /**
-     * Przygotowuje przeniesienie konta.
-     *
-     * Klucz zostaje w kodzie, serwer dostaje wyłącznie szyfrogram.
-     */
-    fun przygotujPrzeniesienie() {
-        val klient = messenger ?: return
-        viewModelScope.launch {
-            stan = stan.copy(pracuje = true, blad = null)
-
-            runCatching { Przeniesienie.przygotuj(vault, BuildConfig.API_URL, klient.token) }
-                .onSuccess { kod ->
-                    stan = stan.copy(pracuje = false, kodPrzeniesienia = kod)
-                }
-                .onFailure { blad ->
-                    stan = stan.copy(
-                        pracuje = false,
-                        blad = blad.message ?: "nie udało się przygotować przeniesienia",
-                    )
-                }
-        }
-    }
 
     /**
      * Kasuje konto z tego urządzenia.
@@ -581,26 +556,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Wychodzi z sesji na ekran odbioru przeniesienia.
-     *
-     * # Dlaczego to zamyka sesję, zamiast po prostu pokazać ekran
-     *
-     * Odebranie zrzutu PODMIENIA skarbiec — ziarno tożsamości, stan MLS
-     * i historię. Zrobienie tego pod działającym klientem znaczyłoby, że
-     * `Messenger` dopisuje stan MLS starego konta do skarbca nowego, a otwarte
-     * gniazdo skrzynki nadal nasłuchuje na starej nazwie. Dlatego sesja gaśnie
-     * najpierw, a dopiero potem pokazujemy ekran.
-     *
-     * Konto na dysku ZOSTAJE: rezygnacja z przeniesienia kończy się zwykłym
-     * logowaniem, a nie utratą urządzenia. Kasuje je dopiero samo odebranie.
-     */
-    fun przejdzDoOdbioru() {
-        Rdzen.odepnij(getApplication())
-        sesjaLogowania = null
-        stan = StanCzatu(ekran = Ekran.ODBIOR)
-    }
-
-    /**
      * Zakłada konto.
      *
      * Konto powstaje nieaktywne — do użycia trzeba jeszcze potwierdzić je
@@ -668,36 +623,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Odbiera konto przeniesione z innego urządzenia.
-     *
-     * Po tym kroku trzeba się jeszcze zalogować: przeniesiony jest skarbiec,
-     * a nie sesja. Token dostępowy żyje krócej niż tożsamość i celowo nie
-     * wchodzi do zrzutu — inaczej przechwycony kod dawałby od razu dostęp
-     * do serwera.
-     */
-    fun odbierzKonto(kod: String) {
-        viewModelScope.launch {
-            stan = stan.copy(pracuje = true, blad = null, informacja = null)
-
-            runCatching { Przeniesienie.odbierz(vault, BuildConfig.API_URL, kod) }
-                .onSuccess { konto ->
-                    stan = stan.copy(
-                        ekran = Ekran.LOGOWANIE,
-                        pracuje = false,
-                        informacja = "Konto ${konto.username} odebrane. " +
-                            "Zaloguj się i przestań używać starego urządzenia.",
-                    )
-                }
-                .onFailure { blad ->
-                    stan = stan.copy(
-                        pracuje = false,
-                        blad = blad.message ?: "nie udało się odebrać konta",
-                    )
-                }
-        }
-    }
-
     /** Loguje użytkownika i uruchamia klienta. */
     /**
      * Sesja między krokiem hasła a krokiem kodu.
@@ -735,10 +660,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 // Identyfikator urządzenia odtwarzamy z magazynu, gdy istnieje.
                 // Nowy przy każdym logowaniu zostawiałby w katalogu stos
-                // martwych urządzeń, do których nikt się nie dodzwoni.
-                // Po przeniesieniu w magazynie leży już konto ze źródła —
-                // wraz z jego identyfikatorem urządzenia i stanem MLS. Nadanie
-                // tu nowego identyfikatora unieważniłoby przeniesiony stan.
+                // martwych urządzeń, do których nikt się nie dodzwoni, i odciąłby
+                // to urządzenie od stanu MLS zapisanego pod starym identyfikatorem.
                 val konto = vault.loadAccount()
                     ?: Account(sesja.username, "android-${UUID.randomUUID().toString().take(8)}")
                 vault.saveAccount(konto)

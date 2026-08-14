@@ -111,8 +111,8 @@ impl Conversation {
     ///
     /// Wywołujący zna identyfikatory z własnej historii, więc otwiera je sam
     /// przy starcie. `Ok(None)` znaczy, że magazyn tej grupy nie zna — rozmowa
-    /// jest w historii, ale bez stanu MLS (np. po przeniesieniu konta) i nie da
-    /// się jej wskrzesić.
+    /// jest w historii, ale bez stanu MLS (np. na świeżo sparowanym urządzeniu)
+    /// i nie da się jej wskrzesić.
     pub fn load(provider: &Provider, group_id: &[u8]) -> Result<Option<Self>> {
         MlsGroup::load(provider.storage(), &GroupId::from_slice(group_id))
             .map(|grupa| grupa.map(|group| Self { group }))

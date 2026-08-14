@@ -344,7 +344,7 @@ bytes so callers cannot forget to wrap them.
 | MLS commits | `GroupRelay` Durable Object — the only ordering point. It assigns epochs and **nothing else**: the commit itself and the member list never reach it; the sender fans out to member inboxes |
 | Offline delivery | `UserInbox` Durable Object |
 | Directory, key packages | Worker + D1 |
-| Attachments, transfer dumps | R2 (ciphertext only) |
+| Attachments | R2 (ciphertext only) |
 
 `docs/PROTOCOL.md` is normative. `docs/THREAT_MODEL.md` states what is **not**
 protected. Tests assert the server never holds plaintext by grepping stored
@@ -372,8 +372,8 @@ username. The welcome was never delivered, the invitee never joined the group,
 `web/src/lib/historia.ts` and `android/.../Historia.kt` must agree on shape *and*
 number. This has already broken once: Android gained a field while keeping
 version 1, so both clients claimed the same number for incompatible shapes and
-account transfer silently produced empty history. Same rule for the transfer dump
-format in `przeniesienie.ts` / `Przeniesienie.kt`.
+the optical history transfer to a freshly paired device silently produced empty
+history.
 
 **Envelopes are acked only after the client has persisted MLS state.** The
 mailbox retains until ack, so acking earlier loses messages. A frame that fails
@@ -473,7 +473,8 @@ map was only ever filled by creating a group or accepting a Welcome. Without the
 disk and can neither send nor receive: every call fails with "nie ma takiej
 rozmowy w tym kliencie", and incoming envelopes match nothing and are dropped in
 silence. Conversation ids come from local history; `Conversation::load` returns
-`None` for a group with no MLS state (e.g. after an account transfer), which
+`None` for a group with no MLS state (e.g. a freshly paired device that received
+the conversation's history optically but was never added to the group), which
 stays readable but inert.
 
 **The envelope carries no conversation id.** Version 2 replaced `group_id` with

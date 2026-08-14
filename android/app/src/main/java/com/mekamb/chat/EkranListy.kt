@@ -1,6 +1,5 @@
 package com.mekamb.chat
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,11 +68,6 @@ fun EkranListy(
     val kontekst = LocalContext.current
     var szukanie by remember { mutableStateOf<String?>(null) }
 
-    // Odrzucenie propozycji importu jest trwałe — patrz [PropozycjaImportu].
-    // Stan lokalny obok preferencji, żeby pasek znikał od razu, a nie dopiero
-    // przy następnym wejściu na listę.
-    var proponujImport by remember { mutableStateOf(!PropozycjaImportu.odrzucona(kontekst)) }
-
     /*
      * Szukanie filtruje to, co JUŻ jest na urządzeniu.
      *
@@ -124,20 +118,6 @@ fun EkranListy(
                     Icon(Ikony.Wstecz, contentDescription = "Zamknij szukanie", tint = Nocturne.kolory.tekst)
                 }
             }
-        }
-
-        // Propozycja importu tylko przy PUSTEJ historii, nie przy pustym
-        // wyniku szukania: komu wiadomości już przyszły, temu nie ma czego
-        // proponować.
-        if (proponujImport && stan.rozmowy.isEmpty()) {
-            PasekImportuHistorii(
-                onImport = { model.przejdzDoOdbioru() },
-                onZamknij = {
-                    proponujImport = false
-                    PropozycjaImportu.odrzuc(kontekst)
-                },
-                modifier = Modifier.padding(horizontal = Odstep.l, vertical = Odstep.s),
-            )
         }
 
         Column(Modifier.weight(1f).fillMaxWidth()) {
@@ -222,108 +202,6 @@ fun EkranListy(
             onGalaz = onGalaz,
             nieprzeczytane = stan.rozmowy.sumOf { it.nieprzeczytane },
         )
-    }
-}
-
-/**
- * Propozycja przeniesienia historii z drugiego urządzenia.
- *
- * # Dlaczego pasek, a nie okno dialogowe
- *
- * To podpowiedź, a nie decyzja do podjęcia teraz. Okno modalne blokowałoby
- * wejście do aplikacji komuś, kto właśnie się zalogował i chce zacząć pisać —
- * a przeniesienie konta wymaga drugiego telefonu w ręku, więc i tak nie da się
- * go zrobić „przy okazji". Pasek stoi nad pustą listą, mieści się w jednym
- * spojrzeniu i znika jednym dotknięciem.
- *
- * # Dlaczego konsekwencja jest w treści, a nie po kliknięciu
- *
- * Przeniesienie zabiera historię, ale KASUJE konto na starym urządzeniu —
- * dwa telefony z tą samą tożsamością MLS rozsypują ratchet i obie strony
- * przestają się rozszyfrowywać. Kto tego nie wie, klika „przenieś" myśląc, że
- * dostanie kopię. Ostrzeżenie postawione dopiero na następnym ekranie
- * przeczytałby po podjęciu decyzji.
- */
-@Composable
-private fun PasekImportuHistorii(
-    onImport: () -> Unit,
-    onZamknij: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(10.dp))
-            .padding(start = Odstep.l, top = Odstep.m, bottom = Odstep.m),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-    ) {
-        Icon(
-            Ikony.KodQr,
-            contentDescription = null,
-            tint = Nocturne.kolory.akcent,
-            modifier = Modifier.size(18.dp).padding(top = 2.dp),
-        )
-
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Odstep.xs)) {
-            Text(
-                "Masz konto na innym urządzeniu?",
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Text(
-                "Przeniesienie kodem QR zabiera ze sobą historię rozmów. Kasuje przy tym " +
-                    "konto na starym urządzeniu — dwa telefony z tą samą tożsamością " +
-                    "rozsypują szyfrowanie rozmowy.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Nocturne.kolory.tekstDrugi,
-            )
-            Text(
-                "Przenieś historię",
-                style = MaterialTheme.typography.labelLarge,
-                color = Nocturne.kolory.akcentTekst,
-                modifier = Modifier
-                    .defaultMinSize(minHeight = Dotyk.ikonaWPasku)
-                    .clickable(onClick = onImport)
-                    .padding(vertical = Odstep.m),
-            )
-        }
-
-        IconButton(onClick = onZamknij, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-            Icon(
-                Ikony.Zamknij,
-                contentDescription = "Nie pytaj więcej",
-                tint = Nocturne.kolory.tekstTrzeci,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-    }
-}
-
-/**
- * Czy propozycja importu historii została odrzucona.
- *
- * Zapamiętana, bo podpowiedź wracająca przy każdym uruchomieniu przestaje być
- * podpowiedzią, a staje się natrętną reklamą jednej funkcji. Warunek „historia
- * pusta" sam z siebie nie wystarczy: ktoś, kto świadomie zaczyna od zera, ma
- * pustą historię jeszcze przez wiele dni.
- *
- * Osobny plik preferencji, tak samo jak [Motyw] i [PotwierdzeniaOdczytu]:
- * to ustawienie interfejsu, a nie tajemnica, więc nie ma po co budzić skarbca
- * i Keystore, żeby je odczytać przed narysowaniem listy.
- */
-object PropozycjaImportu {
-
-    private const val PLIK = "mekamb.podpowiedzi"
-    private const val KLUCZ = "import-historii-odrzucony"
-
-    fun odrzucona(context: Context): Boolean =
-        context.getSharedPreferences(PLIK, Context.MODE_PRIVATE).getBoolean(KLUCZ, false)
-
-    fun odrzuc(context: Context) {
-        context.getSharedPreferences(PLIK, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KLUCZ, true)
-            .apply()
     }
 }
 

@@ -6,7 +6,6 @@ import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
 import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import { Urzadzenia } from "./Parowanie";
-import { PrzeniesStad } from "./Przeniesienie";
 import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
 import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
@@ -176,8 +175,8 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * Rozmowy zapisane przed poprawką mają nazwę pustą, a wiersz bez imienia
    * i bez awatara nie mówi nic o tym, z kim się rozmawia. Skład z drzewa MLS
    * odtwarza ją bez pytania serwera o cokolwiek — a gdy i tego nie ma (grupa
-   * spoza stanu MLS, np. po przeniesieniu konta), mówimy wprost, że nazwy nie
-   * znamy, zamiast pokazywać pusty wiersz.
+   * spoza stanu MLS, np. na świeżo sparowanym urządzeniu), mówimy wprost, że
+   * nazwy nie znamy, zamiast pokazywać pusty wiersz.
    */
   const nazwaPozycji = useCallback(
     (pozycja: PozycjaListy): string => {
@@ -1720,8 +1719,6 @@ function Konto({
         </div>
 
         <Urzadzenia messenger={messenger} onBlad={onBlad} />
-
-        <PrzeniesStad token={messenger.accessToken} onBlad={onBlad} />
 
         <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
 

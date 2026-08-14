@@ -12,7 +12,7 @@
 //! # Zakres
 //!
 //! Wersje 1–10 przy korekcji M, czyli do 216 bajtów. To z zapasem wystarcza
-//! na `otpauth://` i na kod przeniesienia konta. Większe wejście jest błędem,
+//! na `otpauth://` i na kod parowania. Większe wejście jest błędem,
 //! a nie cichym przejściem na słabszą korekcję — kod przenoszony aparatem
 //! między urządzeniami musi znieść odbicia i krzywe ujęcie.
 

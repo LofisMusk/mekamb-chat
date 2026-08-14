@@ -43,8 +43,8 @@ object Rozmowy {
      * Znajduje istniejącą rozmowę jeden na jeden z podaną osobą.
      *
      * [czlonkowie] zwraca identyfikatory użytkowników w grupie. Wyjątek dla
-     * pojedynczej grupy (stan MLS mógł jej nie mieć, np. po przeniesieniu
-     * konta) nie może przerwać szukania — po prostu ta grupa nie pasuje.
+     * pojedynczej grupy (stan MLS mógł jej nie mieć, np. na świeżo sparowanym
+     * urządzeniu) nie może przerwać szukania — po prostu ta grupa nie pasuje.
      */
     fun <T> znajdz1na1(
         rozmowy: List<T>,

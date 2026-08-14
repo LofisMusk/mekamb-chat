@@ -4,17 +4,15 @@ import type { Messenger } from "./messenger";
 /**
  * Parowanie drugiego urządzenia.
  *
- * # Czym to się różni od przeniesienia konta
+ * # Każde urządzenie ma własne ziarno
  *
- * [`przeniesienie.ts`] **kopiuje ziarno**, więc oba urządzenia dzielą jeden
- * liść MLS i jeden ratchet — rozjeżdżają się nieodwracalnie i dlatego źródło
- * jest kasowane. To jest przeniesienie, nie sklonowanie, i tak ma zostać:
- * służy do przesiadki na inny sprzęt.
+ * Nowe urządzenie NIE kopiuje ziarna starego — dostaje **własne** przy zwykłym
+ * logowaniu, bo `Messenger.create` losuje je zawsze — i wchodzi do rozmów jako
+ * osobny członek MLS, przez commit. Oba urządzenia działają dalej, równolegle.
  *
- * Parowanie działa odwrotnie. Nowe urządzenie ma **własne ziarno** — dostaje je
- * przy zwykłym logowaniu, bo `Messenger.create` losuje je zawsze — i wchodzi do
- * rozmów jako osobny członek MLS, przez commit. Oba urządzenia działają dalej,
- * równolegle.
+ * Współdzielenie jednego ziarna (a więc jednego liścia MLS i jednego ratcheta)
+ * rozjechałoby oba urządzenia nieodwracalnie, gdy tylko oba zaczną wysyłać —
+ * dlatego parowanie celowo tego nie robi.
  *
  * # Dlaczego samo logowanie nie wystarcza
  *
@@ -35,7 +33,7 @@ import type { Messenger } from "./messenger";
 
 const SCHEMAT = "mekamb://parowanie";
 
-/** Bajty → base64url, bez wypełniania. Tak samo jak w `przeniesienie.ts`. */
+/** Bajty → base64url, bez wypełniania. */
 function doBase64url(bajty: Uint8Array): string {
   return btoa(String.fromCharCode(...bajty))
     .replace(/\+/g, "-")

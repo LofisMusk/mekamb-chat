@@ -75,7 +75,6 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
             PrzyciskGlowny("Załóż konto · Create account") { model.pokaz(Ekran.REJESTRACJA) }
             PrzyciskDrugi("Mam już konto · Sign in") { model.pokaz(Ekran.LOGOWANIE) }
-            PrzyciskCichy("Przenoszę konto z innego urządzenia") { model.pokaz(Ekran.ODBIOR) }
         }
     }
 }
@@ -179,80 +178,6 @@ private fun SilaHasla(haslo: String) {
 /** Minimalna długość hasła — ta sama, na którą patrzy przycisk „Załóż konto". */
 private const val MINIMUM_HASLA = 12
 
-/**
- * Odbiór konta z innego urządzenia.
- *
- * # Czego tu nie ma
- *
- * Skanowania aparatem. Projekt je przewiduje, ale wymaga CameraX i uprawnienia
- * do aparatu — dojdzie osobno. Do tego czasu kod przepisuje się z ekranu, co
- * działa zawsze i nie wymaga niczego dokładać.
- *
- * Kod zeskanowany aparatem systemowym trafia tu przez intencję `mekamb://`
- * i wypełnia pole sam.
- */
-@Composable
-fun EkranOdbioru(
-    model: ChatViewModel,
-    kodZIntencji: String?,
-    onKodZuzyty: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var kod by remember(kodZIntencji) { mutableStateOf(kodZIntencji.orEmpty()) }
-    val stan = model.stan
-
-    Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Odbierz konto", "Receive account") {
-            model.pokaz(Ekran.POWITANIE)
-        }
-
-        Column(
-            Modifier
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = Odstep.xl),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
-        ) {
-            Text(
-                "Na starym urządzeniu wybierz \u201ePrzenieś na inne urządzenie\u201d.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Nocturne.kolory.tekstDrugi,
-            )
-
-            // Zrzut przeniesienia w wersji 2 NIESIE historię rozmów. Trzeba to
-            // napisać wprost: kto tego nie wie, zaczyna od zera, mając wszystko
-            // w kodzie, który właśnie przepisuje.
-            Text(
-                "Przyjdzie tożsamość, możliwość kontynuowania rozmów oraz zapisana historia.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Nocturne.kolory.tekstDrugi,
-            )
-
-            Pole(
-                "Kod przeniesienia · Transfer code",
-                kod,
-                { kod = it },
-                podpowiedz = "mekamb://transfer?…",
-            )
-
-            PrzyciskGlowny(
-                if (stan.pracuje) "Odbieram…" else "Odbierz konto · Receive",
-                wlaczony = !stan.pracuje && kod.isNotBlank(),
-            ) {
-                model.odbierzKonto(kod)
-                onKodZuzyty()
-            }
-
-            Ostrzezenie(
-                "Odebranie zastąpi konto na tym urządzeniu. Po odebraniu przestań używać " +
-                    "starego — dwa urządzenia z tym samym kontem rozsypią szyfrowanie rozmowy.",
-            )
-
-            Wskazowka("Kod działa raz i wygasa po kwadransie.", Ikony.KodQr)
-        }
-    }
-}
-
 /** Pierwszy krok logowania: nazwa i hasło. */
 @Composable
 fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
@@ -287,9 +212,6 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         ) {
             model.zalogujHaslem(username.trim(), haslo)
         }
-
-        Spacer(Modifier.size(Odstep.m))
-        PrzyciskCichy("Przenoszę konto z innego urządzenia") { model.pokaz(Ekran.ODBIOR) }
 
         // Droga powrotna do powitania — bez niej ten ekran był ślepą uliczką.
         //

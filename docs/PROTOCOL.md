@@ -460,9 +460,9 @@ własną nazwą użytkownika, czyli „ta osoba coś wysłała".
 
 ### 10.3 Parowanie
 
-Parowanie **nie kopiuje ziarna** — to odróżnia je od przeniesienia konta
-(§ 10.5). Nowe urządzenie ma własne ziarno z logowania i wchodzi do rozmów jako
-osobny liść MLS.
+Parowanie **nie kopiuje ziarna**. Nowe urządzenie ma własne ziarno z logowania
+i wchodzi do rozmów jako osobny liść MLS — oba urządzenia działają dalej
+równolegle.
 
 1. Nowe urządzenie loguje się, rejestruje w katalogu, publikuje key packages
    i **podłącza się do skrzynki** (zakłada kursor — § 10.1).

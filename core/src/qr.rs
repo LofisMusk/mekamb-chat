@@ -2,7 +2,7 @@
 //!
 //! # Dlaczego to jest tutaj, a nie w kliencie
 //!
-//! Bo klientów jest dwóch. Kod QR niesie klucz przeniesienia konta i sekret
+//! Bo klientów jest dwóch. Kod QR niesie klucz parowania urządzenia i sekret
 //! TOTP; druga implementacja po drugiej stronie prędzej czy później rozjechałaby
 //! się z pierwszą, a rozjazd objawiłby się kodem, którego nie da się zeskanować
 //! — czyli u użytkownika stojącego z dwoma telefonami, nie w testach.

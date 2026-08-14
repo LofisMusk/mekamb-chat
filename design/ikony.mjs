@@ -310,7 +310,7 @@ export const IKONY = [
   {
     nazwa: "kodQr",
     kotlin: "KodQr",
-    opis: "Przeniesienie konta i sekret TOTP — dane, których nie przepisuje się ręcznie.",
+    opis: "Parowanie urządzenia i sekret TOTP — dane, których nie przepisuje się ręcznie.",
     sciezka: "M4 4 H9 V9 H4 Z M15 4 H20 V9 H15 Z M4 15 H9 V20 H4 Z M15 15 H17 M19 15 H20 M15 17 V20 M17 19 H20",
   },
   {

@@ -127,8 +127,7 @@ export function rozetnijIdentyfikatory(bajty: Uint8Array): string[] {
  *
  * Identyfikatory wyżej mają stałą długość, więc wystarczało je zestawić obok
  * siebie. Key packages nie mają, a `wasm_bindgen` nie przenosi tablicy tablic
- * bajtów — stąd długość z przodu, dokładnie tak samo jak w zrzucie
- * przeniesienia konta. Rozcina to `rozetnij_pakiety` w rdzeniu.
+ * bajtów — stąd długość z przodu. Rozcina to `rozetnij_pakiety` w rdzeniu.
  */
 export function sklejPakiety(pakiety: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const rozmiar = pakiety.reduce((suma, p) => suma + 4 + p.length, 0);
@@ -205,8 +204,8 @@ export class Messenger {
    * kliencie".
    *
    * Identyfikatory znamy z własnej historii, więc otwieramy je sami. Rozmowa
-   * bez stanu MLS (np. po przeniesieniu konta) po prostu się nie otworzy —
-   * zostaje w historii do czytania i tyle.
+   * bez stanu MLS (np. na świeżo sparowanym urządzeniu) po prostu się nie
+   * otworzy — zostaje w historii do czytania i tyle.
    */
   otworzZnaneRozmowy(groupIds: readonly Uint8Array[]): void {
     for (const groupId of groupIds) {

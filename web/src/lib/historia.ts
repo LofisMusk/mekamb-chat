@@ -73,9 +73,9 @@ export interface Wiadomosc {
 /**
  * Ile wiadomości trzymamy na rozmowę.
  *
- * Zrzut skarbca idzie w całości przy przeniesieniu konta, a każdy odczyt
- * i zapis przechodzi przez szyfrowanie całości — nieograniczona historia
- * zamieniłaby to w rosnący bez końca koszt przy każdej wiadomości.
+ * Każdy odczyt i zapis skarbca przechodzi przez szyfrowanie całości —
+ * nieograniczona historia zamieniłaby to w rosnący bez końca koszt przy każdej
+ * wiadomości. Ten sam zapis niesie potem transfer optyczny przy parowaniu.
  */
 const LIMIT_WIADOMOSCI = 500;
 
@@ -87,7 +87,7 @@ const LIMIT_WIADOMOSCI = 500;
  * podnoszona po obu stronach naraz: przy wersji 2 klient Androida dostał nowe
  * pole, ale ZOSTAWIŁ numer 1 —
  * przez chwilę oba klienty deklarowały ten sam numer przy niezgodnych
- * kształtach, więc przeniesienie konta między nimi dałoby historię nie do
+ * kształtach, więc transfer optyczny historii między nimi dałby historię nie do
  * odczytania. Numer wersji ma odróżniać układy, nie datę zmiany.
  */
 const WERSJA = 6;

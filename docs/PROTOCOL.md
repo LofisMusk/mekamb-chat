@@ -413,7 +413,125 @@ infrastruktury: skrzynki offline, katalogu i publikowania key packages. Klucze
 wiadomości nigdy nie opuszczają urządzenia, więc przejęcie konta nie daje
 dostępu do historii.
 
-## 10. Wersjonowanie
+## 10. Wiele urządzeń jednego konta
+
+Członkiem grupy MLS jest **urządzenie**, nie osoba: credential to
+`user_id:device_id`. Skrzynka jest natomiast **per użytkownik**, bo nadawca zna
+tylko nazwę. Z tego rozjazdu wynika wszystko poniżej.
+
+### 10.1 Skrzynka i kursory
+
+`UserInbox` trzyma kursor na urządzenie (tabela `kursory`). Potwierdzenie
+przesuwa kursor **tego** urządzenia; koperta znika dopiero, gdy minie kursory
+wszystkich urządzeń, które odezwały się w ciągu `MAILBOX_RETENTION_DAYS`.
+
+Kursor powstaje przy **pierwszym połączeniu** i dopiero od tej chwili
+urządzenie trzyma kolejkę. To jest wymóg dla kolejności parowania: nowe
+urządzenie musi podłączyć się do skrzynki, zanim stare wyśle Welcome.
+
+Identyfikator urządzenia serwer bierze z **podpisanego tokenu**, nigdy
+z zapytania.
+
+### 10.2 Echo własnych wiadomości
+
+Nadawca wrzuca kopertę także do **własnej** skrzynki, inaczej pozostałe jego
+urządzenia nigdy się o niej nie dowiedzą. Koperta wraca więc do nadawcy, który
+nie potrafi jej odszyfrować — MLS nie pozwala przetworzyć własnej wiadomości.
+Klient rozpoznaje ją po skrócie SHA-256 z bajtów koperty i potwierdza bez
+przetwarzania.
+
+To jest jedyna metadana, którą ta zmiana dokłada serwerowi: jeden depozyt pod
+własną nazwą użytkownika, czyli „ta osoba coś wysłała".
+
+### 10.3 Parowanie
+
+Parowanie **nie kopiuje ziarna** — to odróżnia je od przeniesienia konta
+(§ 10.5). Nowe urządzenie ma własne ziarno z logowania i wchodzi do rozmów jako
+osobny liść MLS.
+
+1. Nowe urządzenie loguje się, rejestruje w katalogu, publikuje key packages
+   i **podłącza się do skrzynki** (zakłada kursor — § 10.1).
+2. Pokazuje kod `mekamb://parowanie?d=<device_id>&k=<x25519_pub>` z efemerycznym
+   kluczem publicznym.
+3. Stare urządzenie skanuje kod, generuje własną parę efemeryczną i wyprowadza
+   klucz transferu: `HKDF-SHA256(X25519(sekret, obcy_pub), "mekamb-chat/v1/parowanie-transfer")`.
+   Wspólny sekret złożony z samych zer jest odrzucany (punkt małego rzędu).
+4. Stare urządzenie dodaje nowy liść do **każdej** rozmowy: `addMembers` → commit →
+   zajęcie epoki w `GroupRelay` → rozesłanie commitu i Welcome. Sekwencyjnie,
+   bo każda rozmowa to osobna epoka.
+5. Stare urządzenie nadaje historię transferem optycznym (§ 10.4).
+
+Nazwy użytkownika w kodzie nie ma: stare urządzenie zna ją, bo paruje z własnym
+kontem.
+
+**Kierunek kodu jest częścią zabezpieczenia.** Kod pokazuje nowe urządzenie,
+czyli to, które będzie *odbierać*. Ktoś, kto sfilmuje ekran nadajnika przez całą
+transmisję, ma wszystkie ramki i nie ma czym ich odszyfrować.
+
+Rozmówcy zobaczą zmianę safety numberu — doszedł liść. To poprawne i musi być
+widoczne.
+
+### 10.4 Transfer optyczny
+
+Historia sprzed parowania **nie idzie przez serwer w żadnej postaci**. Nowe
+urządzenie nie było wtedy w grupie, więc nie da się jej dosłać kanałem MLS.
+
+Potok nadawcy: `deflate` → `AES-256-GCM` → podział na bloki → kody fountain →
+kod QR wersji 40 przy korekcji L (2953 bajty na ramkę).
+
+Ramka, 59 bajtów nagłówka i ładunek:
+
+```
+0   1   wersja formatu
+1   4   k — liczba bloków (u32 BE)
+5   2   rozmiar bloku (u16 BE)
+7   4   długość szyfrogramu (u32 BE)
+11  12  nonce AES-GCM
+23  32  SHA-256 szyfrogramu — tożsamość transferu
+55  4   ziarno ramki (u32 BE)
+59  ..  ładunek
+```
+
+Ziarno mniejsze od `k` znaczy ramkę **systematyczną**: niesie wprost blok o tym
+numerze. Czyste ujęcie kończy transfer w dokładnie `k` klatkach. Pozostałe ramki
+to XOR podzbioru wybranego generatorem SplitMix64 zasianym ziarnem, o stopniu
+z rozkładu ideal soliton z 5-procentowym dodatkiem na stopień 1.
+
+Rozkład liczony jest **w liczbach całkowitych**. `ln` nie jest identyczne bit
+w bit między platformami, a rozjazd na ostatnim bicie daje inny stopień ramki
+i dekoder, który nie odtwarza niczego.
+
+Klucz publiczny nadawcy jedzie jawnie, jako co ósma klatka
+(`mekamb://parowanie-nadawca?k=…`). Z dwóch kluczy **publicznych** nie da się
+wyliczyć sekretu, a raz pokazany na początku przepadłby dla każdego, kto
+spóźnił się o sekundę.
+
+Odbiornik przyjmuje klucz dopiero przy składaniu — zbieranie ramek go nie
+potrzebuje, a przy parowaniu klucz przychodzi tą samą kamerą co ramki.
+
+### 10.5 Odebranie dostępu
+
+`removeDevice` usuwa liść po tożsamości `user_id:device_id` — nie po indeksie
+liścia, bo kolejność w `members()` nie jest numeracją liści.
+
+Kolejność: **najpierw** commity MLS we wszystkich rozmowach, **potem**
+`DELETE /devices/:id`. Odwrotnie stracilibyśmy sposób na zaadresowanie
+urządzenia. Samo wykreślenie z katalogu niczego nie odbiera — skład grupy żyje
+w drzewie MLS, którego serwer nie zna.
+
+Usunięcie samego siebie jest błędem. Usunięcie urządzenia nieobecnego w danej
+rozmowie błędem nie jest.
+
+### 10.6 Scalanie historii
+
+Suma zbiorów po `message_id`, sortowana po `(czas, id)`. Znacznik przeczytania
+idzie w górę. Ślady po rozmowach A/V **nie** są scalane — są faktem o jednym
+urządzeniu. Limit 500 wiadomości obowiązuje **po** scaleniu, nie przed.
+
+Format historii jest wspólny dla obu klientów i jego wersja musi być podnoszona
+po obu stronach w jednej zmianie.
+
+## 11. Wersjonowanie
 
 Każda koperta niesie wersję protokołu. Odbiorca odrzuca nieznaną wersję główną
 zamiast zgadywać — czytelny błąd jest lepszy niż ciche błędne parsowanie.

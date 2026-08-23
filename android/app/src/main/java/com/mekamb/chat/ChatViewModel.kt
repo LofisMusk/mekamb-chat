@@ -264,15 +264,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val klient = messenger ?: return@launch
             for (paczka in zbieracz.zabierz()) {
-                val odbiorca = klient.uczestnicy(paczka.groupId)
-                    .firstOrNull { it != klient.account.userId }
-                    ?: continue
-
+                // Odbiorców wybiera `sendReceipt` z drzewa MLS — całą rozmowę,
+                // nie pierwszego uczestnika. Wcześniej wybieraliśmy go tutaj
+                // i w grupie ptaszek widziała jedna, przypadkowa osoba.
+                //
                 // Nieudane potwierdzenie przepada i to jest w porządku: ptaszek
                 // jest wygodą, a nie treścią. Ponawianie w kółko dokładałoby
                 // kopert do ruchu, czyli tego, co ten mechanizm ma ograniczać.
                 runCatching {
-                    klient.sendReceipt(paczka.groupId, paczka.rodzaj, paczka.identyfikatory, odbiorca)
+                    klient.sendReceipt(paczka.groupId, paczka.rodzaj, paczka.identyfikatory)
                 }
             }
         }

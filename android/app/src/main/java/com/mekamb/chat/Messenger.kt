@@ -303,8 +303,17 @@ class Messenger private constructor(
             val wlasneUrzadzenie = peerUsername == account.userId
             for (osoba in uczestnicy(groupId)) {
                 if (!wlasneUrzadzenie && osoba == peerUsername) continue
-                api.deposit(osoba, oczekujacy.commit)
+                // Token doręczeniowy tak samo jak przy zwykłej wiadomości.
+                // Bez niego rozsyłka commitu jest jedyną drogą do skrzynki,
+                // która go nie ma — a po włączeniu `DELIVERY_TOKEN_REQUIRED`
+                // serwer odpowiada `401` i zmiana składu grupy przestaje
+                // działać. Wyłączone wymuszanie skutecznie to ukrywa.
+                api.deposit(osoba, oczekujacy.commit, portfel?.wez()?.naglowek())
             }
+
+            // Zapas uzupełniamy PO wysyłce, nie przed: pobranie go jest
+            // żądaniem uwierzytelnionym, więc trzymamy je z dala od nadania.
+            uzupelnijTokeny()
 
             oczekujacy.welcome?.let { wyslijWelcome(peerUsername, it) }
         }
@@ -459,7 +468,6 @@ class Messenger private constructor(
         groupId: ByteArray,
         rodzaj: ReceiptKind,
         messageIds: List<ByteArray>,
-        recipient: String,
     ) = withContext(Dispatchers.IO) {
         if (messageIds.isEmpty()) return@withContext
 
@@ -472,8 +480,23 @@ class Messenger private constructor(
 
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
-        wyslij(recipient, urzadzenie, koperta)
+        /*
+         * Do WSZYSTKICH uczestników, nie do pierwszego z brzegu.
+         *
+         * Wołający brał wcześniej `uczestnicy(groupId).firstOrNull { … }`
+         * i podawał go jako jedynego odbiorcę. W rozmowie dwuosobowej wychodziło
+         * na to samo, w grupowej ptaszek zmieniał się dokładnie jednej osobie —
+         * wybranej kolejnością drzewa MLS, czyli przypadkowej. Web rozsyłał
+         * potwierdzenia do całej rozmowy od początku (`messenger.ts`), więc
+         * przy tej samej obietnicy w interfejsie platformy mówiły co innego.
+         *
+         * Nieudane potwierdzenie dla jednej osoby nie może przerwać pozostałych:
+         * ptaszek jest wygodą, a nie treścią.
+         */
+        for (osoba in uczestnicy(groupId)) {
+            if (osoba == account.userId) continue
+            runCatching { wyslij(osoba, drogaBezposrednia(osoba), koperta) }
+        }
 
         // Potwierdzenie odczytu jedzie też do nas: przeczytane na telefonie ma
         // znaczyć przeczytane również na laptopie, inaczej drugie urządzenie

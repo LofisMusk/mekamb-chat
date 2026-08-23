@@ -410,16 +410,15 @@ export class Messenger {
      * koperty nie pasuje do niczego i `matchEnvelope` zwraca `null`.
      */
     const wlasneUrzadzenie = username === this.account.userId;
-    await Promise.all(
-      this.skrzynkiRozmowy(groupId)
-        .filter((osoba) => wlasneUrzadzenie || osoba !== username)
-        .map((osoba) => api.deposit(osoba, koperta)),
+    await this.zostawWSkrzynkach(
+      this.skrzynkiRozmowy(groupId).filter((osoba) => wlasneUrzadzenie || osoba !== username),
+      koperta,
     );
 
     if (pending.welcome) {
       const zaproszenie = encodeEnvelope(groupId, "welcome", pending.welcome);
       await zapamietaj(zaproszenie);
-      await api.deposit(username, zaproszenie);
+      await this.zostawWSkrzynkach([username], zaproszenie);
     }
   }
 
@@ -580,8 +579,28 @@ export class Messenger {
     // wraca natychmiast i zdążyłoby przyjść przed wpisem do mapy.
     await zapamietaj(envelope);
 
+    await this.zostawWSkrzynkach(this.skrzynkiRozmowy(groupId), envelope);
+  }
+
+  /**
+   * Zostawia kopertę w skrzynkach — **jedyne** miejsce, z którego to robimy.
+   *
+   * # Dlaczego to jedna funkcja, a nie `api.deposit` w kilku miejscach
+   *
+   * Bo token doręczeniowy trzeba dołożyć do KAŻDEGO nadania, a rozsyłka
+   * commitu i welcome robiła to osobnym wywołaniem i tokenu nie dokładała.
+   * Dopóki `DELIVERY_TOKEN_REQUIRED` jest wyłączone, nie widać tego wcale;
+   * po włączeniu serwer odpowiada `401` i dodanie kogokolwiek do rozmowy
+   * przestaje działać, a zaproszenie nie dochodzi w ogóle — czyli znowu
+   * „welcome nigdy nie dotarł i nic się nie odszyfrowało".
+   *
+   * Każde nadanie zużywa osobny token: ten sam użyty dwa razy zostałby
+   * odrzucony przy drugim, a jeden na całą grupę wiązałby odbiorców ze sobą
+   * po stronie serwera.
+   */
+  private async zostawWSkrzynkach(odbiorcy: string[], envelope: Uint8Array): Promise<void> {
     await Promise.all(
-      this.skrzynkiRozmowy(groupId).map((userId) => {
+      odbiorcy.map((userId) => {
         const token = wezToken();
         return api.deposit(userId, envelope, token ? naglowekTokenu(token) : undefined);
       }),

@@ -25,6 +25,23 @@
 /** Co ile wysyłamy podtrzymanie. */
 const PING_MS = 30_000;
 
+/**
+ * Ile podtrzymań bez odpowiedzi znaczy „gniazdo jest martwe".
+ *
+ * # Dlaczego to musi istnieć
+ *
+ * Bo `send` na gnieździe, którego druga strona już nie istnieje, **kończy się
+ * powodzeniem** — bajty trafiają do bufora i tyle. Połączenie zerwane w połowie
+ * (uśpiony NAT, przełączenie sieci bez `close`) nie wywoła więc ani `onclose`,
+ * ani `onerror`, a ponowienie wisi właśnie na tych zdarzeniach. Skutek jest ten
+ * sam, który ten moduł miał zlikwidować: „wiadomości przychodzą dopiero po
+ * przeładowaniu strony".
+ *
+ * Dwa, a nie jedno: pojedyncza zgubiona odpowiedź zdarza się na słabej sieci
+ * i zrywanie połączenia za każdym razem byłoby gorsze niż czekanie.
+ */
+const PINGI_BEZ_ODPOWIEDZI = 2;
+
 /** Od tylu milisekund zaczyna się odczekiwanie przed ponowieniem. */
 const PONOWIENIE_MIN_MS = 1_000;
 
@@ -83,6 +100,7 @@ export function polaczZeSkrzynka(opcje: OpcjePolaczenia): Polaczenie {
   let ponowienieId: number | null = null;
   let odstep = PONOWIENIE_MIN_MS;
   let zamkniete = false;
+  let bezOdpowiedzi = 0;
 
   const zatrzymajPing = () => {
     if (pingId !== null) {
@@ -115,13 +133,28 @@ export function polaczZeSkrzynka(opcje: OpcjePolaczenia): Polaczenie {
       // razu — czyli dokładnie wtedy, gdy odczekanie jest najbardziej
       // potrzebne.
       odstep = PONOWIENIE_MIN_MS;
+      bezOdpowiedzi = 0;
       opcje.naStan?.("polaczone");
 
       zatrzymajPing();
       pingId = zegar.ustawOdstep(() => {
+        // Milczenie po kilku podtrzymaniach znaczy, że gniazdo jest martwe,
+        // choć nikt nas o tym nie powiadomił. Zamykamy je sami — dopiero
+        // `onclose` uruchamia ponowienie.
+        if (bezOdpowiedzi >= PINGI_BEZ_ODPOWIEDZI) {
+          zatrzymajPing();
+          try {
+            socket.close();
+          } catch {
+            // Liczy się tylko to, żeby doszło do `onclose`.
+          }
+          return;
+        }
+
         // Bez podtrzymania bezczynne połączenie jest zrywane po drodze —
         // i to zerwanie bywa ciche, bez `close` po tej stronie.
         try {
+          bezOdpowiedzi += 1;
           socket.send("ping");
         } catch {
           // Gniazdo padło między sprawdzeniem a wysłaniem. `onclose`
@@ -131,6 +164,9 @@ export function polaczZeSkrzynka(opcje: OpcjePolaczenia): Polaczenie {
     };
 
     socket.onmessage = (event) => {
+      // Cokolwiek przyszło, przyszło od żywej drugiej strony.
+      bezOdpowiedzi = 0;
+
       // `pong` to odpowiedź na podtrzymanie, nie koperta.
       if (typeof event.data === "string") return;
 

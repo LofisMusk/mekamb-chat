@@ -94,6 +94,22 @@ impl DeviceSeed {
         okm
     }
 
+    /// Klucz podpisu MLS jako para Ed25519.
+    ///
+    /// # Dlaczego to nie jest publiczne
+    ///
+    /// Bo tym kluczem podpisuje MLS, a podpisanie nim czegokolwiek innego bez
+    /// **rozłącznej etykiety** pozwala przenieść podpis między kontekstami.
+    /// Jedyny taki użytek w projekcie — podpisany rekord adresowy — siedzi
+    /// w [`crate::adres`] i etykietę ma. Wystawienie tego na zewnątrz skrzynki
+    /// zamieniłoby tę regułę w dobrą chęć.
+    pub(crate) fn ed25519_signing_key(&self) -> ed25519_dalek::SigningKey {
+        let mut secret = self.derive(LABEL_MLS_SIGNATURE);
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret);
+        secret.zeroize();
+        signing_key
+    }
+
     /// Para kluczy podpisu MLS tego urządzenia.
     ///
     /// Deterministyczna: to samo ziarno zawsze daje ten sam klucz, więc
@@ -191,6 +207,11 @@ impl DeviceIdentity {
     /// Para kluczy podpisu MLS tego urządzenia.
     pub fn signature_keypair(&self) -> SignatureKeyPair {
         self.seed.mls_signature_keypair()
+    }
+
+    /// Klucz podpisu tego urządzenia jako para Ed25519 — patrz [`crate::adres`].
+    pub(crate) fn ed25519_signing_key(&self) -> ed25519_dalek::SigningKey {
+        self.seed.ed25519_signing_key()
     }
 
     /// Credential MLS wraz z kluczem publicznym, gotowy do budowy key package.

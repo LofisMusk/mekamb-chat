@@ -28,6 +28,7 @@
 //! bez żadnej infrastruktury — testy poniżej przepuszczają pełny handshake
 //! między dwiema tożsamościami w jednym procesie.
 
+pub mod adres;
 pub mod attachments;
 pub mod calls;
 pub mod envelope;
@@ -43,6 +44,7 @@ pub mod qr;
 pub mod safety;
 pub mod storage;
 
+pub use adres::{podpisz_adres, sprawdz_adres};
 pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
 pub use calls::{extract_fingerprints, verify_sdp_fingerprint};
 pub use envelope::{Envelope, EnvelopeKind, MAX_ENVELOPE_BYTES, identyfikator_relaya};

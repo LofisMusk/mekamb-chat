@@ -5,13 +5,22 @@ import type { Env } from "./env";
  *
  * # Serwer nie jest zaufanym źródłem adresów
  *
- * Rekord adresowy jest przechowywany razem z podpisem złożonym kluczem MLS
- * urządzenia. Serwer tego podpisu nie weryfikuje i nie musi — robi to **klient**
- * przed użyciem adresu. Gdyby serwer podstawił własny adres, podpis by się nie
- * zgadzał i klient odrzuciłby rekord.
+ * Rekord adresowy jest przechowywany razem z podpisem złożonym kluczem podpisu
+ * MLS urządzenia. Serwer tego podpisu nie weryfikuje i nie musi — robi to
+ * **klient** przed użyciem adresu, kluczem wziętym z drzewa MLS rozmowy
+ * (`verifyPeerAddress` w rdzeniu). Gdyby serwer podstawił własny adres, podpis
+ * by się nie zgadzał i klient odrzuciłby rekord, wracając na skrzynkę.
  *
  * Ten moduł celowo nie zawiera weryfikacji podpisu: kod działający na serwerze
  * nie może być podstawą zaufania do danych, które serwer sam wydaje.
+ *
+ * # To była przez pewien czas obietnica bez pokrycia
+ *
+ * Kolumna `addr_signature` istniała od początku, ten komentarz też — ale żaden
+ * klient podpisu nie składał i żaden nie sprawdzał. Ochrona istniała wyłącznie
+ * w opisie, a rekord z katalogu był przyjmowany na słowo serwera. Podpisy
+ * powstają w `core/src/adres.rs`; oba klienty je wysyłają, a ten, który używa
+ * adresów (Android), sprawdza je przed każdą próbą doręczenia wprost.
  */
 
 /**

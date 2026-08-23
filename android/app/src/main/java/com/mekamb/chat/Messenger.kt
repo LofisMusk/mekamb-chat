@@ -198,14 +198,33 @@ class Messenger private constructor(
     /** Adresy, pod którymi urządzenie jest osiągalne. */
     fun addresses(): List<String> = transport.addresses()
 
-    /** Zgłasza urządzenie do katalogu wraz z adresami P2P. */
+    /**
+     * Zgłasza urządzenie do katalogu wraz z adresami P2P.
+     *
+     * Rekord idzie PODPISANY kluczem podpisu MLS tego urządzenia. Bez podpisu
+     * katalog jest słowem serwera: podstawiony adres przejmuje bezpośrednią
+     * drogę doręczania, a że dostarczenie pod niego UDAJE SIĘ, skrzynka jako
+     * droga zapasowa nie włącza się wcale i wiadomość znika bez błędu.
+     *
+     * Podpis obejmuje `user_id`, `device_id`, klucz transportowy i adresy —
+     * wszystkie razem, więc nie da się go przenieść na inne urządzenie ani
+     * doczepić do zmienionego adresu. Sprawdza go odbiorca, kluczem z drzewa
+     * MLS (patrz [drogaBezposrednia]).
+     */
     suspend fun registerDevice() {
+        val kluczTransportu = transport.publicKey()
+        val adresy = transport.addresses()
+
         api.registerDevice(
             token = token,
             deviceId = account.deviceId,
             mlsPublicKey = client.mlsPublicKey(),
-            transportKey = transport.publicKey(),
-            transportAddresses = transport.addresses(),
+            transportKey = kluczTransportu,
+            transportAddresses = adresy,
+            addrSignature = client.signAddressRecord(
+                kluczTransportu.toBase64(),
+                adresy.joinToString(","),
+            ),
         )
     }
 
@@ -447,7 +466,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
+        val urzadzenie = drogaBezposrednia(groupId, recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         // Dopiero po rozmówcy: gdyby echo szło pierwsze, nieudana wysyłka
@@ -495,7 +514,7 @@ class Messenger private constructor(
          */
         for (osoba in uczestnicy(groupId)) {
             if (osoba == account.userId) continue
-            runCatching { wyslij(osoba, drogaBezposrednia(osoba), koperta) }
+            runCatching { wyslij(osoba, drogaBezposrednia(groupId, osoba), koperta) }
         }
 
         // Potwierdzenie odczytu jedzie też do nas: przeczytane na telefonie ma
@@ -558,7 +577,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
+        val urzadzenie = drogaBezposrednia(groupId, recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         // Szyfrogram leży w R2, a klucz jedzie w tej kopercie — drugie własne
@@ -617,7 +636,7 @@ class Messenger private constructor(
         // wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(target)
+        val urzadzenie = drogaBezposrednia(groupId, target)
         wyslij(target, urzadzenie, koperta)
     }
 
@@ -637,8 +656,36 @@ class Messenger private constructor(
      * urządzenie. To świadome oddanie drogi bezpośredniej za poprawność —
      * interfejs i tak pokazuje, którą drogą poszła wiadomość.
      */
-    private suspend fun drogaBezposrednia(recipient: String): Api.Device? =
-        api.lookupDevices(recipient).singleOrNull()
+    private suspend fun drogaBezposrednia(groupId: ByteArray, recipient: String): Api.Device? {
+        val urzadzenie = api.lookupDevices(recipient).singleOrNull() ?: return null
+
+        /*
+         * Rekord z katalogu jest słowem serwera, dopóki nie zgadza się podpis.
+         *
+         * Klucz do sprawdzenia bierze rdzeń z DRZEWA MLS tej rozmowy, a nie
+         * z odpowiedzi katalogu — inaczej serwer wydałby i rekord, i klucz,
+         * czyli podpisałby sobie dowolny adres sam.
+         *
+         * Rekord bez podpisu albo z niepasującym podpisem nie jest błędem do
+         * pokazania: po prostu idziemy skrzynką, tak jak do odbiorcy bez adresu.
+         * Urządzenia sprzed tej zmiany podpisu nie mają i mają działać dalej —
+         * tracą tylko drogę bezpośrednią, do czasu ponownego zalogowania.
+         */
+        val podpis = urzadzenie.addrSignature ?: return null
+        if (urzadzenie.transportKeyRaw.isBlank()) return null
+
+        val zgadzaSie = runCatching {
+            client.verifyPeerAddress(
+                groupId,
+                "$recipient:${urzadzenie.deviceId}",
+                urzadzenie.transportKeyRaw,
+                urzadzenie.transportAddressesRaw,
+                podpis,
+            )
+        }.getOrDefault(false)
+
+        return if (zgadzaSie) urzadzenie else null
+    }
 
     /** Poświadczenia STUN/TURN dla rozmowy A/V — token trzyma `Messenger`. */
     suspend fun serweryIce(): List<Api.SerwerIce> = api.iceServers(token)

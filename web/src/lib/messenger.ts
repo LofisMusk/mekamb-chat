@@ -220,9 +220,14 @@ export class Messenger {
   /**
    * Zgłasza urządzenie do katalogu.
    *
-   * Bez adresu iroh: przeglądarka nie przyjmuje połączeń przychodzących, więc
-   * jest osiągalna wyłącznie przez skrzynkę. Serwer wiąże wpis z kontem na
-   * podstawie tokenu, a nie danych z tego żądania.
+   * Bez adresu: przeglądarka nie przyjmuje połączeń przychodzących, więc jest
+   * osiągalna wyłącznie przez skrzynkę. Serwer wiąże wpis z kontem na podstawie
+   * tokenu, a nie danych z tego żądania.
+   *
+   * Rekord i tak idzie PODPISANY — pustym, ale podpisanym. „Brak adresu" jest
+   * wtedy oświadczeniem tego urządzenia, a nie milczeniem, które serwer może
+   * wypełnić po swojemu: rozmówca sprawdza podpis kluczem z drzewa MLS
+   * (`verifyPeerAddress`) i rekord bez podpisu odrzuca, zamiast pod niego pisać.
    */
   async registerDevice(): Promise<void> {
     await api.post(
@@ -230,6 +235,7 @@ export class Messenger {
       {
         deviceId: this.account.deviceId,
         mlsPublicKey: toBase64(this.client.mlsPublicKey()),
+        addrSignature: toBase64(this.client.signAddressRecord("", "")),
         displayName: "przeglądarka",
       },
       this.token,

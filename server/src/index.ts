@@ -66,9 +66,21 @@ app.get("/health", (c) => c.json({ ok: true }));
 /**
  * Katalog: adresy urządzeń użytkownika.
  *
- * Zwracane rekordy są podpisane kluczem MLS urządzenia. **Klient musi
+ * Zwracane rekordy są podpisane kluczem podpisu MLS urządzenia. **Klient musi
  * zweryfikować podpis** przed użyciem adresu — ta odpowiedź pochodzi z serwera,
  * a serwer nie jest zaufanym źródłem.
+ *
+ * # Czym klient ma sprawdzać, a czym NIE
+ *
+ * Kluczem z **drzewa MLS** rozmowy, nie polem `mlsPublicKey` z tej odpowiedzi.
+ * Sprawdzanie podpisu kluczem, który przyszedł razem z podpisem, nie daje nic:
+ * serwer wydałby oba i podpisał sobie dowolny adres sam. Robi to
+ * `verifyPeerAddress` w rdzeniu i dlatego nie przyjmuje klucza jako parametru —
+ * bierze go z drzewa, tak samo jak safety number.
+ *
+ * Serwer podpisu nie sprawdza i nie ma czym: nie zna prawdziwego klucza
+ * urządzenia inaczej niż z tego, co samo przysłało. To jest w porządku — jego
+ * rolą jest przechowanie rekordu, nie ręczenie za niego.
  */
 app.get("/directory/:username", async (c) => {
   const devices = await lookupDevices(c.env, c.req.param("username"));

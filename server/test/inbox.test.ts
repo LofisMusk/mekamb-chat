@@ -183,11 +183,12 @@ describe("wiele urządzeń jednej osoby", () => {
   });
 
   /**
-   * Spóźnione potwierdzenie starszej koperty przychodzi po ponownym
-   * połączeniu. Cofnięcie kursora zafundowałoby urządzeniu powtórkę
-   * wszystkiego, co już przetworzyło.
+   * Spóźnione potwierdzenie starszej koperty nie może odwrócić nowszego.
+   *
+   * Potwierdzenie jest FAKTEM o jednej kopercie, nie kursorem, więc kolejność
+   * nadejścia nic nie zmienia: liczy się tylko to, co naprawdę potwierdzono.
    */
-  it("kursor nie cofa się przy spóźnionym potwierdzeniu", async () => {
+  it("potwierdzenia są przemienne", async () => {
     const skrzynka = inbox("spoznione");
     await polacz(skrzynka, "laptop");
 
@@ -198,7 +199,53 @@ describe("wiele urządzeń jednej osoby", () => {
     await skrzynka.acknowledge(3, "laptop");
     await skrzynka.acknowledge(1, "laptop");
 
+    // Koperta 2 NIE była potwierdzona, więc nadal się należy — to jest cała
+    // różnica względem kursora, który przy `MAX(3)` uznałby ją za przeczytaną.
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(1);
+
+    await skrzynka.acknowledge(2, "laptop");
     expect(await skrzynka.pendingCountFor("laptop")).toBe(0);
+  });
+
+  /**
+   * Sedno usterki, przez którą ponawianie z `koperty.ts` nie działało wcale.
+   *
+   * Klient potwierdza koperty NIE PO KOLEI: tę, której nie udało się
+   * przetworzyć, zostawia do ponowienia, a następną — jeśli przeszła —
+   * potwierdza od razu. Kursor podnoszony do `MAX` przeskakiwał wtedy
+   * pominiętą kopertę na zawsze i kasował ją z kolejki. Zgubiony tamtędy
+   * commit albo Welcome to awaria, w której nic się nie odszyfrowuje,
+   * a nadawca nie widzi błędu.
+   */
+  it("potwierdzenie nowszej koperty nie gubi pominiętej starszej", async () => {
+    const skrzynka = inbox("pominieta");
+    await polacz(skrzynka, "telefon");
+
+    await skrzynka.deposit(koperta("nieprzetworzona")); // id 1
+    await skrzynka.deposit(koperta("przetworzona")); // id 2
+
+    // Klient potwierdza WYŁĄCZNIE drugą — pierwsza czeka na kolejną próbę.
+    await skrzynka.acknowledge(2, "telefon");
+
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+    expect(await skrzynka.pendingCount()).toBe(1);
+  });
+
+  /**
+   * Rampa zgodności nie może być drogą do dawnego `DELETE`.
+   *
+   * Klient bez identyfikatora księguje się na wspólnym koncie odczytów, więc
+   * jego potwierdzenie nie okrada urządzeń, które swój identyfikator podają.
+   */
+  it("potwierdzenie bez identyfikatora nie okrada znanego urządzenia", async () => {
+    const skrzynka = inbox("stary-obok-nowego");
+    await polacz(skrzynka, "telefon");
+
+    await skrzynka.deposit(koperta("dla obu"));
+    await skrzynka.acknowledge(1);
+
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+    expect(await skrzynka.pendingCount()).toBe(1);
   });
 
   /**

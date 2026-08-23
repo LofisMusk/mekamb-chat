@@ -26,12 +26,27 @@ import { MAILBOX_RETENTION_DAYS, MAX_ENVELOPE_BYTES, type Env } from "./env";
  * tylko nazwę. Wszystkie urządzenia jednej osoby czytają więc tę samą kolejkę
  * i każde musi dostać swoją kopię.
  *
- * Dlatego potwierdzenie nie kasuje koperty, tylko przesuwa **kursor tego
- * urządzenia** (tabela `kursory`). Koperta znika, gdy minie kursory wszystkich
- * urządzeń, które odezwały się w ciągu ostatnich `MAILBOX_RETENTION_DAYS`.
- * Wcześniej pierwsze potwierdzenie kasowało kopertę dla wszystkich, więc drugie
- * urządzenie nigdy jej nie widziało — i to, a nie MLS, uniemożliwiało używanie
- * konta na laptopie i telefonie naraz.
+ * Dlatego potwierdzenie nie kasuje koperty, tylko dopisuje wiersz do
+ * **zbioru odczytów tego urządzenia** (tabela `device_reads`). Koperta znika,
+ * gdy przeczytają ją wszystkie urządzenia, które odezwały się w ciągu ostatnich
+ * `MAILBOX_RETENTION_DAYS`. Wcześniej pierwsze potwierdzenie kasowało kopertę
+ * dla wszystkich, więc drugie urządzenie nigdy jej nie widziało — i to, a nie
+ * MLS, uniemożliwiało używanie konta na laptopie i telefonie naraz.
+ *
+ * # Dlaczego ZBIÓR, a nie jedna liczba
+ *
+ * Bo klient potwierdza koperty **nie po kolei**. Koperta, której nie udało się
+ * przetworzyć, zostaje nietknięta do ponowienia, a następna — jeśli przeszła —
+ * jest potwierdzana od razu (`web/src/lib/koperty.ts`, `android/…/Skrzynka.kt`).
+ * Pojedynczy kursor `ostatni_id` podnoszony do `MAX` przeskakiwał wtedy
+ * pominiętą kopertę NA ZAWSZE: `flushTo` wysyłał tylko `id > kursor`, a
+ * `sprzatnij` kasował wszystko poniżej. Potwierdzenie koperty 2 gubiło więc
+ * kopertę 1, której klient celowo nie potwierdził — czyli cała polityka
+ * ponawiania nie robiła nic, a zgubiony tamtędy commit albo Welcome to znana
+ * awaria, w której nic się nie odszyfrowuje i nikt nie widzi błędu.
+ *
+ * Zbiór przeczytanych identyfikatorów nie ma tej krawędzi: dziura w środku
+ * zostaje dziurą i wraca przy następnym połączeniu.
  *
  * # Czego ten obiekt nie widzi
  *
@@ -56,23 +71,35 @@ function withId(id: number, envelope: ArrayBuffer): ArrayBuffer {
 export const ENVELOPE_ID_BYTES = 8;
 
 /**
+ * Pod tym identyfikatorem księgujemy klienta, który nie podał swojego.
+ *
+ * Rampa zgodności: aplikacja sprzed wprowadzenia wielu urządzeń nie przysyła
+ * identyfikatora, a token wystawiony przy logowaniu bez `deviceId` też go nie
+ * niesie (`auth.ts`). Taki klient dostaje JEDNO wspólne konto odczytów zamiast
+ * dawnego `DELETE`, który kasował kopertę wszystkim urządzeniom naraz — czyli
+ * dokładnie tego, czego ten obiekt ma nie robić. Z punktu widzenia starego
+ * klienta nic się nie zmienia: dostaje to, czego nie potwierdził.
+ */
+export const URZADZENIE_NIEZNANE = "nieznane";
+
+/**
  * Co siedzi w gnieździe po przebudzeniu z hibernacji.
  *
  * Mapa w pamięci obiektu nie przetrwa uśpienia, a `deviceId` jest potrzebny
  * przy każdym potwierdzeniu — więc jedzie z samym gniazdem.
  */
 interface Przypiete {
-  urzadzenie: string | null;
+  urzadzenie: string;
 }
 
 /** Odczytuje identyfikator urządzenia przypięty do gniazda. */
-function urzadzenieGniazda(ws: WebSocket): string | null {
+function urzadzenieGniazda(ws: WebSocket): string {
   try {
-    return (ws.deserializeAttachment() as Przypiete | null)?.urzadzenie ?? null;
+    return (ws.deserializeAttachment() as Przypiete | null)?.urzadzenie ?? URZADZENIE_NIEZNANE;
   } catch {
-    // Gniazdo sprzed tej wersji nie ma nic przypiętego. Zachowuje się wtedy
-    // jak dawniej — patrz [`acknowledge`].
-    return null;
+    // Gniazdo sprzed tej wersji nie ma nic przypiętego — trafia na wspólne
+    // konto odczytów, tak samo jak klient bez identyfikatora.
+    return URZADZENIE_NIEZNANE;
   }
 }
 
@@ -89,17 +116,63 @@ export class UserInbox extends DurableObject<Env> {
         );
       `);
 
-      // Kursor na urządzenie. Powstaje przy pierwszym podłączeniu i od tej
-      // chwili urządzenie **trzyma kolejkę**: nic poniżej jego kursora nie
-      // zostanie skasowane.
+      // Urządzenia, które kiedykolwiek się podłączyły. Od pierwszego
+      // podłączenia urządzenie **trzyma kolejkę**: koperta, której nie
+      // przeczytało, nie zostanie skasowana.
       this.ctx.storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS kursory (
+        CREATE TABLE IF NOT EXISTS urzadzenia (
           device_id  TEXT PRIMARY KEY,
-          ostatni_id INTEGER NOT NULL,
           widziane_o INTEGER NOT NULL
         );
       `);
+
+      // Co które urządzenie przeczytało. Zbiór, nie kursor — powód w nagłówku.
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS device_reads (
+          device_id   TEXT    NOT NULL,
+          envelope_id INTEGER NOT NULL,
+          PRIMARY KEY (device_id, envelope_id)
+        );
+      `);
+
+      this.przeniesKursory();
     });
+  }
+
+  /**
+   * Przenosi stare kursory do zbiorów odczytów i kasuje starą tabelę.
+   *
+   * Kursor `ostatni_id` znaczył „wszystko do tego numeru przeczytane", więc
+   * przekłada się dokładnie: każdy wpis w kolejce o numerze nie większym niż
+   * kursor był dla tego urządzenia przeczytany. Kopert już skasowanych nie
+   * odtwarzamy, bo nie ma po co — liczy się tylko to, co jeszcze leży.
+   *
+   * Bez tego kroku aktualizacja serwera pokazałaby każdemu urządzeniu całą
+   * zaległą kolejkę od nowa: nowy kod nie zna `kursory`, więc zbiór odczytów
+   * byłby pusty.
+   */
+  private przeniesKursory(): void {
+    const istnieje = this.ctx.storage.sql
+      .exec<{
+        n: number;
+      }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'kursory'")
+      .toArray()[0];
+
+    if (!istnieje || istnieje.n === 0) return;
+
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO urzadzenia (device_id, widziane_o)
+            SELECT device_id, widziane_o FROM kursory`,
+    );
+
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO device_reads (device_id, envelope_id)
+            SELECT k.device_id, q.id
+              FROM kursory k
+              JOIN queue q ON q.id <= k.ostatni_id`,
+    );
+
+    this.ctx.storage.sql.exec("DROP TABLE kursory");
   }
 
   /**
@@ -167,7 +240,11 @@ export class UserInbox extends DurableObject<Env> {
       return new Response("oczekiwano upgrade do WebSocketa", { status: 426 });
     }
 
-    const urzadzenie = new URL(request.url).searchParams.get("urzadzenie") || null;
+    // Identyfikator przychodzi wyłącznie od Workera, który bierze go
+    // z PODPISANEGO tokenu (`index.ts`). Jego brak nie jest już osobną,
+    // kasującą ścieżką — to po prostu wspólne konto odczytów.
+    const urzadzenie =
+      new URL(request.url).searchParams.get("urzadzenie") || URZADZENIE_NIEZNANE;
 
     const pair = new WebSocketPair();
     const [client, server] = [pair[0], pair[1]];
@@ -176,9 +253,7 @@ export class UserInbox extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ urzadzenie } satisfies Przypiete);
 
-    if (urzadzenie !== null) {
-      this.zarejestrujUrzadzenie(urzadzenie);
-    }
+    this.zarejestrujUrzadzenie(urzadzenie);
 
     await this.flushTo(server, urzadzenie);
 
@@ -186,26 +261,27 @@ export class UserInbox extends DurableObject<Env> {
   }
 
   /**
-   * Zakłada kursor urządzenia, jeśli jeszcze go nie ma.
+   * Odnotowuje urządzenie i chwilę, w której się odezwało.
    *
    * # Dlaczego zaczyna od zera, a nie od bieżącego końca kolejki
    *
-   * Zero znaczy „nie widziałem jeszcze niczego", więc świeżo podłączone
-   * urządzenie dostaje wszystko, co w kolejce zostało. Ustawienie kursora na
-   * koniec byłoby cichym skasowaniem zaległości dla nowego urządzenia.
+   * Pusty zbiór odczytów znaczy „nie widziałem jeszcze niczego", więc świeżo
+   * podłączone urządzenie dostaje wszystko, co w kolejce zostało. Zapisanie mu
+   * na starcie całej kolejki jako przeczytanej byłoby cichym skasowaniem
+   * zaległości dla nowego urządzenia.
    *
    * # Kolejność, na której to stoi
    *
-   * Urządzenie **trzyma kolejkę dopiero od pierwszego podłączenia**. Zanim
-   * założy kursor, nikt o nim tutaj nie wie i jego koperty mogą zostać
-   * skasowane po potwierdzeniu przez pozostałe urządzenia. Dlatego parowanie
+   * Urządzenie **trzyma kolejkę dopiero od pierwszego podłączenia**. Zanim się
+   * odezwie, nikt o nim tutaj nie wie i jego koperty mogą zostać skasowane po
+   * potwierdzeniu przez pozostałe urządzenia. Dlatego parowanie
    * musi podłączyć nowe urządzenie do skrzynki ZANIM stare wyśle Welcome —
    * inaczej powtórzyłaby się awaria opisana w CLAUDE.md, gdzie Welcome nigdy
    * nie dotarł i żadna wiadomość się nie odszyfrowała.
    */
   private zarejestrujUrzadzenie(urzadzenie: string): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO kursory (device_id, ostatni_id, widziane_o) VALUES (?, 0, ?)
+      `INSERT INTO urzadzenia (device_id, widziane_o) VALUES (?, ?)
        ON CONFLICT (device_id) DO UPDATE SET widziane_o = excluded.widziane_o`,
       urzadzenie,
       Date.now(),
@@ -218,33 +294,26 @@ export class UserInbox extends DurableObject<Env> {
    * **Nie kasuje ich z kolejki** — to robi dopiero potwierdzenie od klienta.
    * Klient, który dostał bajty i zaraz potem padł, ma je zobaczyć ponownie.
    *
-   * Urządzenie ze swoim kursorem dostaje tylko to, czego jeszcze nie
-   * potwierdziło. Bez kursora (klient sprzed tej wersji) dostaje całą kolejkę,
-   * czyli dokładnie to co dawniej.
+   * Urządzenie dostaje wszystko, czego nie ma w swoim zbiorze odczytów —
+   * łącznie z kopertą pominiętą wcześniej, po której potwierdziło już nowszą.
+   * To jest ta różnica, przez którą ponawianie w ogóle działa.
    */
-  private async flushTo(socket: WebSocket, urzadzenie: string | null): Promise<void> {
-    const od = urzadzenie === null ? 0 : this.kursor(urzadzenie);
-
+  private async flushTo(socket: WebSocket, urzadzenie: string): Promise<void> {
     const pending = this.ctx.storage.sql
       .exec<{
         id: number;
         envelope: ArrayBuffer;
-      }>("SELECT id, envelope FROM queue WHERE id > ? ORDER BY id", od)
+      }>(
+        `SELECT id, envelope FROM queue
+          WHERE id NOT IN (SELECT envelope_id FROM device_reads WHERE device_id = ?)
+          ORDER BY id`,
+        urzadzenie,
+      )
       .toArray();
 
     for (const row of pending) {
       socket.send(withId(row.id, row.envelope));
     }
-  }
-
-  /** Ostatnia koperta potwierdzona przez to urządzenie; zero, gdy żadna. */
-  private kursor(urzadzenie: string): number {
-    const row = this.ctx.storage.sql
-      .exec<{
-        ostatni_id: number;
-      }>("SELECT ostatni_id FROM kursory WHERE device_id = ?", urzadzenie)
-      .toArray()[0];
-    return row?.ostatni_id ?? 0;
   }
 
   /** Liczba kopert fizycznie leżących w kolejce. */
@@ -266,7 +335,11 @@ export class UserInbox extends DurableObject<Env> {
     const row = this.ctx.storage.sql
       .exec<{
         n: number;
-      }>("SELECT COUNT(*) AS n FROM queue WHERE id > ?", this.kursor(urzadzenie))
+      }>(
+        `SELECT COUNT(*) AS n FROM queue
+          WHERE id NOT IN (SELECT envelope_id FROM device_reads WHERE device_id = ?)`,
+        urzadzenie,
+      )
       .toArray()[0];
     return row?.n ?? 0;
   }
@@ -300,39 +373,38 @@ export class UserInbox extends DurableObject<Env> {
    * Skrzynka jest wspólna dla wszystkich urządzeń jednej osoby, więc kasowanie
    * koperty na pierwsze potwierdzenie **okradało pozostałe urządzenia**: laptop
    * potwierdzał, a śpiący telefon nie dostawał już nic i nikt nie zgłaszał
-   * błędu. Zamiast tego każde urządzenie przesuwa własny kursor, a koperta
-   * znika dopiero, gdy minie kursory wszystkich znanych urządzeń.
+   * błędu. Zamiast tego każde urządzenie prowadzi własny zbiór odczytów,
+   * a koperta znika dopiero, gdy przeczytają ją wszystkie znane urządzenia.
    *
-   * Bez `urzadzenie` (klient sprzed tej wersji) zostaje dawne zachowanie —
-   * inaczej aktualizacja serwera odcięłaby wszystkich, którzy jeszcze nie
-   * zaktualizowali aplikacji. Ta sama rampa co przy `DELIVERY_TOKEN_REQUIRED`.
+   * Bez `urzadzenie` (klient sprzed tej wersji) potwierdzenie idzie na wspólne
+   * konto `URZADZENIE_NIEZNANE`, a nie kasuje koperty wszystkim — dawne
+   * `DELETE` było tą samą awarią, którą ten obiekt miał zlikwidować, tylko
+   * wywołaną z drugiej strony.
+   *
+   * Potwierdzenie zapisujemy jako FAKT („to urządzenie przeczytało tę
+   * kopertę"), więc jest idempotentne i nie zależy od kolejności: spóźnione
+   * potwierdzenie starszej koperty dokłada ją do zbioru i nie rusza niczego
+   * innego. Kursor podnoszony do `MAX` gubił w tym miejscu koperty pominięte.
    *
    * Wywoływane z kanału WebSocket, ale wystawione jako osobna metoda, żeby dało
    * się je sprawdzić bez zestawiania gniazda w teście.
    */
-  async acknowledge(id: number, urzadzenie: string | null = null): Promise<void> {
-    if (urzadzenie === null) {
-      this.ctx.storage.sql.exec("DELETE FROM queue WHERE id = ?", id);
-      return;
-    }
+  async acknowledge(id: number, urzadzenie: string = URZADZENIE_NIEZNANE): Promise<void> {
+    // Urządzenie, które potwierdza, z definicji się odezwało — a od tej chwili
+    // trzyma kolejkę, więc musi być widoczne dla [`sprzatnij`].
+    this.zarejestrujUrzadzenie(urzadzenie);
 
-    // `MAX` — spóźnione potwierdzenie starszej koperty nie może cofnąć kursora
-    // i zafundować urządzeniu powtórki wszystkiego, co już przetworzyło.
     this.ctx.storage.sql.exec(
-      `INSERT INTO kursory (device_id, ostatni_id, widziane_o) VALUES (?, ?, ?)
-       ON CONFLICT (device_id) DO UPDATE
-         SET ostatni_id = MAX(kursory.ostatni_id, excluded.ostatni_id),
-             widziane_o = excluded.widziane_o`,
+      "INSERT OR IGNORE INTO device_reads (device_id, envelope_id) VALUES (?, ?)",
       urzadzenie,
       id,
-      Date.now(),
     );
 
     this.sprzatnij();
   }
 
   /**
-   * Kasuje koperty, które minęły kursory wszystkich żywych urządzeń.
+   * Kasuje koperty przeczytane przez wszystkie żywe urządzenia.
    *
    * Urządzenie milczące dłużej niż `MAILBOX_RETENTION_DAYS` przestaje się
    * liczyć — inaczej jeden zgubiony telefon trzymałby kolejkę w nieskończoność.
@@ -346,16 +418,40 @@ export class UserInbox extends DurableObject<Env> {
   private sprzatnij(): void {
     const prog = Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
-    const row = this.ctx.storage.sql
-      .exec<{
-        najmniejszy: number | null;
-      }>("SELECT MIN(ostatni_id) AS najmniejszy FROM kursory WHERE widziane_o > ?", prog)
+    const zywe = this.ctx.storage.sql
+      .exec<{ n: number }>("SELECT COUNT(*) AS n FROM urzadzenia WHERE widziane_o > ?", prog)
       .toArray()[0];
 
-    const najmniejszy = row?.najmniejszy;
-    if (najmniejszy === null || najmniejszy === undefined) return;
+    if (!zywe || zywe.n === 0) return;
 
-    this.ctx.storage.sql.exec("DELETE FROM queue WHERE id <= ?", najmniejszy);
+    this.ctx.storage.sql.exec(
+      `DELETE FROM queue
+        WHERE id IN (
+                SELECT r.envelope_id
+                  FROM device_reads r
+                  JOIN urzadzenia u ON u.device_id = r.device_id
+                 WHERE u.widziane_o > ?
+                 GROUP BY r.envelope_id
+                HAVING COUNT(*) >= ?
+              )`,
+      prog,
+      zywe.n,
+    );
+
+    this.zapomnijOsierocone();
+  }
+
+  /**
+   * Kasuje odczyty wskazujące koperty, których już nie ma.
+   *
+   * Bez tego tabela rośnie bez końca: numery kolejki nigdy się nie powtarzają,
+   * więc wpis po skasowanej kopercie nie przyda się nikomu. Trafiają tu także
+   * potwierdzenia numerów, których nigdy nie było.
+   */
+  private zapomnijOsierocone(): void {
+    this.ctx.storage.sql.exec(
+      "DELETE FROM device_reads WHERE envelope_id NOT IN (SELECT id FROM queue)",
+    );
   }
 
   override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -378,12 +474,18 @@ export class UserInbox extends DurableObject<Env> {
   override async alarm(): Promise<void> {
     const cutoff = Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
-    // Najpierw znikają kursory urządzeń, które przestały się odzywać — dopiero
-    // wtedy `sprzatnij` może ruszyć koperty, które taki nieboszczyk trzymał.
-    this.ctx.storage.sql.exec("DELETE FROM kursory WHERE widziane_o < ?", cutoff);
+    // Najpierw znikają urządzenia, które przestały się odzywać, razem z ich
+    // odczytami — dopiero wtedy `sprzatnij` może ruszyć koperty, które taki
+    // nieboszczyk trzymał.
+    this.ctx.storage.sql.exec(
+      "DELETE FROM device_reads WHERE device_id IN (SELECT device_id FROM urzadzenia WHERE widziane_o < ?)",
+      cutoff,
+    );
+    this.ctx.storage.sql.exec("DELETE FROM urzadzenia WHERE widziane_o < ?", cutoff);
     this.sprzatnij();
 
     this.ctx.storage.sql.exec("DELETE FROM queue WHERE created_at < ?", cutoff);
+    this.zapomnijOsierocone();
 
     // Alarm odnawiamy tylko wtedy, gdy jest jeszcze co pilnować — inaczej
     // pusta skrzynka budziłaby obiekt codziennie bez powodu.

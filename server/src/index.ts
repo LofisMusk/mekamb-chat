@@ -61,14 +61,6 @@ app.route("/attachments", attachments);
 app.route("/calls", calls);
 app.route("/zgloszenia", zgloszenia);
 
-/**
- * Limit prób logowania.
- *
- * 5 prób w serii, uzupełniane po jednej na 30 sekund. Wystarczy na pomyłkę
- * w haśle albo przepisanie kodu TOTP, a odbiera sens zgadywaniu.
- */
-const LOGIN_BUCKET = { capacity: 5, refillPerSecond: 1 / 30 };
-
 app.get("/health", (c) => c.json({ ok: true }));
 
 /**
@@ -121,7 +113,7 @@ app.post("/devices", requireAuth, async (c) => {
     return c.json({ error: "brak deviceId albo klucza publicznego" }, 400);
   }
 
-  await registerDevice(c.env, {
+  const zapisane = await registerDevice(c.env, {
     deviceId: body.deviceId,
     // Właściciela bierzemy z TOKENU, nie z ciała żądania. Zaufanie temu, co
     // przysłał klient, pozwoliłoby dopisać urządzenie do cudzego konta.
@@ -132,6 +124,12 @@ app.post("/devices", requireAuth, async (c) => {
     addrSignature: body.addrSignature ? new Uint8Array(fromBase64(body.addrSignature)) : null,
     displayName: body.displayName ?? null,
   });
+
+  if (!zapisane) {
+    // Ten sam komunikat co przy cudzym urządzeniu w pozostałych trasach:
+    // rozróżnienie mówiłoby pytającemu, które identyfikatory już istnieją.
+    return c.json({ error: "to nie jest Twoje urządzenie" }, 403);
+  }
 
   return c.json({ ok: true });
 });
@@ -395,6 +393,14 @@ app.get("/inbox/:userId/connect", async (c) => {
   // w jego imieniu. Skrzynka używa go do osobnego kursora na urządzenie —
   // patrz `UserInbox.acknowledge`.
   const adres = new URL(c.req.url);
+
+  // Kasujemy BEZWARUNKOWO, zanim cokolwiek ustawimy. Wcześniej parametr
+  // ustawiany był tylko wtedy, gdy token niósł `deviceId` — a gdy nie niósł
+  // (token z logowania bez `deviceId`, patrz `auth.ts`), przechodziło dalej to,
+  // co przysłał klient. Wystarczyło dopisać `?urzadzenie=` do adresu, żeby
+  // księgować odczyty na koncie INNEGO swojego urządzenia i zabrać mu
+  // zaległości.
+  adres.searchParams.delete("urzadzenie");
   if (payload.deviceId) {
     adres.searchParams.set("urzadzenie", payload.deviceId);
   }
@@ -414,20 +420,19 @@ app.get("/inbox/:userId/connect", async (c) => {
   });
 });
 
-/** Sprawdza limit prób — wołane przez ścieżkę logowania. */
-app.post("/internal/rate-limit/:key", async (c) => {
-  const key = c.req.param("key");
-  const limiter = c.env.RATE_LIMITER.get(c.env.RATE_LIMITER.idFromName(key));
-  const result = await limiter.consume(key, LOGIN_BUCKET.capacity, LOGIN_BUCKET.refillPerSecond);
-
-  if (!result.allowed) {
-    return c.json({ error: "zbyt wiele prób" }, 429, {
-      "Retry-After": String(Math.ceil(result.retryAfterMs / 1000)),
-    });
-  }
-
-  return c.json({ allowed: true });
-});
+/*
+ * Nie ma tu trasy `POST /internal/rate-limit/:key` i nie może jej być.
+ *
+ * Nazwa mówiła „internal", ale była to zwykła trasa Hono bez `requireAuth`,
+ * a jedyny globalny middleware to CORS — który nie jest kontrolą dostępu i nie
+ * dotyczy `curl`-a. Klucze kubełków są przewidywalne (`login:<nazwa>`,
+ * `totp:<loginId>`, `refresh:<deviceId>` — patrz `auth.ts`), więc sześć
+ * nieuwierzytelnionych żądań wyczerpywało limit wskazanej osobie, a dwa na
+ * minutę trzymały ją wylogowaną w nieskończoność.
+ *
+ * Przy tym nikt jej nie wołał: `auth.ts` i `webauthn.ts` sięgają do Durable
+ * Objectu wprost przez binding. Była pozostałością, nie punktem wejścia.
+ */
 
 /**
  * Kodowanie base64 bez rozwijania tablicy w argumenty wywołania.

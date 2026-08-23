@@ -313,3 +313,99 @@ describe("wykreślenie urządzenia", () => {
     expect(await availableKeyPackages(env, ofiara.deviceId)).toBe(1);
   });
 });
+
+/**
+ * `POST /devices` — właściciel wpisu, nie tylko właściciel tokenu.
+ *
+ * # Sedno
+ *
+ * Właściciela braliśmy z tokenu i to było poprawne, ale `ON CONFLICT(id) DO
+ * UPDATE` aktualizował wiersz NIEZALEŻNIE OD TEGO, CZYJ ON JEST — a
+ * identyfikatory urządzeń są jawne, bo `GET /directory/:username` wydaje je
+ * każdemu bez uwierzytelnienia.
+ *
+ * Dowolne zalogowane konto podmieniało więc cudzemu urządzeniu klucz i adresy
+ * transportowe na swoje. Treści to nie odsłania (MLS), ale dostarczenie
+ * bezpośrednie UDAJE SIĘ, więc zapasowa droga przez skrzynkę nie włącza się
+ * wcale: wiadomości znikają bez błędu, a napastnik dowiaduje się, kto do kogo
+ * pisze i kiedy.
+ */
+describe("rejestracja urządzenia", () => {
+  async function konto(): Promise<{ userId: string; token: string }> {
+    const userId = crypto.randomUUID();
+    const now = Date.now();
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at) VALUES (?, ?, '', '', ?)",
+    )
+      .bind(userId, `rejestracja-${userId}`, now)
+      .run();
+
+    const token = await issueToken(env.TOKEN_SIGNING_KEY, {
+      userId,
+      deviceId: `dev-${userId.slice(0, 8)}`,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    return { userId, token };
+  }
+
+  function zarejestruj(token: string, deviceId: string, transportKey: string) {
+    return SELF.fetch("https://mekamb/devices", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        deviceId,
+        mlsPublicKey: btoa("klucz-mls"),
+        transportKey,
+        transportAddresses: "10.0.0.1:1",
+      }),
+    });
+  }
+
+  async function adres(deviceId: string): Promise<string | null> {
+    const row = await env.DB.prepare("SELECT transport_key FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ transport_key: string | null }>();
+    return row?.transport_key ?? null;
+  }
+
+  it("właściciel odświeża własny adres", async () => {
+    const wlasciciel = await konto();
+    const deviceId = crypto.randomUUID();
+
+    expect((await zarejestruj(wlasciciel.token, deviceId, "pierwszy")).status).toBe(200);
+    expect((await zarejestruj(wlasciciel.token, deviceId, "drugi")).status).toBe(200);
+
+    // Adres zmienia się przy każdej zmianie sieci, więc odświeżenie MUSI działać.
+    expect(await adres(deviceId)).toBe("drugi");
+  });
+
+  it("cudze konto nie przejmie adresu urządzenia", async () => {
+    const ofiara = await konto();
+    const napastnik = await konto();
+    const deviceId = crypto.randomUUID();
+
+    expect((await zarejestruj(ofiara.token, deviceId, "adres-ofiary")).status).toBe(200);
+
+    const proba = await zarejestruj(napastnik.token, deviceId, "adres-napastnika");
+
+    expect(proba.status).toBe(403);
+    expect(await adres(deviceId)).toBe("adres-ofiary");
+  });
+
+  it("cudze konto nie przejmie też właściciela wpisu", async () => {
+    const ofiara = await konto();
+    const napastnik = await konto();
+    const deviceId = crypto.randomUUID();
+
+    await zarejestruj(ofiara.token, deviceId, "adres-ofiary");
+    await zarejestruj(napastnik.token, deviceId, "adres-napastnika");
+
+    const row = await env.DB.prepare("SELECT user_id FROM devices WHERE id = ?")
+      .bind(deviceId)
+      .first<{ user_id: string }>();
+
+    expect(row?.user_id).toBe(ofiara.userId);
+  });
+});

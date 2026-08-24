@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #67e8f9; } a:hover { color: #a5f3fc; }
+    .plansza { --tlo: #000000; --babel: #1b1f22; --wlasny: #0e7490; }
+    .babel { position: relative; border-radius: 18px; padding: 8px 14px; font-size: 16px; line-height: 1.32; max-width: 260px; }
+    .babel.cudzy { align-self: flex-start; background: #1b1f22; color: #e8eff1; }
+    .babel.wlasny { align-self: flex-end; background: #0e7490; color: #ffffff; }
+    .babel.ogon::before, .babel.ogon::after { content: ""; position: absolute; bottom: 0; height: 17px; }
+    .babel.ogon::before { width: 20px; }
+    .babel.ogon::after { width: 11px; }
+    .babel.ogon.cudzy::before { left: -7px; background: var(--babel); border-bottom-right-radius: 16px 14px; }
+    .babel.ogon.cudzy::after { left: -11px; background: var(--tlo); border-bottom-right-radius: 12px; }
+    .babel.ogon.wlasny::before { right: -7px; background: var(--wlasny); border-bottom-left-radius: 16px 14px; }
+    .babel.ogon.wlasny::after { right: -11px; background: var(--tlo); border-bottom-left-radius: 12px; }
+    .stos { display: flex; flex-direction: column; gap: 2px; width: 300px; }
+    .podpis { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #6a7a81; margin: 0 0 10px; }
+    .stan { font-size: 11px; color: #6a7a81; margin: 3px 4px 0; }
+    .sekcja { display: flex; flex-direction: column; gap: 14px; }
+    h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: #e8eff1; }
+    .token { display: flex; align-items: center; gap: 9px; font-size: 12px; color: #8b9ca3; }
+    .probka { width: 26px; height: 26px; border-radius: 7px; border: 1px solid rgba(232,239,241,.14); flex: none; }
+  </style>
+</helmet>
+
+<div class="plansza" style="width: 1100px; height: 920px; box-sizing: border-box; padding: 32px 36px; background: #000000; color: #e8eff1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 34px 32px; align-content: start">
+
+  <!-- 1 -->
+  <div class="sekcja">
+    <h2>Dymek — blok i ogon</h2>
+    <p class="podpis">ogon tylko przy ostatnim w bloku</p>
+    <div class="stos">
+      <div class="babel cudzy">Jesteś jeszcze w biurze?</div>
+      <div class="babel cudzy">Mam ten klucz od rowerowni</div>
+      <div class="babel cudzy ogon">I nie chcę go wozić po mieście</div>
+    </div>
+    <div class="stos" style="margin-top: 8px">
+      <div class="babel wlasny">Wychodzę za dziesięć minut</div>
+      <div class="babel wlasny ogon">Zostaw w skrzynce</div>
+      <div class="stan" style="align-self: flex-end">Przeczytano 21:20</div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="sekcja">
+    <h2>Stany wysyłki</h2>
+    <p class="podpis">pod ostatnim własnym, nie w dymku</p>
+    <div class="stos">
+      <div class="babel wlasny ogon" style="opacity: .62">Odbiorę po siódmej</div>
+      <div class="stan" style="align-self: flex-end">Wysyłanie…</div>
+    </div>
+    <div class="stos">
+      <div class="babel wlasny ogon">Odbiorę po siódmej</div>
+      <div class="stan" style="align-self: flex-end">Dostarczono</div>
+    </div>
+    <div class="stos">
+      <div class="babel wlasny ogon">Odbiorę po siódmej</div>
+      <div class="stan" style="align-self: flex-end">Przeczytano 08:44</div>
+    </div>
+    <div class="stos">
+      <div class="babel wlasny ogon" style="background: #4a1f22; box-shadow: inset 0 0 0 1px #f2b8b5">Odbiorę po siódmej</div>
+      <div class="stan" style="align-self: flex-end; color: #f2b8b5">Nie wysłano · dotknij, aby ponowić</div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="sekcja">
+    <h2>Załącznik i ślad rozmowy</h2>
+    <p class="podpis">obraz wypełnia dymek, ramka 4 px</p>
+    <div class="stos">
+      <div class="babel cudzy ogon" style="padding: 4px; overflow: hidden; max-width: 240px">
+        <div style="width: 210px; height: 140px; border-radius: 15px; background: linear-gradient(150deg, #1f3d45 0%, #14262c 55%, #101a1e 100%); display: grid; place-items: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(232,239,241,.34)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5 H20.5 V18.5 H3.5 Z M3.5 15.5 L8.5 10.5 L13 15 M12.5 15.5 L15.5 12.5 L20.5 17 M15.8 8 A1.3 1.3 0 1 0 15.8 10.6 A1.3 1.3 0 1 0 15.8 8 Z"></path></svg>
+        </div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; color: #8b9ca3; width: 300px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6a7a81" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 L9 4.5 L10 8.5 L8 10 C9 12.5 11.5 15 14 16 L15.5 14 L19.5 15 L20.5 18 C20.5 19.5 19 20.5 17.5 20.5 C10 20.5 3.5 14 3.5 6.5 C3.5 5 4.5 3.5 6 3.5 Z"></path></svg>
+      Rozmowa głosowa · 4:12 <span style="color: #6a7a81">21:31</span>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12px; color: #f2b8b5; width: 300px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f2b8b5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7 H14 V17 H3.5 Z M14 11 L20.5 7.5 V16.5 L14 13 Z"></path></svg>
+      Nieodebrana rozmowa wideo <span>19:04</span>
+    </div>
+    <div style="width: 300px; text-align: center; font-size: 12px; color: #6a7a81"><strong style="font-weight: 600; color: #8b9ca3">Dziś</strong> 08:42</div>
+  </div>
+
+  <!-- 4 -->
+  <div class="sekcja">
+    <h2>Kompozytor</h2>
+    <p class="podpis">strzałka w polu; gaśnie, gdy nie ma czego wysłać</p>
+    <div style="display: flex; align-items: flex-end; gap: 8px; width: 320px">
+      <span style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #1b1f22; display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b9ca3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8.5 L10 15.5 A2.5 2.5 0 0 0 13.5 19 L20 12.5 A5 5 0 0 0 13 5.5 L6.5 12 A7.5 7.5 0 0 0 17 22.5"></path></svg></span>
+      <span style="flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 6px; min-height: 34px; padding: 3px 3px 3px 13px; border: 1px solid rgba(232,239,241,.14); border-radius: 18px; background: #16191c">
+        <span style="flex: 1; min-width: 0; padding: 4px 0; font-size: 16px; color: #6a7a81">Napisz wiadomość</span>
+        <span style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #1f2a2e; display: grid; place-items: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4d5b61" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 L20 4 L12.5 20 L11 13 Z M11 13 L20 4"></path></svg></span>
+      </span>
+    </div>
+
+    <div style="display: flex; align-items: flex-end; gap: 8px; width: 320px">
+      <span style="flex: none; width: 34px; height: 34px; border-radius: 50%; background: #1b1f22; display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b9ca3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8.5 L10 15.5 A2.5 2.5 0 0 0 13.5 19 L20 12.5 A5 5 0 0 0 13 5.5 L6.5 12 A7.5 7.5 0 0 0 17 22.5"></path></svg></span>
+      <span style="flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 6px; min-height: 34px; padding: 3px 3px 3px 13px; border: 1px solid rgba(232,239,241,.14); border-radius: 18px; background: #16191c">
+        <span style="flex: 1; min-width: 0; padding: 4px 0; font-size: 16px; color: #e8eff1">Odbiorę po siódmej</span>
+        <span style="flex: none; width: 28px; height: 28px; border-radius: 50%; background: #0e7490; display: grid; place-items: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 L20 4 L12.5 20 L11 13 Z M11 13 L20 4"></path></svg></span>
+      </span>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="sekcja">
+    <h2>Wiersz listy</h2>
+    <p class="podpis">liczba, nie kropka — „trzy" i „trzydzieści" to inna decyzja</p>
+    <div style="width: 330px; display: flex; align-items: flex-start; gap: 11px; padding: 9px 10px 9px 4px">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #123c47; border: 1px solid rgba(6,182,212,.4); color: #67e8f9; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">O</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(232,239,241,.14)">
+        <span style="display: flex; align-items: baseline; gap: 8px"><span style="flex: 1; font-size: 17px; font-weight: 600; letter-spacing: -.01em">ola</span><span style="font-size: 13px; color: #6a7a81">08:42</span><span style="flex: none; min-width: 20px; padding: 0 5px; border-radius: 999px; background: #06b6d4; color: #04252b; font-size: 11px; font-weight: 600; line-height: 20px; text-align: center">2</span></span>
+        <span style="font-size: 15px; line-height: 1.3; color: #8b9ca3">Zostawiłam. Kod do klatki 4417</span>
+      </span>
+    </div>
+    <div style="width: 330px; display: flex; align-items: flex-start; gap: 11px; padding: 9px 10px 9px 4px; border-radius: 10px; background: #16191c">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #123c47; border: 1px solid rgba(6,182,212,.4); color: #67e8f9; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">K</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+        <span style="display: flex; align-items: baseline; gap: 8px"><span style="flex: 1; font-size: 17px; font-weight: 600; letter-spacing: -.01em">kuba</span><span style="font-size: 13px; color: #6a7a81">Wczoraj</span></span>
+        <span style="font-size: 15px; line-height: 1.3; color: #8b9ca3">Ty: Dzięki, mam</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="sekcja">
+    <h2>Tokeny</h2>
+    <p class="podpis">role, nie stopnie rampy — obie palety</p>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px">
+      <span class="token"><span class="probka" style="background: #000000"></span>--tlo</span>
+      <span class="token"><span class="probka" style="background: #f9f7f8"></span>--tlo</span>
+      <span class="token"><span class="probka" style="background: #1b1f22"></span>--babel</span>
+      <span class="token"><span class="probka" style="background: #eae6e8"></span>--babel</span>
+      <span class="token"><span class="probka" style="background: #0e7490"></span>--babel-wlasny</span>
+      <span class="token"><span class="probka" style="background: #0e7490"></span>--babel-wlasny</span>
+      <span class="token"><span class="probka" style="background: #16191c"></span>--pole</span>
+      <span class="token"><span class="probka" style="background: #ffffff"></span>--pole</span>
+      <span class="token"><span class="probka" style="background: #0e1214"></span>--pasek</span>
+      <span class="token"><span class="probka" style="background: #f1edef"></span>--pasek</span>
+      <span class="token"><span class="probka" style="background: #06b6d4"></span>--znacznik-tlo</span>
+      <span class="token"><span class="probka" style="background: #0891b2"></span>--znacznik-tlo</span>
+    </div>
+    <p style="margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: #8b9ca3; max-width: 320px">Własny dymek to jedyna plama akcentu w systemie. Reszta akcji zostaje linią — przycisk zalany kolorem obok zalanego dymka odbiera dymkowi znaczenie.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

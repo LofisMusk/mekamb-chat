@@ -1,0 +1,41 @@
+{
+  "pages": [
+    { "id": "ekrany", "name": "Ekrany" },
+    { "id": "elementy", "name": "Elementy" }
+  ],
+  "artboards": [
+    { "file": "Lista.dc.html", "page": "ekrany", "title": "Lista — ciemny", "x": 0, "y": 0, "w": 390, "h": 844 },
+    { "file": "Main.dc.html", "page": "ekrany", "title": "Wątek — ciemny", "x": 470, "y": 0, "w": 390, "h": 844 },
+    { "file": "ListaJasna.dc.html", "page": "ekrany", "title": "Lista — jasny", "x": 940, "y": 0, "w": 390, "h": 844 },
+    { "file": "WatekJasny.dc.html", "page": "ekrany", "title": "Wątek — jasny", "x": 1410, "y": 0, "w": 390, "h": 844 },
+    { "file": "Desktop.dc.html", "page": "ekrany", "title": "Desktop 1440", "x": 0, "y": 1000, "w": 1440, "h": 900 },
+    { "file": "Elementy.dc.html", "page": "elementy", "title": "Arkusz elementów", "x": 0, "y": 0, "w": 1100, "h": 920 }
+  ],
+  "annotations": [
+    {
+      "id": "kierunek",
+      "page": "ekrany",
+      "x": 1880,
+      "y": 0,
+      "w": 300,
+      "text": "Kierunek\n\nDymek zalany kolorem, pełny promień 18 px, ogon tylko przy ostatnim dymku bloku. Godzina wychodzi z dymka na środkowy rozdzielacz („Dziś 08:42\"), a stan wysyłki schodzi pod ostatni własny dymek.\n\nWłasny dymek to jedyna plama akcentu — pozostałe akcje zostają linią, tak jak w Nocturne."
+    },
+    {
+      "id": "kolory",
+      "page": "ekrany",
+      "x": 1880,
+      "y": 300,
+      "w": 300,
+      "text": "Kolory\n\nAkcent zostaje markowy cyjan, ale zalany dymek potrzebuje ciemniejszego stopnia: #0E7490 z białym tekstem daje 5,36:1. Markowe #06B6D4 dałoby 2,43:1 — nieczytelne."
+    },
+    {
+      "id": "siatka",
+      "page": "ekrany",
+      "x": 1880,
+      "y": 560,
+      "w": 300,
+      "text": "Odstępy\n\n2 px między dymkami tego samego bloku, 8–10 px między blokami. Pola dotyku 34–48 px; wiersz listy 68 px z awatarem 48 px."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "ekrany" }
+}

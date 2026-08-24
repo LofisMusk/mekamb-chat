@@ -5,13 +5,22 @@ import type { Env } from "./env";
  *
  * # Serwer nie jest zaufanym źródłem adresów
  *
- * Rekord adresowy jest przechowywany razem z podpisem złożonym kluczem MLS
- * urządzenia. Serwer tego podpisu nie weryfikuje i nie musi — robi to **klient**
- * przed użyciem adresu. Gdyby serwer podstawił własny adres, podpis by się nie
- * zgadzał i klient odrzuciłby rekord.
+ * Rekord adresowy jest przechowywany razem z podpisem złożonym kluczem podpisu
+ * MLS urządzenia. Serwer tego podpisu nie weryfikuje i nie musi — robi to
+ * **klient** przed użyciem adresu, kluczem wziętym z drzewa MLS rozmowy
+ * (`verifyPeerAddress` w rdzeniu). Gdyby serwer podstawił własny adres, podpis
+ * by się nie zgadzał i klient odrzuciłby rekord, wracając na skrzynkę.
  *
  * Ten moduł celowo nie zawiera weryfikacji podpisu: kod działający na serwerze
  * nie może być podstawą zaufania do danych, które serwer sam wydaje.
+ *
+ * # To była przez pewien czas obietnica bez pokrycia
+ *
+ * Kolumna `addr_signature` istniała od początku, ten komentarz też — ale żaden
+ * klient podpisu nie składał i żaden nie sprawdzał. Ochrona istniała wyłącznie
+ * w opisie, a rekord z katalogu był przyjmowany na słowo serwera. Podpisy
+ * powstają w `core/src/adres.rs`; oba klienty je wysyłają, a ten, który używa
+ * adresów (Android), sprawdza je przed każdą próbą doręczenia wprost.
  */
 
 /**
@@ -242,6 +251,25 @@ export async function publishKeyPackages(
  * adresu, bo sandbox nie pozwala jej przyjmować połączeń. Takie urządzenie
  * odbiera wyłącznie przez skrzynkę i to jest poprawny, zamierzony stan — a nie
  * brak konfiguracji.
+ *
+ * # Dlaczego przy konflikcie jest `WHERE devices.user_id = excluded.user_id`
+ *
+ * Bo bez tego warunku `ON CONFLICT(id) DO UPDATE` aktualizował wiersz
+ * NIEZALEŻNIE OD TEGO, CZYJ ON JEST. Właściciela braliśmy z tokenu i to było
+ * poprawne, ale przy istniejącym identyfikatorze nic już go nie sprawdzało —
+ * a identyfikatory urządzeń są jawne, bo `GET /directory/:username` wydaje je
+ * każdemu bez uwierzytelnienia.
+ *
+ * Skutkiem było przejęcie adresu: dowolne zalogowane konto podmieniało cudzemu
+ * urządzeniu `transport_key` i `transport_addresses` na swoje. Treści to nie
+ * odsłaniało (MLS), ale dostarczenie bezpośrednie **udawało się**, więc zapasowa
+ * droga przez skrzynkę nie włączała się wcale — wiadomości znikały bez błędu,
+ * a napastnik dowiadywał się, kto do kogo pisze. To ta sama dziura, którą przy
+ * key packages załatało [`urzadzenieNalezyDo`], tylko w sąsiedniej trasie.
+ *
+ * Zwraca `false`, gdy identyfikator należy do kogoś innego — wołający ma wtedy
+ * odpowiedzieć tak samo jak przy cudzym urządzeniu, bez zdradzania, że wpis
+ * istnieje.
  */
 export async function registerDevice(
   env: Env,
@@ -254,7 +282,7 @@ export async function registerDevice(
     addrSignature?: Uint8Array | null;
     displayName?: string | null;
   },
-): Promise<void> {
+): Promise<boolean> {
   const now = Date.now();
 
   await env.DB.prepare(
@@ -267,7 +295,8 @@ export async function registerDevice(
        transport_key        = excluded.transport_key,
        transport_addresses  = excluded.transport_addresses,
        addr_signature = excluded.addr_signature,
-       last_seen_at   = excluded.last_seen_at`,
+       last_seen_at   = excluded.last_seen_at
+     WHERE devices.user_id = excluded.user_id`,
   )
     .bind(
       device.deviceId,
@@ -281,4 +310,10 @@ export async function registerDevice(
       now,
     )
     .run();
+
+  // Konflikt z cudzym wierszem SQLite pomija po cichu — bez błędu, bo warunek
+  // przy `DO UPDATE` po prostu się nie spełnia. Odpytujemy więc o wynik, żeby
+  // trasa mogła odmówić zamiast odpowiedzieć „zapisano" na zapis, którego nie
+  // było.
+  return await urzadzenieNalezyDo(env, device.deviceId, device.userId);
 }

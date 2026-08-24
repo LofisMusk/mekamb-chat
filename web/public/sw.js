@@ -36,8 +36,9 @@ self.addEventListener("activate", (event) => {
  * Każde wdrożenie było niewidoczne dla kogokolwiek, kto raz ją otworzył.
  *
  * Teraz dokument idzie z sieci, a z dysku tylko wtedy, gdy sieci nie ma. Pliki
- * z hasza w nazwie zostają na dysku, bo ich zawartość nie może się zmienić —
- * zmiana zawartości daje nową nazwę.
+ * z haszem w nazwie zostają na dysku, bo ich zawartość nie może się zmienić —
+ * zmiana zawartości daje nową nazwę. Wszystko pozostałe idzie ścieżką
+ * dokumentu: „najpierw dysk" dla pliku bez hasza przypina go na zawsze.
  */
 function jestDokumentem(request) {
   return (
@@ -45,6 +46,22 @@ function jestDokumentem(request) {
     request.destination === "document" ||
     new URL(request.url).pathname.endsWith("/")
   );
+}
+
+/**
+ * Czy nazwa pliku niesie hasz zawartości.
+ *
+ * Tylko takie wolno brać „najpierw z dysku": zmiana zawartości daje nową
+ * nazwę, więc zapis nigdy się nie zestarzeje. Wcześniej ta gałąź obejmowała
+ * WSZYSTKO poza dokumentem, a więc także `manifest.webmanifest` i inne pliki
+ * z `public/`, które hasza nie mają — raz zapisane zostawały do ręcznej zmiany
+ * `CACHE`. To ten sam mechanizm, przez który aplikacja nie aktualizowała się
+ * wcale, tylko o klasę mniej dotkliwy.
+ *
+ * Vite wstawia hasz w nazwę plików z `assets/`, w postaci `nazwa-a1b2c3d4.js`.
+ */
+function maHaszWNazwie(url) {
+  return /-[0-9a-zA-Z_]{8,}\.[a-z0-9]+$/.test(new URL(url).pathname);
 }
 
 self.addEventListener("fetch", (event) => {
@@ -73,18 +90,35 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Pliki z haszem: najpierw dysk. Ich zawartość nie może się zmienić.
+  if (maHaszWNazwie(request.url)) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ??
+          fetch(request).then((response) => {
+            if (response.ok) {
+              const copy = response.clone();
+              caches.open(CACHE).then((cache) => cache.put(request, copy));
+            }
+            return response;
+          }),
+      ),
+    );
+    return;
+  }
+
+  // Reszta — jak dokument: z sieci, a dysk jako zapas na brak sieci.
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ??
-        fetch(request).then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        }),
-    ),
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
   );
 });
 

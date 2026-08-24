@@ -198,14 +198,33 @@ class Messenger private constructor(
     /** Adresy, pod którymi urządzenie jest osiągalne. */
     fun addresses(): List<String> = transport.addresses()
 
-    /** Zgłasza urządzenie do katalogu wraz z adresami P2P. */
+    /**
+     * Zgłasza urządzenie do katalogu wraz z adresami P2P.
+     *
+     * Rekord idzie PODPISANY kluczem podpisu MLS tego urządzenia. Bez podpisu
+     * katalog jest słowem serwera: podstawiony adres przejmuje bezpośrednią
+     * drogę doręczania, a że dostarczenie pod niego UDAJE SIĘ, skrzynka jako
+     * droga zapasowa nie włącza się wcale i wiadomość znika bez błędu.
+     *
+     * Podpis obejmuje `user_id`, `device_id`, klucz transportowy i adresy —
+     * wszystkie razem, więc nie da się go przenieść na inne urządzenie ani
+     * doczepić do zmienionego adresu. Sprawdza go odbiorca, kluczem z drzewa
+     * MLS (patrz [drogaBezposrednia]).
+     */
     suspend fun registerDevice() {
+        val kluczTransportu = transport.publicKey()
+        val adresy = transport.addresses()
+
         api.registerDevice(
             token = token,
             deviceId = account.deviceId,
             mlsPublicKey = client.mlsPublicKey(),
-            transportKey = transport.publicKey(),
-            transportAddresses = transport.addresses(),
+            transportKey = kluczTransportu,
+            transportAddresses = adresy,
+            addrSignature = client.signAddressRecord(
+                kluczTransportu.toBase64(),
+                adresy.joinToString(","),
+            ),
         )
     }
 
@@ -303,8 +322,17 @@ class Messenger private constructor(
             val wlasneUrzadzenie = peerUsername == account.userId
             for (osoba in uczestnicy(groupId)) {
                 if (!wlasneUrzadzenie && osoba == peerUsername) continue
-                api.deposit(osoba, oczekujacy.commit)
+                // Token doręczeniowy tak samo jak przy zwykłej wiadomości.
+                // Bez niego rozsyłka commitu jest jedyną drogą do skrzynki,
+                // która go nie ma — a po włączeniu `DELIVERY_TOKEN_REQUIRED`
+                // serwer odpowiada `401` i zmiana składu grupy przestaje
+                // działać. Wyłączone wymuszanie skutecznie to ukrywa.
+                api.deposit(osoba, oczekujacy.commit, portfel?.wez()?.naglowek())
             }
+
+            // Zapas uzupełniamy PO wysyłce, nie przed: pobranie go jest
+            // żądaniem uwierzytelnionym, więc trzymamy je z dala od nadania.
+            uzupelnijTokeny()
 
             oczekujacy.welcome?.let { wyslijWelcome(peerUsername, it) }
         }
@@ -438,7 +466,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
+        val urzadzenie = drogaBezposrednia(groupId, recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         // Dopiero po rozmówcy: gdyby echo szło pierwsze, nieudana wysyłka
@@ -459,7 +487,6 @@ class Messenger private constructor(
         groupId: ByteArray,
         rodzaj: ReceiptKind,
         messageIds: List<ByteArray>,
-        recipient: String,
     ) = withContext(Dispatchers.IO) {
         if (messageIds.isEmpty()) return@withContext
 
@@ -472,8 +499,23 @@ class Messenger private constructor(
 
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
-        wyslij(recipient, urzadzenie, koperta)
+        /*
+         * Do WSZYSTKICH uczestników, nie do pierwszego z brzegu.
+         *
+         * Wołający brał wcześniej `uczestnicy(groupId).firstOrNull { … }`
+         * i podawał go jako jedynego odbiorcę. W rozmowie dwuosobowej wychodziło
+         * na to samo, w grupowej ptaszek zmieniał się dokładnie jednej osobie —
+         * wybranej kolejnością drzewa MLS, czyli przypadkowej. Web rozsyłał
+         * potwierdzenia do całej rozmowy od początku (`messenger.ts`), więc
+         * przy tej samej obietnicy w interfejsie platformy mówiły co innego.
+         *
+         * Nieudane potwierdzenie dla jednej osoby nie może przerwać pozostałych:
+         * ptaszek jest wygodą, a nie treścią.
+         */
+        for (osoba in uczestnicy(groupId)) {
+            if (osoba == account.userId) continue
+            runCatching { wyslij(osoba, drogaBezposrednia(groupId, osoba), koperta) }
+        }
 
         // Potwierdzenie odczytu jedzie też do nas: przeczytane na telefonie ma
         // znaczyć przeczytane również na laptopie, inaczej drugie urządzenie
@@ -535,7 +577,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(recipient)
+        val urzadzenie = drogaBezposrednia(groupId, recipient)
         val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
 
         // Szyfrogram leży w R2, a klucz jedzie w tej kopercie — drugie własne
@@ -594,7 +636,7 @@ class Messenger private constructor(
         // wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(target)
+        val urzadzenie = drogaBezposrednia(groupId, target)
         wyslij(target, urzadzenie, koperta)
     }
 
@@ -614,8 +656,36 @@ class Messenger private constructor(
      * urządzenie. To świadome oddanie drogi bezpośredniej za poprawność —
      * interfejs i tak pokazuje, którą drogą poszła wiadomość.
      */
-    private suspend fun drogaBezposrednia(recipient: String): Api.Device? =
-        api.lookupDevices(recipient).singleOrNull()
+    private suspend fun drogaBezposrednia(groupId: ByteArray, recipient: String): Api.Device? {
+        val urzadzenie = api.lookupDevices(recipient).singleOrNull() ?: return null
+
+        /*
+         * Rekord z katalogu jest słowem serwera, dopóki nie zgadza się podpis.
+         *
+         * Klucz do sprawdzenia bierze rdzeń z DRZEWA MLS tej rozmowy, a nie
+         * z odpowiedzi katalogu — inaczej serwer wydałby i rekord, i klucz,
+         * czyli podpisałby sobie dowolny adres sam.
+         *
+         * Rekord bez podpisu albo z niepasującym podpisem nie jest błędem do
+         * pokazania: po prostu idziemy skrzynką, tak jak do odbiorcy bez adresu.
+         * Urządzenia sprzed tej zmiany podpisu nie mają i mają działać dalej —
+         * tracą tylko drogę bezpośrednią, do czasu ponownego zalogowania.
+         */
+        val podpis = urzadzenie.addrSignature ?: return null
+        if (urzadzenie.transportKeyRaw.isBlank()) return null
+
+        val zgadzaSie = runCatching {
+            client.verifyPeerAddress(
+                groupId,
+                "$recipient:${urzadzenie.deviceId}",
+                urzadzenie.transportKeyRaw,
+                urzadzenie.transportAddressesRaw,
+                podpis,
+            )
+        }.getOrDefault(false)
+
+        return if (zgadzaSie) urzadzenie else null
+    }
 
     /** Poświadczenia STUN/TURN dla rozmowy A/V — token trzyma `Messenger`. */
     suspend fun serweryIce(): List<Api.SerwerIce> = api.iceServers(token)

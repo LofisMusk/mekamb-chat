@@ -632,6 +632,78 @@ impl MekambClient {
         Ok(conversation.safety_number()?)
     }
 
+    /// Podpisuje rekord adresowy tego urządzenia.
+    ///
+    /// Katalog na serwerze wydaje klucz transportowy i adresy, a klient wysyła
+    /// pod nie kopertę wprost. Bez podpisu serwer podstawia własny adres
+    /// i przejmuje całą bezpośrednią drogę doręczania — a dostarczenie pod
+    /// podstawiony adres UDAJE SIĘ, więc skrzynka jako droga zapasowa nie
+    /// włącza się wcale i wiadomość znika bez błędu po obu stronach.
+    pub fn sign_address_record(
+        &self,
+        transport_key: String,
+        transport_addresses: String,
+    ) -> Vec<u8> {
+        let state = self.lock();
+        mekamb_core::podpisz_adres(&state.identity, &transport_key, &transport_addresses)
+    }
+
+    /// Sprawdza rekord adresowy uczestnika rozmowy.
+    ///
+    /// # Dlaczego klucz nie jest parametrem
+    ///
+    /// Bo jedyny klucz, który cokolwiek tu znaczy, pochodzi z **drzewa MLS** tej
+    /// rozmowy — tak samo jak przy safety number. Klucz z odpowiedzi katalogu
+    /// nie daje żadnej ochrony: serwer wydałby wtedy i rekord, i klucz do jego
+    /// sprawdzenia, czyli podpisałby sobie dowolny adres sam. Gdyby ta funkcja
+    /// przyjmowała klucz, pierwsze wywołanie podałoby ten z katalogu, bo leży
+    /// obok w tej samej odpowiedzi.
+    ///
+    /// `identity` jest w postaci `user_id:device_id` — tej, którą zwraca
+    /// `members`.
+    ///
+    /// Zwraca `false`, gdy urządzenia nie ma w rozmowie, podpis nie pasuje albo
+    /// którekolwiek pole zostało zmienione. Wołający ma wtedy zrobić jedno: nie
+    /// użyć tego adresu i pójść skrzynką.
+    pub fn verify_peer_address(
+        &self,
+        group_id: Vec<u8>,
+        identity: String,
+        transport_key: String,
+        transport_addresses: String,
+        signature: Vec<u8>,
+    ) -> Result<bool, MekambError> {
+        let state = self.lock();
+        let conversation =
+            state
+                .conversations
+                .get(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let Some(uczestnik) = conversation
+            .participants()
+            .into_iter()
+            .find(|u| u.identity == identity)
+        else {
+            return Ok(false);
+        };
+
+        let Some((user_id, device_id)) = identity.split_once(':') else {
+            return Ok(false);
+        };
+
+        Ok(mekamb_core::sprawdz_adres(
+            &uczestnik.signature_key,
+            user_id,
+            device_id,
+            &transport_key,
+            &transport_addresses,
+            &signature,
+        ))
+    }
+
     /// Odcisk tego urządzenia — do przepisania z ekranu na ekran przy linkowaniu.
     pub fn device_fingerprint(&self) -> Result<String, MekambError> {
         let state = self.lock();

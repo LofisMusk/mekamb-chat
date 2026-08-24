@@ -41,6 +41,23 @@ import okio.ByteString
 /** Co ile wysyłamy podtrzymanie. Serwer odpowiada `pong`. */
 private const val PING_MS = 30_000L
 
+/**
+ * Ile podtrzymań bez odpowiedzi znaczy „gniazdo jest martwe".
+ *
+ * # Dlaczego to musi istnieć
+ *
+ * Bo `send` na gnieździe, którego druga strona już nie istnieje, **kończy się
+ * powodzeniem** — ramka trafia do kolejki OkHttpa i tyle. Połączenie zerwane
+ * w połowie (uśpiony NAT, przejście z Wi-Fi na sieć komórkową) nie wywoła więc
+ * ani `onFailure`, ani `onClosed`, a wznawianie wisi właśnie na nich. Telefon
+ * przestawał odbierać do końca życia procesu i nic tego nie naprawiało.
+ *
+ * Dwa, a nie jedno: pojedyncza zgubiona odpowiedź zdarza się na słabej sieci,
+ * a zrywanie połączenia za każdym razem byłoby gorsze niż czekanie. Ta sama
+ * granica co w webie (`web/src/lib/polaczenie.ts`).
+ */
+private const val PINGI_BEZ_ODPOWIEDZI = 2
+
 /** Od tylu milisekund zaczyna się odczekiwanie przed ponowieniem. */
 private const val PONOWIENIE_MIN_MS = 1_000L
 
@@ -204,6 +221,10 @@ class PolaczenieZeSkrzynka(
     private var ponowienie: ScheduledFuture<*>? = null
     private var odstep = PONOWIENIE_MIN_MS
 
+    /** Ile podtrzymań poszło bez odpowiedzi. Zeruje je cokolwiek z serwera. */
+    @Volatile
+    private var bezOdpowiedzi = 0
+
     @Volatile
     private var zamkniete = false
 
@@ -263,11 +284,23 @@ class PolaczenieZeSkrzynka(
             // serwer odrzuca połączenia od razu — czyli gdy odczekanie jest
             // najbardziej potrzebne.
             odstep = PONOWIENIE_MIN_MS
+            bezOdpowiedzi = 0
             naStan(StanPolaczenia.POLACZONE)
 
             zatrzymajPing()
             ping = zegar.scheduleAtFixedRate(
-                { runCatching { webSocket.send("ping") } },
+                {
+                    if (bezOdpowiedzi >= PINGI_BEZ_ODPOWIEDZI) {
+                        // Milczenie po kilku podtrzymaniach znaczy, że gniazdo
+                        // jest martwe, choć nikt nas o tym nie powiadomił.
+                        // Zamykamy je sami — dopiero `onClosed` wznawia.
+                        zatrzymajPing()
+                        runCatching { webSocket.close(1000, null) }
+                    } else {
+                        bezOdpowiedzi += 1
+                        runCatching { webSocket.send("ping") }
+                    }
+                },
                 PING_MS,
                 PING_MS,
                 TimeUnit.MILLISECONDS,
@@ -275,9 +308,13 @@ class PolaczenieZeSkrzynka(
         }
 
         /** Tekst z serwera to wyłącznie `pong` — koperty idą binarnie. */
-        override fun onMessage(webSocket: WebSocket, text: String) = Unit
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            // Cokolwiek przyszło, przyszło od żywej drugiej strony.
+            bezOdpowiedzi = 0
+        }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+            bezOdpowiedzi = 0
             naRamke(bytes.toByteArray()) { id ->
                 // Potwierdzamy przez gniazdo, KTÓRE ramkę przyniosło. Wspólna
                 // referencja trafiałaby po ponowieniu na gniazdo już zamknięte,

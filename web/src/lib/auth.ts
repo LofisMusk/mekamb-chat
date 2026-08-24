@@ -233,12 +233,28 @@ export async function refreshSession(deviceId: string): Promise<AccessToken | nu
   }
 }
 
-/** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */
+/**
+ * Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu.
+ *
+ * Token odświeżający dołączamy z dysku, gdy go tam mamy. Serwer kasuje wiersz
+ * dopiero po dopasowaniu tokenu (`server/src/auth.ts`), bo sam `deviceId` nie
+ * jest sekretem — katalog wydaje go każdemu. W przeglądarce z działającym
+ * ciasteczkiem dowód idzie ciasteczkiem i `zapamietany` jest pusty; przy
+ * zablokowanych ciasteczkach trzeciej strony token leży u nas i to on jest
+ * jedynym dowodem, jaki mamy.
+ */
 export async function logout(deviceId: string): Promise<void> {
+  const zapamietany = await loadRefreshToken();
+
   // Kasujemy lokalnie niezależnie od tego, jak poszło serwerowi: token, który
   // został na urządzeniu po wylogowaniu, wpuszcza z powrotem przy starcie.
   try {
-    await api.post("/auth/logout", { deviceId }, undefined, { credentials: "include" });
+    await api.post(
+      "/auth/logout",
+      { deviceId, refreshToken: zapamietany ?? undefined },
+      undefined,
+      { credentials: "include" },
+    );
   } finally {
     await clearRefreshToken();
   }

@@ -174,6 +174,7 @@ class Api(private val baseUrl: String) {
         mlsPublicKey: ByteArray,
         transportKey: ByteArray,
         transportAddresses: List<String>,
+        addrSignature: ByteArray,
     ) {
         postJson(
             "/devices",
@@ -184,6 +185,9 @@ class Api(private val baseUrl: String) {
                 // przeglądarki, której nie da się bezpośrednio osiągnąć.
                 put("transportKey", base64(transportKey))
                 put("transportAddresses", transportAddresses.joinToString(","))
+                // Podpis rekordu adresowego. Bez niego katalog jest słowem
+                // serwera, a podstawiony adres przejmuje drogę bezpośrednią.
+                put("addrSignature", base64(addrSignature))
                 put("displayName", "Android")
             },
             token,
@@ -203,10 +207,41 @@ class Api(private val baseUrl: String) {
 
     data class Device(
         val deviceId: String,
-        /** Klucz publiczny transportu. `null` = odbiorca tylko przez skrzynkę. */
-        val transportKey: ByteArray?,
-        val transportAddresses: List<String>,
-    )
+        /**
+         * Klucz publiczny transportu, dokładnie tak jak przyszedł z katalogu.
+         *
+         * Pusty ciąg = odbiorca osiągalny tylko przez skrzynkę. Trzymamy postać
+         * surową z tego samego powodu co przy adresach: podpis obejmuje ten
+         * ciąg znak w znak, a rozkodowanie i zakodowanie z powrotem to okazja
+         * do rozjazdu, który unieważniłby poprawny rekord.
+         */
+        val transportKeyRaw: String,
+        /**
+         * Adresy dokładnie tak, jak przyszły z katalogu — nierozbite.
+         *
+         * Podpis obejmuje ten ciąg znak w znak, więc rozbicie go i sklejenie
+         * z powrotem potrafiłoby zmienić bajty (pusty człon, inna kolejność)
+         * i unieważnić poprawny rekord. Do użycia jest [transportAddresses],
+         * do sprawdzenia podpisu — to pole.
+         */
+        val transportAddressesRaw: String,
+        /**
+         * Podpis rekordu adresowego kluczem MLS urządzenia.
+         *
+         * `null` znaczy „urządzenie sprzed wprowadzenia podpisów". Wołający ma
+         * wtedy pominąć drogę bezpośrednią, a nie zaufać rekordowi — patrz
+         * `Messenger.drogaBezposrednia`.
+         */
+        val addrSignature: ByteArray?,
+    ) {
+        /** Adresy rozbite na listę — do podania transportowi. */
+        val transportAddresses: List<String>
+            get() = transportAddressesRaw.split(",").filter { it.isNotBlank() }
+
+        /** Klucz transportu w bajtach; `null`, gdy urządzenie go nie ma. */
+        val transportKey: ByteArray?
+            get() = transportKeyRaw.takeIf { it.isNotBlank() }?.fromBase64()
+    }
 
     /**
      * Wyszukuje urządzenia użytkownika.
@@ -220,12 +255,10 @@ class Api(private val baseUrl: String) {
             val obiekt = wpis as JsonObject
             Device(
                 deviceId = obiekt["deviceId"]!!.jsonPrimitive.content,
-                transportKey = obiekt["transportKey"]?.jsonPrimitive?.contentOrNull()?.fromBase64(),
-                transportAddresses = obiekt["transportAddresses"]
-                    ?.jsonPrimitive?.contentOrNull()
-                    ?.split(",")
-                    ?.filter { it.isNotBlank() }
-                    .orEmpty(),
+                transportKeyRaw = obiekt["transportKey"]?.jsonPrimitive?.contentOrNull().orEmpty(),
+                transportAddressesRaw =
+                    obiekt["transportAddresses"]?.jsonPrimitive?.contentOrNull().orEmpty(),
+                addrSignature = obiekt["addrSignature"]?.jsonPrimitive?.contentOrNull()?.fromBase64(),
             )
         }
     }

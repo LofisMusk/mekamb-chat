@@ -443,13 +443,37 @@ auth.post("/refresh", async (c) => {
   );
 });
 
-/** Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu. */
+/**
+ * Kasuje trwałą sesję — wywoływane przy jawnym wylogowaniu.
+ *
+ * # Dlaczego sam `deviceId` nie wystarcza
+ *
+ * Bo nie jest sekretem. `GET /directory/:username` wydaje identyfikatory
+ * urządzeń każdemu, bez uwierzytelnienia — a ta trasa kasowała po nich wiersz
+ * z `refresh_tokens` nie sprawdzając niczego więcej. Ktokolwiek mógł więc
+ * wylogować dowolną osobę: przy następnym starcie aplikacji zamiast cichego
+ * odświeżenia sesji dostawała pełne OPAQUE + TOTP. Android nawet **wysyłał**
+ * token odświeżający, tylko serwer go nie czytał.
+ *
+ * Kasujemy więc dopiero po dopasowaniu `token_hash` — tak samo, jak wpuszcza
+ * `/auth/refresh`. Wylogowanie jest przez to możliwe wyłącznie dla tego, kto
+ * ten token ma, czyli dla właściciela sesji.
+ *
+ * Odpowiedź jest zawsze `ok`: wylogowanie ma kończyć się wylogowaniem także
+ * wtedy, gdy sesji już nie było, a rozróżnienie mówiłoby pytającemu, które
+ * pary `deviceId` + token istnieją. Ciasteczko czyścimy bezwarunkowo, bo to
+ * dotyczy wyłącznie przeglądarki, która o to prosi.
+ */
 auth.post("/logout", async (c) => {
-  const body = await c.req.json<{ deviceId?: string }>().catch(() => ({ deviceId: undefined }));
+  const body = await c.req
+    .json<{ deviceId?: string; refreshToken?: string }>()
+    .catch(() => ({ deviceId: undefined, refreshToken: undefined }));
 
-  if (body.deviceId) {
-    await c.env.DB.prepare("DELETE FROM refresh_tokens WHERE device_id = ?")
-      .bind(body.deviceId)
+  const raw = getCookie(c, REFRESH_COOKIE_NAME) ?? body.refreshToken;
+
+  if (body.deviceId && raw) {
+    await c.env.DB.prepare("DELETE FROM refresh_tokens WHERE device_id = ? AND token_hash = ?")
+      .bind(body.deviceId, await hashRefreshToken(raw))
       .run();
   }
 

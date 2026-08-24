@@ -268,3 +268,72 @@ describe("połączenie ze skrzynką", () => {
     expect(ramki).toHaveLength(1);
   });
 });
+
+/**
+ * Gniazdo zerwane w połowie.
+ *
+ * # Sedno
+ *
+ * `send` na gnieździe, którego druga strona już nie istnieje, KOŃCZY SIĘ
+ * POWODZENIEM — bajty trafiają do bufora. Przeglądarka nie zgłasza wtedy ani
+ * `close`, ani `error`, a ponowienie wisi właśnie na tych zdarzeniach. Bez
+ * liczenia nieodebranych odpowiedzi połączenie zostawało martwe do końca
+ * życia karty, czyli dokładnie „wiadomości przychodzą dopiero po
+ * przeładowaniu".
+ */
+describe("martwe gniazdo", () => {
+  it("zamyka się samo po kilku podtrzymaniach bez odpowiedzi", () => {
+    const { zegar, gniazda } = zestaw();
+    gniazda[0]!.polacz();
+
+    // Serwer milczy: żaden `pong` nie wraca.
+    zegar.tyknijPing();
+    zegar.tyknijPing();
+    expect(gniazda[0]!.zamkniete).toBe(false);
+
+    // Trzecie tyknięcie zastaje dwa podtrzymania bez odpowiedzi.
+    zegar.tyknijPing();
+    expect(gniazda[0]!.zamkniete).toBe(true);
+  });
+
+  it("odpowiedź zeruje licznik, więc żywe połączenie trwa", () => {
+    const { zegar, gniazda } = zestaw();
+    gniazda[0]!.polacz();
+
+    for (let i = 0; i < 10; i += 1) {
+      zegar.tyknijPing();
+      gniazda[0]!.przyslij("pong");
+    }
+
+    expect(gniazda[0]!.zamkniete).toBe(false);
+  });
+
+  it("koperta też liczy się jako znak życia", () => {
+    const { zegar, gniazda } = zestaw();
+    gniazda[0]!.polacz();
+
+    zegar.tyknijPing();
+    zegar.tyknijPing();
+    gniazda[0]!.przyslij(new ArrayBuffer(16));
+    zegar.tyknijPing();
+
+    expect(gniazda[0]!.zamkniete).toBe(false);
+  });
+
+  it("po ponownym połączeniu licznik zaczyna od zera", () => {
+    const { zegar, gniazda } = zestaw();
+    gniazda[0]!.polacz();
+
+    zegar.tyknijPing();
+    zegar.tyknijPing();
+    gniazda[0]!.zerwij();
+
+    zegar.tyknijPonowienia();
+    gniazda[1]!.polacz();
+
+    // Gdyby licznik przeżył ponowienie, pierwsze tyknięcie zabiłoby świeże
+    // gniazdo, a klient wpadłby w pętlę łączenia i zrywania.
+    zegar.tyknijPing();
+    expect(gniazda[1]!.zamkniete).toBe(false);
+  });
+});

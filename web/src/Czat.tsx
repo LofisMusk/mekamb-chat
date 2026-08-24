@@ -103,6 +103,15 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
   const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
   const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
+
+  /**
+   * Czy rozmowy z dysku są już otwarte w rdzeniu.
+   *
+   * Brama dla połączenia ze skrzynką: koperta, która przyjdzie przed
+   * otwarciem rozmów, nie pasuje do niczego i zostaje potwierdzona jako
+   * pusta — czyli przepada. Szczegóły przy efekcie łączenia.
+   */
+  const [rozmowyOtwarte, setRozmowyOtwarte] = useState(false);
   const [galaz, setGalaz] = useState<Galaz>("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
   const [szukane, setSzukane] = useState("");
@@ -511,10 +520,24 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const odczytRef = useRef(odczyt);
   odczytRef.current = odczyt;
 
-  // Połączenie zależy WYŁĄCZNIE od konta. Wcześniej wisiało na `groupId`
-  // i na niememoizowanej funkcji błędu, więc każde przerysowanie zrywało je
-  // i otwierało nowe.
+  /*
+   * Połączenie zależy WYŁĄCZNIE od konta — wcześniej wisiało na `groupId`
+   * i na niememoizowanej funkcji błędu, więc każde przerysowanie zrywało je
+   * i otwierało nowe.
+   *
+   * # Dlaczego czeka na `rozmowyOtwarte`
+   *
+   * Bo serwer wysyła zaległości natychmiast po podłączeniu, a rozmowy wczytują
+   * się z IndexedDB osobno. React wykonuje efekty w kolejności deklaracji, więc
+   * gniazdo ruszało PIERWSZE — a koperta, która dotarła w tym oknie, nie
+   * pasowała do żadnej otwartej rozmowy. `matchEnvelope` zwracał wtedy `null`,
+   * `handleEnvelope` też, a to jest ścieżka SUKCESU: koperta była potwierdzana
+   * i znikała bezpowrotnie. Android robi to w dobrej kolejności od początku
+   * (`ChatViewModel.otworzZnaneRozmowy` przed `Rdzen.podepnij`).
+   */
   useEffect(() => {
+    if (!rozmowyOtwarte) return;
+
     const polaczenie = polaczZeSkrzynka({
       otworz: () => api.connectInbox(messenger.account.userId, messenger.accessToken),
       naRamke: (ramka, potwierdz) => void obsluzKoperte(ramka, potwierdz),
@@ -522,7 +545,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     });
 
     return () => polaczenie.zamknij();
-  }, [messenger, obsluzKoperte]);
+  }, [messenger, obsluzKoperte, rozmowyOtwarte]);
 
   /*
    * Oznaczanie przeczytanego.
@@ -573,12 +596,24 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * pustą listę OTWARTYCH rozmów. Bez `otworzZnaneRozmowy` po odświeżeniu karty
    * nie dałoby się ani nic wysłać, ani odebrać — koperty przestałyby pasować do
    * czegokolwiek.
+   *
+   * Musi się to zdarzyć ZANIM powstanie połączenie ze skrzynką, dlatego stąd
+   * wychodzi `rozmowyOtwarte` — patrz efekt łączenia niżej.
    */
   useEffect(() => {
+    let aktualne = true;
+
     void listaRozmow().then((pozycje) => {
+      if (!aktualne) return;
       messenger.otworzZnaneRozmowy(pozycje.map((p) => p.groupId));
       setRozmowy(pozycje);
+      setRozmowyOtwarte(true);
     });
+
+    return () => {
+      aktualne = false;
+      setRozmowyOtwarte(false);
+    };
   }, [messenger]);
 
   /*

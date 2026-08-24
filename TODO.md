@@ -1,5 +1,84 @@
 # TODO
 
+## Znalezione usterki — naprawione
+
+Przegląd kodu z 2026-08-23. Wszystkie testy przechodziły wtedy i przechodzą
+teraz, więc żadnej z tych usterek nie znalazł test — dlatego każda ma dziś
+swój. Cztery pierwsze były przed naprawą potwierdzone doświadczalnie na
+`workerd`, nie tylko odczytane z kodu.
+
+Szczegóły „dlaczego" siedzą przy kodzie, nie tutaj: to jest lista, a nie
+dokumentacja.
+
+- [x] **Kursor skrzynki gubił pominiętą kopertę.** `server/src/inbox.ts`
+      trzymał jedną liczbę na urządzenie i podnosił ją do `MAX`, a klient
+      potwierdza koperty **nie po kolei**. Potwierdzenie koperty 2
+      przeskakiwało kopertę 1 na zawsze i kasowało ją z kolejki, więc cała
+      polityka ponawiania z `koperty.ts` i `Skrzynka.kt` nie robiła nic.
+      Zgubiony tamtędy commit albo Welcome to znana awaria, w której nic się
+      nie odszyfrowuje i nikt nie widzi błędu.
+      → zbiór odczytów na urządzenie (`device_reads`), migracja starych
+        kursorów w konstruktorze, koperta znika po przeczytaniu przez
+        wszystkie żywe urządzenia.
+
+- [x] **Zalogowane konto nadpisywało cudzy wpis urządzenia.**
+      `ON CONFLICT(id) DO UPDATE` bez warunku na właściciela, a identyfikatory
+      urządzeń wydaje katalog każdemu. Napastnik podmieniał ofierze adres
+      transportowy — a dostarczenie pod podstawiony adres **udaje się**, więc
+      skrzynka jako droga zapasowa nie włączała się wcale.
+      → `WHERE devices.user_id = excluded.user_id`, trasa odmawia `403`.
+
+- [x] **Podpis rekordu adresowego nie był ani składany, ani sprawdzany.**
+      Kolumna `addr_signature` i dwa komentarze mówiące, że „klient musi
+      zweryfikować podpis" — i zero kodu po obu stronach.
+      → `core/src/adres.rs` (12 testów), wystawione przez oba bindingi.
+        Sprawdzać wolno **wyłącznie kluczem z drzewa MLS**, dlatego
+        `verifyPeerAddress` nie przyjmuje klucza jako parametru: klucz
+        z odpowiedzi katalogu leży obok podpisu i nie dowodzi niczego.
+        Android podpisuje przy rejestracji i sprawdza przed każdą próbą
+        doręczenia wprost; web podpisuje pusty rekord, bo adresu nie ma.
+
+- [x] **`POST /auth/logout` kasował trwałą sesję po samym `deviceId`.**
+      Identyfikator nie jest sekretem, więc dało się celowo wylogować dowolną
+      osobę. → wymaga tokenu odświeżającego (ciasteczko albo ciało żądania).
+
+- [x] **`POST /internal/rate-limit/:key` był publiczny i martwy.** Klucze
+      kubełków są przewidywalne, więc sześć żądań blokowało komuś logowanie.
+      Nikt tej trasy nie wołał. → usunięta.
+
+- [x] **Włączenie tokenów doręczeniowych zerwałoby zmiany składu grupy.**
+      Rozsyłka commitu (oba klienty) i welcome (web) szły do skrzynki bez
+      tokenu. → jedno miejsce, z którego zostawiamy kopertę, w obu klientach.
+
+- [x] **Web otwierał gniazdo skrzynki przed otwarciem rozmów z dysku.**
+      Koperta z tego okna nie pasowała do niczego, a brak dopasowania jest
+      ścieżką **sukcesu**: była potwierdzana i przepadała. → połączenie czeka
+      na `otworzZnaneRozmowy`, tak jak od początku robi to Android.
+
+- [x] **Identyfikator urządzenia z zapytania przeżywał**, gdy token go nie
+      niósł. → parametr kasowany bezwarunkowo przed ustawieniem z tokenu.
+
+- [x] **Potwierdzenia w grupie szły na Androidzie do jednego uczestnika.**
+      → `sendReceipt` rozsyła do całej rozmowy, jak web.
+
+- [x] **Podtrzymanie nie wykrywało martwego gniazda.** `send` na gnieździe
+      zerwanym w połowie kończy się powodzeniem, więc nie padało ani
+      `onclose`, ani `onFailure`, a wznawianie wisi właśnie na nich.
+      → dwa podtrzymania bez odpowiedzi i zamykamy gniazdo sami (oba klienty).
+
+- [x] **Service worker przypinał pliki bez hasza w nazwie.** → „najpierw
+      dysk" wyłącznie dla plików z haszem, reszta z sieci.
+
+### Czego nie dało się tu sprawdzić
+
+Kontener nie ma Android SDK, więc **kod Kotlin nie został skompilowany ani
+przetestowany** — tylko przejrzany. Dotyczy to podpisywania i weryfikacji
+rekordu adresowego, rozsyłki potwierdzeń, tokenu przy commicie i wykrywania
+martwego gniazda. Rust, serwer i web są sprawdzone testami.
+
+Do zrobienia przy pierwszym budowaniu APK: `./gradlew assembleDebug`
+i przejście ścieżki „telefon ↔ przeglądarka" na żywo.
+
 ## Zrobione na gałęzi `todo-fixes`
 
 UI:
@@ -115,6 +194,3 @@ curl -s -o /dev/null -w '%{http_code}\n' https://mekamb.grubyogon10.workers.dev/
   pokrywa ten sam przypadek kosztem baterii i bez oddawania metadanych Google.
 - Skanowanie kodów QR aparatem w aplikacji na Androidzie — kod zeskanowany
   aparatem systemowym przychodzi intencją `mekamb://`.
-- Potwierdzenia w rozmowie grupowej idą tylko do pierwszego uczestnika
-  (`sendReceipt(..., odbiorca)` w `ChatViewModel`). W rozmowie dwuosobowej
-  to bez znaczenia, w grupowej ptaszek zobaczy jedna osoba.

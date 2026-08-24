@@ -636,6 +636,71 @@ impl MekambClient {
         self.conversation(group_id)?.safety_number().map_err(to_js)
     }
 
+    /// Podpisuje rekord adresowy tego urządzenia.
+    ///
+    /// Katalog na serwerze wydaje klucz transportowy i adresy, a klient wysyła
+    /// pod nie kopertę wprost. Bez podpisu serwer podstawia własny adres
+    /// i przejmuje całą bezpośrednią drogę doręczania — a dostarczenie pod
+    /// podstawiony adres UDAJE SIĘ, więc skrzynka jako droga zapasowa nie
+    /// włącza się wcale i wiadomość znika bez błędu po obu stronach.
+    ///
+    /// Urządzenie bez własnego adresu (przeglądarka) podpisuje pusty rekord —
+    /// to poprawny rekord, a nie brak danych.
+    #[wasm_bindgen(js_name = signAddressRecord)]
+    pub fn sign_address_record(&self, transport_key: &str, transport_addresses: &str) -> Vec<u8> {
+        mekamb_core::podpisz_adres(&self.identity, transport_key, transport_addresses)
+    }
+
+    /// Sprawdza rekord adresowy uczestnika rozmowy.
+    ///
+    /// # Dlaczego klucz nie jest parametrem
+    ///
+    /// Bo jedyny klucz, który cokolwiek tu znaczy, pochodzi z **drzewa MLS** tej
+    /// rozmowy — tak samo jak przy safety number. Klucz z odpowiedzi katalogu
+    /// nie daje żadnej ochrony: serwer wydałby wtedy i rekord, i klucz do jego
+    /// sprawdzenia, czyli podpisałby sobie dowolny adres sam. Gdyby ta funkcja
+    /// przyjmowała klucz, pierwsze wywołanie podałoby ten z katalogu, bo leży
+    /// obok w tej samej odpowiedzi.
+    ///
+    /// `identity` jest w postaci `user_id:device_id` — dokładnie tej, którą
+    /// zwraca `members`.
+    ///
+    /// Zwraca `false`, gdy urządzenia nie ma w rozmowie, podpis nie pasuje albo
+    /// którekolwiek pole zostało zmienione. Wołający ma wtedy zrobić jedno: nie
+    /// użyć tego adresu i pójść skrzynką.
+    #[wasm_bindgen(js_name = verifyPeerAddress)]
+    pub fn verify_peer_address(
+        &self,
+        group_id: &[u8],
+        identity: &str,
+        transport_key: &str,
+        transport_addresses: &str,
+        signature: &[u8],
+    ) -> Result<bool, JsError> {
+        let conversation = self.conversation(group_id)?;
+
+        let Some(uczestnik) = conversation
+            .participants()
+            .into_iter()
+            .find(|u| u.identity == identity)
+        else {
+            return Ok(false);
+        };
+
+        let Some((user_id, device_id)) = identity.split_once(':') else {
+            return Ok(false);
+        };
+
+        Ok(mekamb_core::sprawdz_adres(
+            &uczestnik.signature_key,
+            user_id,
+            device_id,
+            transport_key,
+            transport_addresses,
+            signature,
+        ))
+    }
+
     /// Odcisk tego urządzenia — do przepisania z ekranu na ekran przy linkowaniu.
     #[wasm_bindgen(js_name = deviceFingerprint)]
     pub fn device_fingerprint(&self) -> Result<String, JsError> {

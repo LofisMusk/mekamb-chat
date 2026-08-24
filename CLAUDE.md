@@ -368,6 +368,21 @@ freshly logged-in browser listened on the UUID while invitations went to the
 username. The welcome was never delivered, the invitee never joined the group,
 **no message ever decrypted** — and the sender saw no error at all.
 
+**A transport address is worth nothing until its signature checks out, and
+the key must come from the MLS tree.** The directory hands out each device's
+transport key and addresses, and a client that trusts them sends envelopes
+straight there. Content stays sealed, but delivery to a substituted address
+*succeeds*, so the mailbox fallback never fires: the message vanishes with no
+error on either side and the substituter learns who talks to whom. The record
+is therefore signed with the device's MLS signature key (`core/src/adres.rs`,
+length-prefixed fields under a distinct label) and verified through
+`verifyPeerAddress`, which deliberately takes **no key argument** — it reads the
+signature key from the conversation's MLS tree, the same anchor as the safety
+number. Verifying with the `mlsPublicKey` that arrived beside the signature
+proves nothing: the server would have issued both. This was a column and two
+comments for a long time before it was any code; an unsigned record now means
+"mailbox only", never "trust it".
+
 **The history format version must be bumped on both clients in the same change.**
 `web/src/lib/historia.ts` and `android/.../Historia.kt` must agree on shape *and*
 number. This has already broken once: Android gained a field while keeping
@@ -380,6 +395,16 @@ mailbox retains until ack, so acking earlier loses messages. A frame that fails
 processing is retried a bounded number of times and then acked as dead —
 otherwise it redelivers forever (`web/src/lib/koperty.ts`,
 `android/.../Skrzynka.kt`).
+
+**An ack is a fact about one envelope, not a high-water mark.** Clients ack out
+of order on purpose: an envelope that fails to process is left for a retry while
+a later one that succeeded is acked immediately (`web/src/lib/koperty.ts`,
+`android/.../Skrzynka.kt`). A single `ostatni_id` cursor raised to `MAX`
+therefore skipped the held-back envelope forever — `flushTo` only sent
+`id > cursor` — and deleted it, so the whole retry policy did nothing and a
+commit or welcome lost that way reproduced the silent "nothing decrypts"
+failure. `device_reads` stores the set of envelope ids each device has read;
+a gap stays a gap and comes back on the next connection.
 
 **An ack marks the envelope read for *one device*, never for the account.** One
 mailbox is shared by all of a user's devices (it is named by username). The

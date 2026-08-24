@@ -279,7 +279,41 @@ describe("trwała sesja bez cookie", () => {
     const deviceId = "w-tresci-6";
     const { refreshToken } = await zalogujSie(deviceId, true);
 
-    expect((await post("/auth/logout", { deviceId })).status).toBe(200);
+    // Token idzie w ciele, bo w tym trybie nie ma ciasteczka — i to on jest
+    // dowodem, że wylogowuje się właściciel sesji, a nie ktoś, kto zna sam
+    // `deviceId`.
+    expect((await post("/auth/logout", { deviceId, refreshToken })).status).toBe(200);
     expect((await post("/auth/refresh", { deviceId, refreshToken })).status).toBe(401);
+  });
+
+  /**
+   * Sedno: `deviceId` NIE jest sekretem.
+   *
+   * `GET /directory/:username` wydaje identyfikatory urządzeń każdemu bez
+   * uwierzytelnienia, a wylogowanie po samym identyfikatorze pozwalało zrzucić
+   * dowolnej osobie trwałą sesję — przy następnym starcie aplikacji zamiast
+   * cichego odświeżenia dostawała pełne OPAQUE + TOTP.
+   */
+  it("samo deviceId nie kasuje cudzej trwałej sesji", async () => {
+    const deviceId = "w-tresci-7";
+    const { refreshToken } = await zalogujSie(deviceId, true);
+
+    // Napastnik zna identyfikator, ale nie ma tokenu ani ciasteczka.
+    expect((await post("/auth/logout", { deviceId })).status).toBe(200);
+
+    // Sesja żyje: właściciel nadal się odświeża.
+    expect((await post("/auth/refresh", { deviceId, refreshToken })).status).toBe(200);
+  });
+
+  it("cudzy token odświeżający nie kasuje sesji", async () => {
+    const ofiara = "w-tresci-8";
+    const { refreshToken } = await zalogujSie(ofiara, true);
+    const obcy = await zalogujSie("w-tresci-9", true);
+
+    expect(
+      (await post("/auth/logout", { deviceId: ofiara, refreshToken: obcy.refreshToken })).status,
+    ).toBe(200);
+
+    expect((await post("/auth/refresh", { deviceId: ofiara, refreshToken })).status).toBe(200);
   });
 });

@@ -446,6 +446,42 @@ Its defining rule: **the accent is a line, never a fill.** Primary actions are
 outlined. A filled accent button immediately reads as belonging to a different
 system.
 
+**The conversation is the one deliberate exception, and only on web so far.**
+A message bubble is not an action — it is an utterance, and its author has to be
+readable at a glance across a screen full of identical rectangles. An outline
+cannot do that: two outlined bubbles differ only by which side they sit on, and
+the side disappears the moment a sentence is long enough to fill the width. So
+`--babel-wlasny` is a **fill** (`#0E7490`, the brand cyan two steps down —
+`#06B6D4` under white text is 2.4:1, unreadable; this is 5.4:1, and it is the
+same shade in both themes because an utterance should not change author with the
+time of day). The unread badge is filled for the same reason: it answers "did
+someone say something to me", not "here is a button".
+
+The price is a rule, not a licence: **because the bubble is a fill, nothing
+beside it may be.** Every button in the thread — call, video, participants, the
+sidebar branches — stays an outline. The one exception is the send arrow, and it
+is filled in exactly the colour of the bubble it is about to create.
+
+Bubble anatomy that follows from this (`web/src/styles.css`, `web/src/lib/watek.ts`):
+the radius is one value (`--promien-babel`, 18px) for every bubble; a run of
+messages from one side is held together by **spacing** (2px inside a run,
+`--odstep-3` between runs) and closed by a **tail on the last bubble only** —
+a tail on each one splits a series into three separate utterances. The clock left
+the bubble: it lives on a centred separator ("Dziś 08:42") that appears on a day
+change and after an hour of silence, with the exact time of a single message in
+its `title`. Delivery state left the bubble too, and became a **word** under the
+last own message — "dostarczono" and "przeczytano" are a difference you have to
+understand, not one you can recognise from two shades of the same tick.
+
+**Android still runs the older Nocturne bubbles** (outline, cut corner,
+per-bubble clock). The tokens are therefore out of sync on purpose: bringing
+`Nocturne.kt` across is a follow-up, not something that happened here.
+
+The design of record is a canvas under `design/kanwa/` — artboards as
+`*.dc.html` plus `canvas.json`. Change the design there too when you change the
+stylesheet, or the two drift and the canvas starts describing controls the app
+does not have.
+
 **Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`,
 `--babel-wlasny` — never `--neutral-600`. With two themes a ramp step has no
 stable meaning: "600" is lighter than the background in dark and must be darker

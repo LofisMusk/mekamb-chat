@@ -53,6 +53,21 @@ function godzina(czas: number): string {
 }
 
 /**
+ * Pełna data i godzina — do `title` dymka.
+ *
+ * Rozdzielacz mówi, kiedy zaczął się kawałek rozmowy; to mówi, kiedy padło
+ * TO zdanie. Nie zajmuje ani jednego piksela, dopóki ktoś nie zapyta.
+ */
+const PELNA_GODZINA = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+function pelnaGodzina(czas: number): string {
+  return PELNA_GODZINA.format(new Date(czas));
+}
+
+/**
  * Jak wiadomość brzmi na liście rozmów.
  *
  * Załącznik nie ma treści do zacytowania, a od kiedy własne zdjęcie jest
@@ -1280,17 +1295,23 @@ function Watek({
           <Ikona nazwa="wstecz" rozmiar={18} />
         </button>
 
-        <span className="awatar" aria-hidden="true">
-          {rozmowca.slice(0, 1)}
-        </span>
+        {/* Awatar i nazwa w jednym pudełku, bo na wąskim ekranie stają
+            w kolumnie na środku paska, a na szerokim obok siebie po lewej.
+            Rozstrzyga o tym arkusz stylów — tu jest tylko to, co niezmienne:
+            że to jedna rzecz, „z kim rozmawiam". */}
+        <span className="pasek-kto">
+          <span className="awatar" aria-hidden="true">
+            {rozmowca.slice(0, 1)}
+          </span>
 
-        <span className="pasek-tozsamosc">
-          <span className="pasek-nazwa">{rozmowca}</span>
-          {/* Droga dostarczania przy nazwie, nie w ustawieniach: „przez serwer"
-              to zdanie o tym, kto widzi metadane. */}
-          <span className={siec.uwaga ? "pasek-meta uwaga" : "pasek-meta"}>
-            <Ikona nazwa={siec.ikona} rozmiar={12} />
-            {siec.tekst}
+          <span className="pasek-tozsamosc">
+            <span className="pasek-nazwa">{rozmowca}</span>
+            {/* Droga dostarczania przy nazwie, nie w ustawieniach: „przez serwer"
+                to zdanie o tym, kto widzi metadane. */}
+            <span className={siec.uwaga ? "pasek-meta uwaga" : "pasek-meta"}>
+              <Ikona nazwa={siec.ikona} rozmiar={12} />
+              {siec.tekst}
+            </span>
           </span>
         </span>
 
@@ -1341,9 +1362,12 @@ function Watek({
         )}
 
         {uklad.map((pozycja) =>
-          pozycja.rodzaj === "dzien" ? (
-            <li key={pozycja.klucz} className="dzien">
-              {pozycja.etykieta}
+          pozycja.rodzaj === "rozdzielacz" ? (
+            /* Dzień wytłuszczony, godzina zwykła — jedno zdanie, nie dwie
+               etykiety. Godziny nie ma już w dymkach, więc to jedyne miejsce
+               w wątku, które odpowiada na pytanie „kiedy". */
+            <li key={pozycja.klucz} className="rozdzielacz">
+              <strong>{pozycja.etykieta}</strong> {godzina(pozycja.czas)}
             </li>
           ) : (
             pozycja.wiadomosc.rozmowa ? (
@@ -1358,6 +1382,8 @@ function Watek({
                 messenger={messenger}
                 wiadomosc={pozycja.wiadomosc}
                 ciag={pozycja.ciag}
+                ogon={pozycja.ogon}
+                ostatniaWlasna={pozycja.ostatniaWlasna}
                 stan={stanyWysylki.get(pozycja.wiadomosc.id)}
                 onBlad={onBlad}
               />
@@ -1381,6 +1407,13 @@ function Watek({
           onBlad={onBlad}
         />
 
+        {/*
+          Pole i strzałka są JEDNYM przedmiotem.
+          Przycisk stojący obok pola czyta się jak osobna kontrolka, którą
+          trzeba znaleźć; wsunięty w prawy koniec pola jest końcem tej samej
+          czynności — dopisujesz zdanie i wypychasz je tym samym gestem.
+        */}
+        <div className="pole-pisania">
         <textarea
           ref={pole}
           rows={1}
@@ -1407,6 +1440,7 @@ function Watek({
         <button className="wyslij" disabled={!tresc.trim()} title="Wyślij">
           <Ikona nazwa="wyslij" rozmiar={18} etykieta="Wyślij" />
         </button>
+        </div>
       </form>
 
       {/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */}
@@ -1471,16 +1505,20 @@ function Dymek({
   messenger,
   wiadomosc,
   ciag,
+  ogon,
+  ostatniaWlasna,
   stan,
   onBlad,
 }: {
   messenger: Messenger;
   wiadomosc: Wiadomosc;
   ciag: boolean;
+  ogon: boolean;
+  ostatniaWlasna: boolean;
   stan?: WLocie;
   onBlad: (e: unknown) => void;
 }) {
-  const klasy = ["", wiadomosc.wlasna ? "wlasna" : "", ciag ? "ciag" : ""];
+  const klasy = ["", wiadomosc.wlasna ? "wlasna" : "", ciag ? "ciag" : "", ogon ? "ogon" : ""];
   if (stan) klasy.push(stan.blad ? "nieudana" : "w-locie");
 
   /*
@@ -1497,8 +1535,22 @@ function Dymek({
 
   const opis = opisStanu(stanWysylki);
 
+  /*
+   * Stan wysyłki pod ostatnim własnym dymkiem, nie w każdym.
+   *
+   * Ptaszek przy każdej własnej wiadomości to kolumna powtórzonego „wysłano",
+   * a odpowiada on na pytanie zadawane o JEDNĄ wiadomość — tę ostatnią.
+   * Wyjątkiem są stany, z którymi trzeba coś zrobić: „wysyłam" i „nie wysłano"
+   * pokazujemy zawsze, bo milczenie przy nich znaczyłoby „doszło".
+   */
+  const zeStanem =
+    wiadomosc.wlasna && (ostatniaWlasna || stanWysylki === "w-locie" || stanWysylki === "nieudana");
+
   return (
-    <li className={klasy.join(" ").trim()}>
+    <>
+    {/* Godzina wyszła z dymka na rozdzielacz, ale nie przepadła — `title`
+        odpowiada na „a ta konkretna o której?" bez zajmowania wiersza. */}
+    <li className={klasy.join(" ").trim()} title={pelnaGodzina(wiadomosc.czas)}>
       {/* Autor tylko na początku bloku i tylko przy cudzych — przy własnych
           mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem. */}
       {!wiadomosc.wlasna && !ciag && <span className="autor">{wiadomosc.autor}</span>}
@@ -1514,13 +1566,24 @@ function Dymek({
         <Zalacznik messenger={messenger} zalacznik={wiadomosc.zalacznik} onBlad={onBlad} />
       )}
       {wiadomosc.tresc && <span className="tresc">{wiadomosc.tresc}</span>}
-
-      <span className={stanWysylki === "przeczytane" ? "stopka-dymka przeczytana" : "stopka-dymka"}>
-        {godzina(wiadomosc.czas)}
-        {wiadomosc.wlasna && <Ikona nazwa={opis.ikona} rozmiar={13} etykieta={opis.etykieta} />}
-      </span>
     </li>
+
+    {zeStanem && (
+      <li
+        className={
+          stanWysylki === "nieudana" ? "stan-wysylki nieudany" : "stan-wysylki"
+        }
+      >
+        {duzaLitera(opis.etykieta)}
+      </li>
+    )}
+    </>
   );
+}
+
+/** Pierwsza litera wielka — opisy stanów są zdaniem, nie etykietą w tabeli. */
+function duzaLitera(tekst: string): string {
+  return tekst.charAt(0).toUpperCase() + tekst.slice(1);
 }
 
 /**

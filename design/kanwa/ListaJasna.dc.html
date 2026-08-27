@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #0e7490; } a:hover { color: #155e75; }
+    /* Dwuwierszowy podgląd ostatniej wiadomości — jedna linia ucina zdanie
+       tam, gdzie akurat wypadnie, i lista przestaje o czymkolwiek mówić. */
+    .podglad { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  </style>
+</helmet>
+
+<div style="width: 390px; height: 844px; display: flex; flex-direction: column; background: #f9f7f8; color: #17191a; overflow: hidden">
+
+  <div style="flex: none; padding: 0 16px 8px; background: #f9f7f8">
+    <div style="display: flex; align-items: center; justify-content: space-between; height: 44px">
+      <button style="width: 36px; height: 36px; margin-right: -8px; border: 0; background: transparent; display: grid; place-items: center; padding: 0; cursor: pointer">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0e7490" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6 H20 V16 H10 L5.5 19.5 V16 H4 Z M12 8.5 V13.5 M9.5 11 H14.5"></path></svg>
+      </button>
+    </div>
+
+    <h1 style="margin: 0 0 10px; font-size: 32px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15">Rozmowy</h1>
+
+    <div style="display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 10px; border-radius: 10px; background: #eae6e8">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#787e82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L20 20"></path></svg>
+      <span style="font-size: 15px; color: #787e82">Szukaj</span>
+    </div>
+  </div>
+
+  <!-- Lista -->
+  <div style="flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column">
+
+    <!-- Nieprzeczytana: kropka przy lewej krawędzi, nazwa bez pogrubiania.
+         Wytłuszczony wiersz zmienia szerokość tekstu i lista „drga" przy
+         każdym odczytaniu — kropka mówi to samo, nie ruszając niczego. -->
+    <div style="display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px 9px 6px; background: #f9f7f8">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #e2f6fa; border: 1px solid rgba(8,145,178,.35); color: #0e7490; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">O</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(23,25,26,.13)">
+        <span style="display: flex; align-items: baseline; gap: 8px">
+          <span style="flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">ola</span>
+          <span style="flex: none; font-size: 13px; color: #787e82; font-variant-numeric: tabular-nums">08:42</span><span style="flex: none; min-width: 20px; padding: 0 5px; border-radius: 999px; background: #0891b2; color: #ffffff; font-size: 11px; font-weight: 600; line-height: 20px; text-align: center">2</span>
+        </span>
+        <span class="podglad" style="font-size: 15px; line-height: 1.3; color: #575d60">Zostawiłam. Kod do klatki 4417</span>
+      </span>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px 9px 6px">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #e2f6fa; border: 1px solid rgba(8,145,178,.35); color: #0e7490; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">Z</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(23,25,26,.13)">
+        <span style="display: flex; align-items: baseline; gap: 8px">
+          <span style="flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">zespół tras</span>
+          <span style="flex: none; font-size: 13px; color: #787e82; font-variant-numeric: tabular-nums">Wczoraj</span>
+        </span>
+        <span class="podglad" style="font-size: 15px; line-height: 1.3; color: #575d60">Marek: przesuwamy na czwartek, bo w środę zamykają most</span>
+      </span>
+    </div>
+
+    <!-- „Ty:" przed własną wiadomością — bez tego lista pokazuje zdanie
+         i nie mówi, kto je napisał, więc czyta się je jak cudze. -->
+    <div style="display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px 9px 6px">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #e2f6fa; border: 1px solid rgba(8,145,178,.35); color: #0e7490; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">K</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(23,25,26,.13)">
+        <span style="display: flex; align-items: baseline; gap: 8px">
+          <span style="flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">kuba</span>
+          <span style="flex: none; font-size: 13px; color: #787e82; font-variant-numeric: tabular-nums">Wczoraj</span>
+        </span>
+        <span class="podglad" style="font-size: 15px; line-height: 1.3; color: #575d60">Ty: Dzięki, mam</span>
+      </span>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px 9px 6px">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #e2f6fa; border: 1px solid rgba(8,145,178,.35); color: #0e7490; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">R</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(23,25,26,.13)">
+        <span style="display: flex; align-items: baseline; gap: 8px">
+          <span style="flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">rodzice</span>
+          <span style="flex: none; font-size: 13px; color: #787e82; font-variant-numeric: tabular-nums">pon.</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 5px; font-size: 15px; line-height: 1.3; color: #575d60">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#787e82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M3.5 5.5 H20.5 V18.5 H3.5 Z M3.5 15.5 L8.5 10.5 L13 15 M12.5 15.5 L15.5 12.5 L20.5 17 M15.8 8 A1.3 1.3 0 1 0 15.8 10.6 A1.3 1.3 0 1 0 15.8 8 Z"></path></svg>
+          Zdjęcie
+        </span>
+      </span>
+    </div>
+
+    <div style="display: flex; align-items: flex-start; gap: 11px; padding: 9px 12px 9px 6px">
+      <span style="flex: none; width: 48px; height: 48px; border-radius: 50%; background: #e2f6fa; border: 1px solid rgba(8,145,178,.35); color: #0e7490; display: grid; place-items: center; font-size: 18px; font-weight: 500; line-height: 1">J</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-bottom: 9px; border-bottom: 1px solid rgba(23,25,26,.13)">
+        <span style="display: flex; align-items: baseline; gap: 8px">
+          <span style="flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">j.nowak</span>
+          <span style="flex: none; font-size: 13px; color: #787e82; font-variant-numeric: tabular-nums">12.08</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 5px; font-size: 15px; line-height: 1.3; color: #575d60">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#787e82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M6 3.5 L9 4.5 L10 8.5 L8 10 C9 12.5 11.5 15 14 16 L15.5 14 L19.5 15 L20.5 18 C20.5 19.5 19 20.5 17.5 20.5 C10 20.5 3.5 14 3.5 6.5 C3.5 5 4.5 3.5 6 3.5 Z"></path></svg>
+          Rozmowa głosowa · 4:12
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <!-- Nawigacja stoi na dole i jest zwykłym elementem układu, nie `fixed` —
+       przy otwartej klawiaturze `fixed` odjeżdża razem z widokiem. -->
+  <nav style="flex: none; display: flex; background: #f1edef; border-top: 1px solid rgba(23,25,26,.13); padding: 6px 0 14px">
+    <span style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #0e7490">
+      <span style="position: relative; line-height: 0">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0e7490" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6 H20 V16 H10 L5.5 19.5 V16 H4 Z"></path></svg>
+        <span style="position: absolute; top: -3px; right: -7px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #0891b2; color: #ffffff; font-size: 10px; font-weight: 600; line-height: 16px; text-align: center">2</span>
+      </span>
+      Rozmowy
+    </span>
+    <span style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #787e82">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#787e82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4 H19 V20 H6 Z M6 8 H3.5 M6 12 H3.5 M6 16 H3.5 M12.5 11.5 A2 2 0 1 0 12.5 7.5 A2 2 0 1 0 12.5 11.5 Z M9 16.5 C9 14.5 10.5 13.5 12.5 13.5 C14.5 13.5 16 14.5 16 16.5"></path></svg>
+      Kontakty
+    </span>
+    <span style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: #787e82">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#787e82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 A9 9 0 1 0 12 21 A9 9 0 1 0 12 3 Z M12 12 A3 3 0 1 0 12 6 A3 3 0 1 0 12 12 Z M6.5 18.5 C7.5 15.5 9.5 14.5 12 14.5 C14.5 14.5 16.5 15.5 17.5 18.5"></path></svg>
+      Konto
+    </span>
+  </nav>
+</div>
+</x-dc>
+</body>
+</html>

@@ -81,11 +81,36 @@
   --akcent-tekst: #67e8f9;
   --akcent-tlo: #052b33;
 
-  /* Dymki rozmowy */
-  --babel: #0b0f12;
-  --babel-wlasny: #06323c;
-  --babel-wlasny-tekst: #e0f8fd;
-  --babel-wlasny-meta: #7fd8e9;
+  /*
+   * Dymki rozmowy — JEDYNE wypełnienie akcentem w całym systemie.
+   *
+   * Nocturne trzyma akcent jako linię i to zostaje w mocy dla akcji: przycisk
+   * dalej jest obrysowany. Dymek jest jednak czymś innym niż akcja — jest
+   * wypowiedzią, a jej autorstwo trzeba rozpoznać jednym spojrzeniem na ekran
+   * pełen takich samych prostokątów. Obrys tego nie robi: dwa obrysowane
+   * dymki różnią się tylko stroną, a strona ginie, gdy zdanie jest długie
+   * i oba zajmują całą szerokość.
+   *
+   * Płacimy za to jedną zasadą: skoro dymek jest plamą, żadna akcja obok niego
+   * plamą być nie może — inaczej dymek przestaje być wyróżniony.
+   *
+   * Markowy cyjan `#06B6D4` pod białym tekstem daje 2,4:1, czyli tekst
+   * nieczytelny. Zalany dymek bierze więc ten sam cyjan o dwa stopnie
+   * ciemniejszy — `#0E7490` daje 5,4:1 i jest taki sam w obu motywach:
+   * wypowiedź nie zmienia autora razem z porą dnia.
+   */
+  --babel: #1b1f22;
+  --babel-wlasny: #0e7490;
+  --babel-wlasny-tekst: #ffffff;
+
+  /* Chrom rozmowy: listwa pisania i pole tekstowe w niej. */
+  --pasek: #0e1214;
+  --pole: #16191c;
+
+  /* Znacznik nieprzeczytanych — wypełniony, bo liczy się do tej samej rodziny
+     co dymek: „tu ktoś coś powiedział", a nie „tu jest przycisk". */
+  --znacznik-tlo: #06b6d4;
+  --znacznik-tekst: #04252b;
 
   /* Stany wymagające reakcji */
   --alarm: #f2b8b5;
@@ -121,10 +146,13 @@
     --akcent: #0891b2;
     --akcent-tekst: #0e7490;
     --akcent-tlo: #e2f6fa;
-    --babel: #ffffff;
-    --babel-wlasny: #d8f2f8;
-    --babel-wlasny-tekst: #103f49;
-    --babel-wlasny-meta: #0e7490;
+    --babel: #eae6e8;
+    --babel-wlasny: #0e7490;
+    --babel-wlasny-tekst: #ffffff;
+    --pasek: #f1edef;
+    --pole: #ffffff;
+    --znacznik-tlo: #0e7490;
+    --znacznik-tekst: #ffffff;
     --alarm: #b3261e;
     --alarm-tekst: #601410;
     --alarm-tlo: #fdecea;
@@ -148,10 +176,13 @@
   --akcent: #0891b2;
   --akcent-tekst: #0e7490;
   --akcent-tlo: #e2f6fa;
-  --babel: #ffffff;
-  --babel-wlasny: #d8f2f8;
-  --babel-wlasny-tekst: #103f49;
-  --babel-wlasny-meta: #0e7490;
+  --babel: #eae6e8;
+  --babel-wlasny: #0e7490;
+  --babel-wlasny-tekst: #ffffff;
+  --pasek: #f1edef;
+  --pole: #ffffff;
+  --znacznik-tlo: #0e7490;
+  --znacznik-tekst: #ffffff;
   --alarm: #b3261e;
   --alarm-tekst: #601410;
   --alarm-tlo: #fdecea;
@@ -173,6 +204,16 @@
   --promien-s: 4px;
   --promien-m: 8px;
   --promien-l: 14px;
+
+  /*
+   * Dymek jest pigułką, nie kartą.
+   *
+   * 18 px to połowa wysokości dymka jednowierszowego, więc krótkie zdanie
+   * wychodzi kapsułką, a długie — prostokątem o miękkich rogach. Jeden
+   * promień załatwia oba przypadki; osobne wartości dla „krótkiego"
+   * i „długiego" wymagałyby mierzenia treści.
+   */
+  --promien-babel: 18px;
 
   /* Cele dotyku z projektu — powyżej minimum systemowego. */
   --dotyk: 3rem;
@@ -377,7 +418,7 @@ h3 { font-size: .9375rem; }
  * Ikona w linii tekstu — wyrównana do wysokości liter, nie do kratki wiersza.
  *
  * Tylko w `strong`, czyli tam, gdzie ikona naprawdę stoi w zdaniu. Wcześniej
- * reguła obejmowała też `.stopka-dymka` i `.naglowek-sekcji`, które są
+ * reguła obejmowała też stopkę dymka i `.naglowek-sekcji`, które są
  * kontenerami elastycznymi — a w takim `vertical-align` nie robi nic, za to
  * `display: inline-block` psuje wyśrodkowanie robione przez `align-items`.
  * Stąd ptaszki stanu siedzące o pół piksela za nisko względem godziny.
@@ -592,19 +633,26 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 /*
  * Znacznik nieprzeczytanych.
  *
- * Obrys akcentu, nie wypełnione kółko: w tym systemie akcent jest linią.
+ * Wypełniona pastylka, nie obrys — jedyny wyjątek obok dymka.
+ *
+ * Znacznik odpowiada na to samo pytanie, co dymek („czy ktoś coś do mnie
+ * powiedział"), a nie oferuje czynności, więc nie jest przyciskiem i nie musi
+ * wyglądać jak przycisk. Obrysowany ginął zresztą wśród obrysowanych akcji.
+ *
  * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
  * zaglądać teraz.
  */
 .znacznik {
   flex: none;
-  min-width: 1.4rem;
+  min-width: 1.25rem;
   padding: 0 .35rem;
-  border: 1px solid var(--akcent);
-  border-radius: var(--promien-s);
-  color: var(--akcent-tekst);
-  font-size: .75rem;
-  line-height: 1.3rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--znacznik-tlo);
+  color: var(--znacznik-tekst);
+  font-size: .6875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
@@ -853,7 +901,8 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   gap: var(--odstep-3);
   min-height: var(--dotyk-ikona);
 }
-.panel-listy-naglowek h2 { flex: 1; }
+/* Duży tytuł: lista rozmów jest ekranem samym w sobie, nie sekcją innego. */
+.panel-listy-naglowek h2 { flex: 1; font-size: 1.625rem; font-weight: 700; letter-spacing: -.02em; }
 
 /*
  * Inspektor: uczestnicy i kod bezpieczeństwa.
@@ -912,6 +961,9 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   padding-left: 2.3rem;
   min-height: var(--dotyk-ikona);
   font-size: .875rem;
+  border: none;
+  background: var(--pole);
+  border-radius: 10px;
 }
 
 .lista-rozmow {
@@ -923,17 +975,26 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   min-height: 0;
 }
 
+/*
+ * Wiersz zaczyna się od góry, nie od środka.
+ *
+ * Podgląd ma teraz dwa wiersze, więc wyśrodkowanie w pionie ustawiałoby
+ * awatar raz wyżej, raz niżej — zależnie od tego, czy ostatnia wiadomość
+ * była krótka. Awatar przy górnej krawędzi stoi w każdym wierszu tak samo
+ * i lista przestaje falować.
+ */
 .wiersz-rozmowy {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--odstep-4);
-  /* 64 px z projektu — powyżej minimum dotykowego. */
-  min-height: 4rem;
+  min-height: 4.25rem;
   border-color: transparent;
+  border-radius: var(--promien-l);
   text-align: left;
-  padding-inline: var(--odstep-3);
+  padding: var(--odstep-3);
 }
+.wiersz-rozmowy .awatar { width: 3rem; height: 3rem; font-size: 1.0625rem; }
 .wiersz-rozmowy:hover { background: var(--karta-hover); }
 .wiersz-rozmowy.otwarta {
   background: var(--karta);
@@ -943,27 +1004,39 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .wiersz-tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: .1rem; }
 .wiersz-gora { display: flex; align-items: baseline; gap: var(--odstep-3); }
 .wiersz-nazwa {
-  font-weight: 500;
-  font-size: .9375rem;
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: -.01em;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wiersz-czas { flex: none; font-size: .6875rem; color: var(--tekst-trzeci); }
+.wiersz-czas { flex: none; font-size: .75rem; color: var(--tekst-trzeci); }
 .wiersz-ostatnia {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--odstep-2);
-  font-size: .8125rem;
+  font-size: .875rem;
+  line-height: 1.3;
   color: var(--tekst-drugi);
 }
+.wiersz-ostatnia .ikona { margin-top: .15rem; }
+/*
+ * Dwa wiersze podglądu, nie jeden.
+ *
+ * Jeden ucinał zdanie tam, gdzie akurat wypadła krawędź — najczęściej po
+ * dwóch słowach, bo nazwa i godzina zabierają wiersz wyżej. Wiersz listy
+ * przestawał wtedy mówić cokolwiek o rozmowie i trzeba było ją otworzyć,
+ * żeby się dowiedzieć, czy warto ją otwierać.
+ */
 .wiersz-ostatnia .tekst {
   min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /*
@@ -1005,6 +1078,9 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 .wiersz-usun:hover { background: color-mix(in srgb, var(--alarm) 20%, var(--alarm-tlo)); }
 
+/* Znacznik stoi w linii nazwy, a nie na środku dwuwierszowego wiersza. */
+.wiersz-rozmowy > .znacznik { margin-top: .35rem; }
+
 .pusto {
   display: flex;
   flex-direction: column;
@@ -1043,9 +1119,12 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   border-bottom: 1px solid var(--linia);
 }
 
+.pasek-kto { display: flex; align-items: center; gap: var(--odstep-3); min-width: 0; flex: 1; }
+.pasek-kto .awatar { width: 2.25rem; height: 2.25rem; font-size: .8125rem; }
 .pasek-tozsamosc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .pasek-nazwa {
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1067,10 +1146,17 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .wiadomosci {
   list-style: none;
   margin: 0;
-  padding: var(--odstep-6) 0;
+  padding: var(--odstep-4) 0 var(--odstep-3);
   display: flex;
   flex-direction: column;
-  gap: var(--odstep-2);
+  /*
+   * 2 px, a nie odstęp z siatki.
+   *
+   * Wiadomości tej samej osoby mają stać CIASNO — to ich bliskość, a nie
+   * żadna etykieta, mówi „to dalej jedna wypowiedź". Oddech między blokami
+   * dokładają marginesy niżej, więc siatka nie musi tu pasować.
+   */
+  gap: 2px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1078,101 +1164,141 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 
 /*
- * Własne po prawej, cudze po lewej, róg przy własnej stronie ścięty — układ,
- * który czyta się bez etykiet.
+ * Własne po prawej i zalane akcentem, cudze po lewej i szare — układ, który
+ * czyta się bez etykiet, także wtedy, gdy oba dymki są na całą szerokość.
  */
 /*
- * `:not(.dzien)`, bo rozdzielacz dnia jest tym samym elementem listy.
- *
- * Bez tego dziedziczy tło, obrys i promienie dymka — i data wygląda jak
- * wiadomość wysłana przez nikogo.
- */
-/*
- * `:not(.dzien, .zdarzenie)` — JEDEN `:not` z listą, nie dwa po kolei.
+ * `:not(…)` z LISTĄ, nie kilka `:not` po kolei.
  *
  * To nie jest skrót zapisu, tylko warunek poprawności. Specyficzność `:not()`
  * to specyficzność jego NAJBARDZIEJ szczegółowego argumentu, więc wersja
- * z listą waży tyle samo co dawne `:not(.dzien)`. Dwa `:not` napisane obok
- * siebie sumują się i podnoszą tę regułę PONAD `.wiadomosci li.wlasna` —
- * a wtedy własne wiadomości dostają wyrównanie i tło cudzych, bo reguła ogólna
- * zaczyna wygrywać ze szczegółową.
+ * z listą waży tyle samo, ile jedna klasa — niezależnie od tego, ile pozycji
+ * lista ma. Kilka `:not` napisanych obok siebie SUMUJE się i podnosi tę regułę
+ * PONAD `.wiadomosci li.wlasna` — a wtedy własne wiadomości dostają wyrównanie
+ * i tło cudzych, bo reguła ogólna zaczyna wygrywać ze szczegółową.
  *
  * Dokładnie tak się to zepsuło przy dokładaniu śladu po rozmowie: dymki
  * ustawiły się po lewej i straciły swój kolor, mimo że reguła `.wlasna` była
- * nietknięta. Tak samo cicho przestały działać `.nieudana` i `.pusto-watku`.
+ * nietknięta. Pilnuje tego `lib/dymki.test.ts`.
+ *
+ * Na liście są wszystkie pozycje wątku, które dymkiem NIE są: rozdzielacz
+ * czasu, ślad po rozmowie A/V, wiersz stanu wysyłki i pusty stan. Każda z nich
+ * bez wyłączenia dziedziczy tło i promienie dymka — i wygląda jak wiadomość
+ * wysłana przez nikogo.
  */
-.wiadomosci li:not(.dzien, .zdarzenie) {
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) {
+  position: relative;
   background: var(--babel);
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-l) var(--promien-l) var(--promien-l) var(--promien-s);
-  padding: var(--odstep-3) var(--odstep-4);
-  max-width: min(78%, 34rem);
+  border: none;
+  border-radius: var(--promien-babel);
+  padding: .4rem .75rem;
+  max-width: min(76%, 32rem);
   align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: .1rem;
+  font-size: .9375rem;
+  line-height: 1.34;
 }
 .wiadomosci li.wlasna {
   background: var(--babel-wlasny);
-  border-color: transparent;
   color: var(--babel-wlasny-tekst);
-  border-radius: var(--promien-l) var(--promien-l) var(--promien-s) var(--promien-l);
   align-self: flex-end;
 }
 
 /*
- * Sąsiadujące wiadomości tej samej strony sklejają się w blok.
+ * Nowy blok odsuwa się od poprzedniego; ciąg zostaje przy swoim.
  *
- * Każdy dymek z pełnym promieniem po obu stronach daje listę osobnych kartek;
- * ścięcie rogu między nimi mówi „to dalej ta sama osoba" bez żadnej etykiety.
+ * Odstęp jest tu JEDYNYM znakiem podziału na wypowiedzi — promień mają
+ * wszystkie dymki taki sam. Dlatego różnica między 2 px a 10 px musi być
+ * wyraźna; przy 4 px blok przestaje się rysować.
  */
-.wiadomosci li.ciag:not(.wlasna) { border-top-left-radius: var(--promien-s); }
-.wiadomosci li.ciag.wlasna { border-top-right-radius: var(--promien-s); }
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku, .ciag) {
+  margin-top: var(--odstep-3);
+}
+
+/*
+ * Ogon — wyłącznie przy OSTATNIM dymku bloku.
+ *
+ * Ogon znaczy „ktoś to powiedział". Postawiony przy każdym dymku serii daje
+ * trzy ogony pod rzędem i seria rozpada się na trzy osobne wypowiedzi;
+ * postawiony przy ostatnim domyka blok jak kropka domyka zdanie.
+ *
+ * Rysują go dwa prostokąty: `::before` w kolorze dymka wystaje poza jego
+ * krawędź, a `::after` w kolorze TŁA wycina z niego łuk. Stąd twarde
+ * `var(--tlo)` — gdyby wątek dostał kiedyś własne tło inne niż tło strony,
+ * wycięcie przestanie pasować i trzeba je podmienić razem z nim.
+ */
+.wiadomosci li.ogon::before,
+.wiadomosci li.ogon::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 17px;
+  pointer-events: none;
+}
+.wiadomosci li.ogon::before { width: 20px; }
+.wiadomosci li.ogon::after { width: 11px; background: var(--tlo); }
+
+.wiadomosci li.ogon:not(.wlasna)::before {
+  left: -7px;
+  background: var(--babel);
+  border-bottom-right-radius: 16px 14px;
+}
+.wiadomosci li.ogon:not(.wlasna)::after { left: -11px; border-bottom-right-radius: 12px; }
+
+.wiadomosci li.ogon.wlasna::before {
+  right: -7px;
+  background: var(--babel-wlasny);
+  border-bottom-left-radius: 16px 14px;
+}
+.wiadomosci li.ogon.wlasna::after { right: -11px; border-bottom-left-radius: 12px; }
 
 .autor {
   font-size: .6875rem;
   color: var(--tekst-drugi);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: .01em;
 }
-.tresc { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9375rem; }
+.tresc { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /*
- * Stopka dymka: godzina i stan wysyłki.
+ * Stan wysyłki: SŁOWEM, pod ostatnim własnym dymkiem.
  *
- * Przy własnej krawędzi i przygaszona — rozmowę czyta się po treści, a godzina
- * jest odpowiedzią na pytanie zadawane rzadko, ale wtedy zadawane wprost.
+ * # Dlaczego to wyszło z dymka
+ *
+ * Ptaszek stał w każdej własnej wiadomości i przy serii trzech zdań dawał
+ * trzy takie same ptaszki jeden pod drugim. Odpowiadał przy tym na pytanie
+ * zadawane o JEDNĄ wiadomość — tę ostatnią: „doszło czy nie". Kolumna
+ * powtórzeń kosztowała drugi wiersz w każdym dymku i nie mówiła nic więcej
+ * niż jedno słowo pod ostatnim.
+ *
+ * Słowo, a nie ikona, bo „dostarczono" i „przeczytano" to różnica, którą
+ * trzeba ZROZUMIEĆ, a nie rozpoznać: dwa odcienie tego samego ptaszka
+ * wymagały pamiętania, który jest który. Wyjątkiem zostają stany, z którymi
+ * trzeba coś zrobić — te pokazujemy przy każdej wiadomości, której dotyczą.
  */
-.stopka-dymka {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--odstep-2);
-  margin-top: .1rem;
-  font-size: .625rem;
+.stan-wysylki {
+  align-self: flex-end;
+  margin: .2rem .3rem var(--odstep-2);
+  font-size: .6875rem;
   color: var(--tekst-trzeci);
-  font-variant-numeric: tabular-nums;
 }
-.wlasna .stopka-dymka { color: var(--babel-wlasny-meta); }
-.stopka-dymka .ikona { width: 13px; height: 13px; }
-
-/*
- * Przeczytane różni się od dostarczonego KOLOREM, nie kształtem.
- *
- * Ten sam podwójny ptaszek w dwóch odcieniach czyta się jednym spojrzeniem;
- * dwa różne kształty trzeba by za każdym razem rozpoznawać. Akcent jest tu
- * linią ikony, więc zasada systemu zostaje nietknięta.
- */
-.wlasna .stopka-dymka.przeczytana { color: var(--akcent-tekst); }
-.stopka-dymka.przeczytana { color: var(--akcent); }
+.stan-wysylki.nieudany { color: var(--alarm); }
 
 /* Wiadomość w locie: przygaszona, dopóki nie ma potwierdzenia. */
 .wiadomosci li.w-locie { opacity: .62; }
-/* Nieudana dostaje obrys błędu — to stan, z którym trzeba coś zrobić. */
-.wiadomosci li.nieudana { border-color: var(--alarm); }
-.nieudana .stopka-dymka { color: var(--alarm); }
+/*
+ * Nieudana dostaje obrys błędu — to stan, z którym trzeba coś zrobić.
+ *
+ * `box-shadow`, nie `border`: dymek nie ma już obramowania, a dołożenie go
+ * tutaj przesunęłoby treść o piksel i zmieniło wysokość wiersza w chwili,
+ * w której wysyłka zawodzi.
+ */
+.wiadomosci li.nieudana { box-shadow: inset 0 0 0 1px var(--alarm); }
 
 /* Pusty wątek zajmuje całą wysokość listy, żeby stanąć w jej środku. */
-.wiadomosci li.pusto-watku { flex: 1; align-self: stretch; }
+.wiadomosci li.pusto-watku { flex: 1; align-self: stretch; display: flex; }
 
 /*
  * Ślad po rozmowie A/V — na środku, jak rozdzielacz dnia.
@@ -1181,17 +1307,21 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * strony, po której miałaby stanąć. Dymek przypisałby ją komuś, a przy rozmowie
  * grupowej temu komuś nieprawdziwie.
  */
+/*
+ * Bez ramki, bo w wątku pełnym zalanych dymków obrysowana kapsułka na środku
+ * czyta się jak trzeci rodzaj wiadomości. Ślad rozmowy jest podpisem pod
+ * osią czasu, jak rozdzielacz — i tak samo ma wyglądać.
+ */
 .wiadomosci li.zdarzenie {
   align-self: center;
   display: flex;
   align-items: center;
-  gap: var(--odstep-3);
-  margin: var(--odstep-2) 0;
-  padding: var(--odstep-2) var(--odstep-4);
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-l);
+  gap: var(--odstep-2);
+  margin: var(--odstep-3) 0;
+  padding: 0 var(--odstep-4);
+  border: none;
   color: var(--tekst-drugi);
-  font-size: .8125rem;
+  font-size: .75rem;
   max-width: 100%;
 }
 .wiadomosci li.zdarzenie .ikona { color: var(--tekst-trzeci); }
@@ -1205,29 +1335,27 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * Nieodebrana świeci alarmem, bo jest jedyną z nich, z którą trzeba coś zrobić:
  * oddzwonić. Odbyta rozmowa jest tylko zapisem w kronice.
  */
-.wiadomosci li.zdarzenie.nieodebrane {
-  border-color: color-mix(in srgb, var(--alarm) 45%, transparent);
-  color: var(--alarm);
-}
+.wiadomosci li.zdarzenie.nieodebrane { color: var(--alarm); }
 .wiadomosci li.zdarzenie.nieodebrane .ikona { color: var(--alarm); }
 
-/* Rozdzielacz dni — data w linii, nie nad wiadomością. */
-.dzien {
+/*
+ * Rozdzielacz czasu — jedyne miejsce w wątku, które mówi „kiedy".
+ *
+ * Kreski po bokach zniknęły razem z obrysami dymków: linia przez całą
+ * szerokość dzieliła wątek na sekcje, a to nie są sekcje — to ta sama rozmowa
+ * z przerwą w środku. Zostaje sam napis, wyśrodkowany i przygaszony.
+ *
+ * Dzień wytłuszczony, godzina zwykła: jedno zdanie („Dziś 08:42"), a nie dwie
+ * etykiety obok siebie.
+ */
+.rozdzielacz {
   align-self: center;
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-  width: 100%;
-  margin: var(--odstep-4) 0 var(--odstep-2);
+  margin: var(--odstep-4) 0 var(--odstep-3);
   color: var(--tekst-trzeci);
   font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
 }
-.dzien::before, .dzien::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--linia);
-}
+.rozdzielacz strong { font-weight: 600; color: var(--tekst-drugi); }
 
 /* --- Pisanie ------------------------------------------------------------- */
 
@@ -1240,24 +1368,73 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 
 /*
+ * Pole i strzałka są JEDNYM przedmiotem.
+ *
+ * Przycisk stojący obok pola jest osobną kontrolką, którą trzeba znaleźć
+ * wzrokiem; wsunięty w prawy koniec pola jest końcem tej samej czynności —
+ * dopisujesz zdanie i wypychasz je tym samym ruchem kciuka, bez przenoszenia
+ * ręki. Przy okazji listwa pisania przestaje być rzędem trzech pudełek.
+ */
+.pole-pisania {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--odstep-2);
+  min-height: var(--dotyk-ikona);
+  padding: 3px 3px 3px .75rem;
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-babel);
+  background: var(--pole);
+  transition: border-color var(--szybko);
+}
+.pole-pisania:hover { border-color: var(--linia-mocna); }
+
+/*
+ * Obrys skupienia bierze CAŁE pole, nie samo `textarea`.
+ *
+ * Obrys wokół pola tekstowego rysowałby się w środku pigułki, jako prostokąt
+ * o kilka pikseli mniejszy od niej — czyli dokładnie tak, jak wygląda usterka
+ * renderowania.
+ */
+.pole-pisania:has(textarea:focus-visible) {
+  outline: 2px solid var(--akcent);
+  outline-offset: 2px;
+}
+
+/*
  * Załącznik jako spinacz przy polu, nie prostokąt nad nim.
  *
  * Pole na całą szerokość zajmowało tyle miejsca co dwie wiadomości
  * i podpowiadało, że załącznik jest głównym sposobem pisania.
  */
+/*
+ * Kółko, nie kwadrat: spinacz i strzałka są tej samej rodziny co dymek,
+ * a dymek jest miękki. Kwadratowy przycisk obok pigułkowatego pola wygląda
+ * jak kontrolka z innego ekranu.
+ *
+ * 34 px to ROZMIAR WIDOCZNY. Pole dotyku dokłada `::after` rozciągnięty do
+ * 44 px — powiększanie samego kółka rozpycha listwę pisania i zabiera
+ * szerokość temu, po co ona jest.
+ */
 .dolacz-plik {
+  position: relative;
   flex: none;
+  align-self: flex-end;
   display: grid;
   place-items: center;
-  width: var(--dotyk-ikona);
-  height: var(--dotyk-ikona);
-  border: 1px solid transparent;
-  border-radius: var(--promien-m);
+  width: 2.125rem;
+  height: 2.125rem;
+  margin-bottom: calc((var(--dotyk-ikona) - 2.125rem) / 2);
+  border: none;
+  border-radius: 50%;
+  background: var(--babel);
   color: var(--tekst-drugi);
   cursor: pointer;
   transition: color var(--szybko), background-color var(--szybko);
 }
-.dolacz-plik:hover { color: var(--tekst); background: color-mix(in srgb, var(--tekst) 6%, transparent); }
+.dolacz-plik::after { content: ""; position: absolute; inset: -5px; }
+.dolacz-plik:hover { color: var(--tekst); background: var(--karta-hover); }
 .dolacz-plik:focus-within { outline: 2px solid var(--akcent); outline-offset: 2px; }
 .dolacz-plik input { display: none; }
 
@@ -1271,22 +1448,45 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   flex: 1;
   min-width: 0;
   resize: none;
-  min-height: var(--dotyk-ikona);
+  min-height: 0;
   max-height: 8rem;
-  padding: .6rem .8rem;
-  line-height: 1.4;
+  padding: .34rem 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  line-height: 1.34;
 }
+.pisanie textarea:hover { border-color: transparent; }
+/* Obrys nosi pole (wyżej) — dwa naraz dałyby dwie ramki jedna w drugiej. */
+.pisanie textarea:focus-visible { outline: none; }
 
+/*
+ * Strzałka wypełniona kolorem własnego dymka — jedyny przycisk w systemie,
+ * który jest plamą. Wolno mu, bo mówi dokładnie to samo, co dymek, który
+ * za chwilę powstanie: „to jest moje". Wyszarzała, gdy nie ma czego wysłać.
+ */
 .pisanie button.wyslij {
+  position: relative;
   flex: none;
-  width: var(--dotyk-ikona);
-  height: var(--dotyk-ikona);
+  width: 1.75rem;
+  height: 1.75rem;
   min-height: 0;
   padding: 0;
-  border-color: var(--akcent);
-  color: var(--akcent-tekst);
+  margin-bottom: 1px;
+  border: none;
+  border-radius: 50%;
+  background: var(--babel-wlasny);
+  color: var(--babel-wlasny-tekst);
 }
-.pisanie button.wyslij:disabled { border-color: var(--linia); color: var(--tekst-trzeci); }
+/* Pole dotyku do 44 px bez powiększania kółka — jak przy spinaczu. */
+.pisanie button.wyslij::after { content: ""; position: absolute; inset: -8px; }
+.pisanie button.wyslij:hover { background: color-mix(in srgb, var(--babel-wlasny) 82%, var(--tekst)); }
+.pisanie button.wyslij:disabled {
+  background: var(--wglebienie);
+  color: var(--tekst-trzeci);
+  opacity: 1;
+}
+.pisanie button.wyslij:disabled:hover { background: var(--wglebienie); }
 
 /* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */
 .wskazowka-plik {
@@ -1295,17 +1495,31 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   gap: var(--odstep-2);
   font-size: .6875rem;
   color: var(--tekst-trzeci);
-  margin: var(--odstep-2) 0 0;
+  margin: var(--odstep-2) 0 0 calc(2.125rem + var(--odstep-3));
 }
 
 /* --- Załączniki ---------------------------------------------------------- */
 
+/*
+ * Dymek z obrazem: obraz JEST dymkiem.
+ *
+ * Obraz w dymku z pełnym paddingiem dawał ramkę koloru dymka dookoła zdjęcia —
+ * przy własnej wiadomości cyjanową obwódkę, która wyglądała jak passe-partout.
+ * Zostaje 4 px, tyle, żeby róg obrazu nie wyszedł poza róg dymka.
+ */
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku):has(> .zalacznik) {
+  padding: 4px;
+}
+.wiadomosci li:has(> .zalacznik) > .tresc { padding: .15rem .5rem .35rem; }
+/* Nazwa autora też musi odsunąć się od krawędzi, skoro dymek jej nie odsuwa. */
+.wiadomosci li:has(> .zalacznik) > .autor { padding: .1rem .5rem .2rem; }
+
 .zalacznik {
   max-width: 100%;
   max-height: 18rem;
-  border-radius: var(--promien-m);
+  border-radius: calc(var(--promien-babel) - 4px);
   display: block;
-  margin-top: var(--odstep-2);
+  margin-top: 0;
   background: var(--wglebienie);
 }
 
@@ -1925,7 +2139,35 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
     transform: translateX(.4rem);
   }
 
-  .wiadomosci li:not(.dzien, .zdarzenie) { max-width: 86%; }
+  .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) { max-width: 82%; }
+
+  /*
+   * Na telefonie tożsamość rozmówcy stoi na ŚRODKU paska, w kolumnie.
+   *
+   * Pasek ma tu strzałkę powrotu po lewej i dwa przyciski rozmowy po prawej,
+   * więc nazwa dosunięta do lewej wypadałaby tuż przy strzałce — a strzałka
+   * jest o liście rozmów, nie o osobie. Środek jest jedynym miejscem, którego
+   * nikt inny nie zajmuje, i to na niego pada wzrok przy otwarciu wątku.
+   *
+   * Na szerokim ekranie odwrotnie: pasek jest szeroki, przyciski daleko,
+   * a wyśrodkowana nazwa gubi się w pustce — dlatego to reguła telefonu.
+   */
+  .pasek-kto { flex-direction: column; align-items: center; gap: 1px; }
+  .pasek-kto .awatar { width: 1.75rem; height: 1.75rem; font-size: .7rem; }
+  .pasek-tozsamosc { align-items: center; flex: none; max-width: 100%; }
+  .pasek-nazwa { font-size: .8125rem; }
+
+  /*
+   * Pasek jest tu wyższy, bo tożsamość stoi w kolumnie: awatar, nazwa, droga.
+   * Przy 3,25rem kolumna nie mieściła się i awatar wychodził poza górną
+   * krawędź ekranu — obcięty dokładnie tam, gdzie nikt nie szuka przyczyny.
+   */
+  .pasek-watku { min-height: 4.5rem; padding-top: var(--odstep-2); }
+
+  /* Wcięcie pod pole pisania jest tu za drogie: zdanie łamie się na dwa
+     wiersze i wisi krzywo pod pigułką. Na środku mieści się i czyta jak
+     podpis pod listwą, którym jest. */
+  .wskazowka-plik { margin-left: 0; justify-content: center; text-align: center; }
   .siatka-konta { grid-template-columns: minmax(0, 1fr); }
 }
 

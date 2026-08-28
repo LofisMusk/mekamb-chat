@@ -1008,8 +1008,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             // Zmiany składu grupy i propozycje nie mają odpowiednika w interfejsie,
             // dopóki nie ma widoku listy członków.
+            //
+            // `Metadata` (współdzielona nazwa grupy i nazwa wyświetlana) też jest
+            // tu na razie pominięta: rdzeń i binding już ją niosą, ale warstwa
+            // wyświetlania nicków na Androidzie to świadomy follow-up — web ma ją
+            // pierwszy. Pominięcie jest CELOWE i bezpieczne: metadana nie jest
+            // wiadomością do pokazania, więc jej zignorowanie niczego nie gubi.
             is IncomingEvent.MembershipChanged,
             is IncomingEvent.ProposalQueued,
+            is IncomingEvent.Metadata,
             -> stan
         }
 

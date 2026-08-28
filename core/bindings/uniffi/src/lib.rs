@@ -143,6 +143,20 @@ pub enum IncomingEvent {
         /// Identyfikatory potwierdzanych wiadomości, po 16 bajtów każdy.
         message_ids: Vec<Vec<u8>>,
     },
+    /// Aktualizacja współdzielonych nazw: nazwy grupy i/lub nicku nadawcy.
+    ///
+    /// Nazwy są widoczne dla całej rozmowy, a nie lokalne — jadą zaszyfrowane
+    /// jak każda wiadomość aplikacyjna, więc serwer widzi tylko szyfrogram.
+    ///
+    /// Oba pola są niezależne: `None` znaczy „nadawca nie zmieniał tego pola",
+    /// `Some("")` — „wyczyścił je".
+    Metadata {
+        group_id: Vec<u8>,
+        sender_user_id: String,
+        sender_device_id: String,
+        group_name: Option<String>,
+        display_name: Option<String>,
+    },
     /// Skład grupy uległ zmianie.
     MembershipChanged,
     /// Propozycja odłożona do czasu commitu.
@@ -858,6 +872,32 @@ impl MekambClient {
         Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
     }
 
+    /// Szyfruje aktualizację współdzielonych nazw i pakuje ją do wysłania.
+    ///
+    /// Nazwa grupy i display name są widoczne dla całej rozmowy, a jadą
+    /// **wewnątrz** MLS, więc serwer nigdy nie pozna, jak nazwano rozmowę ani
+    /// nadawcę. `group_name`/`display_name` są niezależne: `None` znaczy „nie
+    /// zmieniam tego pola", `Some("")` — „czyszczę je".
+    pub fn send_metadata(
+        &self,
+        group_id: Vec<u8>,
+        group_name: Option<String>,
+        display_name: Option<String>,
+        sent_at_ms: u64,
+    ) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let message = ChatMessage::metadata(group_name, display_name, sent_at_ms);
+        let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
+
+        Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+    }
+
     /// Przetwarza kopertę odebraną z sieci.
     ///
     /// Obsługuje też zaproszenia: koperta typu `welcome` wprowadza nas do nowej
@@ -947,6 +987,14 @@ impl MekambClient {
                         dtls_fingerprint: sygnal.dtls_fingerprint.clone(),
                         target: sygnal.target.clone(),
                         sent_at_ms: message.sent_at_ms,
+                    }
+                } else if let Some(metadane) = message.as_metadata() {
+                    IncomingEvent::Metadata {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        group_name: metadane.group_name.clone(),
+                        display_name: metadane.display_name.clone(),
                     }
                 } else {
                     IncomingEvent::Message {

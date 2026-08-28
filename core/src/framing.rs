@@ -32,7 +32,7 @@ pub struct ChatMessage {
     #[prost(uint64, tag = "3")]
     pub sent_at_ms: u64,
 
-    #[prost(oneof = "Body", tags = "4, 5, 6, 8")]
+    #[prost(oneof = "Body", tags = "4, 5, 6, 8, 9")]
     pub body: Option<Body>,
 
     #[prost(bytes = "vec", optional, tag = "7")]
@@ -49,6 +49,8 @@ pub enum Body {
     CallSignal(CallSignalBody),
     #[prost(message, tag = "8")]
     Receipt(ReceiptBody),
+    #[prost(message, tag = "9")]
+    Metadata(MetadataBody),
 }
 
 /// Potwierdzenie dostarczenia albo odczytu.
@@ -82,6 +84,35 @@ pub enum ReceiptKind {
     Delivered = 1,
     /// Rozmowa była otwarta na ekranie.
     Read = 2,
+}
+
+/// Współdzielone nazwy: nazwa grupy i nazwa wyświetlana nadawcy.
+///
+/// # Dlaczego kanałem MLS, a nie w katalogu na serwerze
+///
+/// Nazwa grupy i display name są **współdzielone** — widzi je cała rozmowa, nie
+/// tylko lokalne urządzenie. Gdyby trzymał je serwer, wiedziałby, jak ludzie
+/// nazywają swoje grupy i siebie nawzajem. Jako wiadomość aplikacyjna MLS jadą
+/// zaszyfrowane jak każdy tekst, więc serwer widzi wyłącznie szyfrogram.
+///
+/// # Dlaczego oba pola są `Option`, a nie zwykłym `String`
+///
+/// Aktualizacja jest częściowa: nadawca może zmienić samą nazwę grupy, sam
+/// swój nick, albo oba. `None` znaczy „tego pola nie ruszam", a `Some("")`
+/// znaczy „czyszczę je" — bez `optional` (proto3) te dwa przypadki byłyby nie
+/// do odróżnienia i wyczyszczenie nicku wyglądałoby jak zmiana dotycząca tylko
+/// nazwy grupy.
+///
+/// # Dlaczego nie ma tu czasu
+///
+/// Tak samo jak w [`ReceiptBody`]: żadnego znacznika czasu ani niczego
+/// korelowalnego. Nazwa to deklaracja nadawcy, nie fakt o chwili.
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct MetadataBody {
+    #[prost(string, optional, tag = "1")]
+    pub group_name: Option<String>,
+    #[prost(string, optional, tag = "2")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -199,6 +230,36 @@ impl ChatMessage {
                 message_ids,
             })),
             reply_to: None,
+        }
+    }
+
+    /// Buduje wiadomość z aktualizacją współdzielonych nazw.
+    ///
+    /// `group_name` i `display_name` są niezależne: `None` znaczy „nie zmieniam
+    /// tego pola", `Some("")` — „czyszczę je". Ładunek idzie **wewnątrz** MLS,
+    /// więc serwer nie pozna, jak nazwano grupę ani nadawcę.
+    pub fn metadata(
+        group_name: Option<String>,
+        display_name: Option<String>,
+        sent_at_ms: u64,
+    ) -> Self {
+        Self {
+            protocol_version: PAYLOAD_VERSION,
+            message_id: new_message_id().to_vec(),
+            sent_at_ms,
+            body: Some(Body::Metadata(MetadataBody {
+                group_name,
+                display_name,
+            })),
+            reply_to: None,
+        }
+    }
+
+    /// Zwraca współdzielone nazwy, jeśli wiadomość je niesie.
+    pub fn as_metadata(&self) -> Option<&MetadataBody> {
+        match &self.body {
+            Some(Body::Metadata(m)) => Some(m),
+            _ => None,
         }
     }
 
@@ -410,6 +471,67 @@ mod tests {
         for bajty in [vec![0xFF; 64], vec![], vec![0x08], vec![0x2A, 0xFF, 0xFF]] {
             let _ = ChatMessage::decode(&bajty);
         }
+    }
+
+    /// Nazwy współdzielone jadą tym samym kanałem co tekst — inaczej serwer
+    /// wiedziałby, jak nazwano grupę i uczestników.
+    #[test]
+    fn metadane_oba_pola_robia_pelne_kolo() {
+        let oryginal =
+            ChatMessage::metadata(Some("Ekipa z Bydgoszczy".into()), Some("Żółć".into()), 1);
+        let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
+
+        let metadane = odtworzony.as_metadata().unwrap();
+        assert_eq!(metadane.group_name.as_deref(), Some("Ekipa z Bydgoszczy"));
+        assert_eq!(metadane.display_name.as_deref(), Some("Żółć"));
+    }
+
+    #[test]
+    fn metadane_tylko_nazwa_grupy_robia_pelne_kolo() {
+        let oryginal = ChatMessage::metadata(Some("Projekt".into()), None, 1);
+        let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
+
+        let metadane = odtworzony.as_metadata().unwrap();
+        assert_eq!(metadane.group_name.as_deref(), Some("Projekt"));
+        assert_eq!(metadane.display_name, None);
+    }
+
+    #[test]
+    fn metadane_tylko_display_name_robia_pelne_kolo() {
+        let oryginal = ChatMessage::metadata(None, Some("Ania".into()), 1);
+        let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
+
+        let metadane = odtworzony.as_metadata().unwrap();
+        assert_eq!(metadane.group_name, None);
+        assert_eq!(metadane.display_name.as_deref(), Some("Ania"));
+    }
+
+    /// Sedno: `Some("")` (czyszczę pole) musi przetrwać round-trip inaczej niż
+    /// `None` (nie ruszam pola). Bez `optional` w proto3 oba wyszłyby jako
+    /// pusty łańcuch i nie dałoby się ich odróżnić.
+    #[test]
+    fn metadane_puste_pole_rozni_sie_od_nieustawionego() {
+        let oryginal = ChatMessage::metadata(Some(String::new()), None, 1);
+        let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
+
+        let metadane = odtworzony.as_metadata().unwrap();
+        assert_eq!(metadane.group_name.as_deref(), Some(""));
+        assert_eq!(metadane.display_name, None);
+    }
+
+    /// Sedno: metadana nie niesie znacznika czasu, tak samo jak potwierdzenie.
+    /// Nazwa to deklaracja, nie fakt o chwili — nic korelowalnego nie ma prawa
+    /// przeciekać w ładunku.
+    #[test]
+    fn metadane_nie_niosą_czasu() {
+        let chwila = 1_700_000_000_000u64;
+        let metadane = ChatMessage::metadata(Some("Grupa".into()), Some("Nick".into()), 0);
+
+        let bajty = metadane.encode_to_vec();
+        assert!(
+            !bajty.windows(8).any(|okno| okno == chwila.to_le_bytes()),
+            "w ładunku metadanych nie może być znacznika czasu",
+        );
     }
 
     /// Sygnalizacja rozmów jedzie tym samym kanałem co tekst — bez niej odcisk

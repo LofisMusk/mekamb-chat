@@ -277,6 +277,37 @@ export async function zapiszRozmowe(
 }
 
 /**
+ * Zakłada pusty wiersz rozmowy, jeśli jeszcze go nie ma.
+ *
+ * # Po co
+ *
+ * Prośba o rozmowę przychodzi Welcome'em, który nie niesie żadnej wiadomości —
+ * a lista rozmów powstaje z historii. Bez pustego wpisu świeżo dołączona grupa
+ * (prośba) nie miałaby jak się pokazać, dopóki ktoś czegoś w niej nie napisze.
+ * Ten sam problem miała rozmowa zakładana samodzielnie, ale tam pierwszą rzeczą
+ * jest zwykle wysłanie wiadomości; prośba czeka, aż ją przyjmiemy.
+ *
+ * Istniejącej rozmowy NIE rusza: nadpisanie jej pustą listą skasowałoby
+ * wiadomości. Dlatego to osobna funkcja, a nie `zapiszRozmowe(…, [])`.
+ */
+export async function zapewnijRozmowe(
+  groupId: Uint8Array,
+  rozmowca: string | undefined,
+): Promise<void> {
+  await zSerializacja(async () => {
+    const zapis = await wczytajWszystko();
+    const klucz = kluczRozmowy(groupId);
+    if (zapis.rozmowy[klucz]) return;
+
+    zapis.rozmowy[klucz] = {
+      rozmowca: rozmowca ?? "",
+      wiadomosci: [],
+    };
+    await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+  });
+}
+
+/**
  * Dopisuje jedną wiadomość do rozmowy — atomowo względem innych zapisów.
  *
  * Osobno od [`zapiszRozmowe`], bo tu odczyt i zapis MUSZĄ być jedną operacją:

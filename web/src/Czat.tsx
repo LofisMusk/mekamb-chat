@@ -28,8 +28,22 @@ import {
   oznaczPrzeczytane,
   usunRozmowe,
   wczytajRozmowe,
+  zapewnijRozmowe,
   zapiszRozmowe,
 } from "./lib/historia";
+import {
+  type ZapisNazw,
+  ustawMojNick,
+  ustawNazweGrupy,
+  ustawNick,
+  wczytajNazwy,
+} from "./lib/nazwy";
+import {
+  wczytajProsby,
+  zaakceptuj as zaakceptujProsbe,
+  zainicjuj as zainicjujProsby,
+  zapomnij as zapomnijProsbe,
+} from "./lib/prosby";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import { filtrujRozmowy } from "./lib/lista";
 import { type Messenger, type ReceivedMessage, idWiadomosci } from "./lib/messenger";
@@ -98,7 +112,7 @@ function zapowiedz(w: Wiadomosc): string {
   return "Plik";
 }
 
-type Galaz = "rozmowy" | "kontakty" | "konto";
+type Galaz = "rozmowy" | "konto";
 
 /** Wiadomość, której wysyłka jeszcze trwa albo się nie powiodła. */
 interface WLocie {
@@ -139,6 +153,30 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [galaz, setGalaz] = useState<Galaz>("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
   const [szukane, setSzukane] = useState("");
+
+  /*
+   * Współdzielone nazwy: nazwy grup (po kluczu grupy) i nicki (po nazwie
+   * użytkownika), plus własny nick. WARSTWA WYŚWIETLANIA — tożsamością w MLS
+   * i adresem skrzynki zostaje nazwa użytkownika. Zasiewane z dysku przy
+   * starcie, aktualizowane metadaną z rdzenia (patrz `naMetadane`).
+   */
+  const [nicki, setNicki] = useState<Record<string, string>>({});
+  const [nazwyGrup, setNazwyGrup] = useState<Record<string, string>>({});
+  const [mojNick, setMojNick] = useState("");
+
+  /*
+   * Zbiór zaakceptowanych rozmów (klucze grup). Rozmowa w historii, ale spoza
+   * tego zbioru, jest PROŚBĄ — pokazywaną osobno, nie między rozmowami.
+   */
+  const [zaakceptowane, setZaakceptowane] = useState<Set<string>>(new Set());
+
+  /*
+   * Obsługa dołączenia do nowej rozmowy (Welcome) czyta bieżący zbiór
+   * zaakceptowanych przez referencję: wołanie zwrotne z messengera ustawiamy
+   * raz i nie chcemy go przepinać przy każdej zmianie zbioru.
+   */
+  const zaakceptowaneRef = useRef(zaakceptowane);
+  zaakceptowaneRef.current = zaakceptowane;
 
   /*
    * Wyzwalacz rozmowy A/V.
@@ -200,7 +238,12 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * wyglądałaby na wysłaną, a nie wiemy tego — więc nie zapisujemy jej wcale.
    */
   const [wLocie, setWLocie] = useState<WLocie[]>([]);
-  const nieprzeczytane = rozmowy.reduce((suma, p) => suma + p.nieprzeczytane, 0);
+  // Licznik liczy TYLKO rozmowy zaakceptowane — prośba nie ma prawa udawać
+  // „nowej wiadomości", bo to jest dokładnie ta zapora, o którą chodzi.
+  const nieprzeczytane = rozmowy.reduce(
+    (suma, p) => (zaakceptowane.has(kluczRozmowy(p.groupId)) ? suma + p.nieprzeczytane : suma),
+    0,
+  );
 
   /*
    * Nazwa pozycji na liście, z naprawą wstecz.
@@ -211,24 +254,91 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * spoza stanu MLS, np. na świeżo sparowanym urządzeniu), mówimy wprost, że
    * nazwy nie znamy, zamiast pokazywać pusty wiersz.
    */
-  const nazwaPozycji = useCallback(
-    (pozycja: PozycjaListy): string => {
-      if (pozycja.rozmowca) return pozycja.rozmowca;
+  /**
+   * Nick rozmówcy, jeśli go znamy — inaczej surowa nazwa użytkownika.
+   *
+   * Nick jest WYŁĄCZNIE warstwą wyświetlania: pod spodem zostaje nazwa
+   * użytkownika, bo to ona jest tożsamością MLS i adresem skrzynki.
+   */
+  const nick = useCallback(
+    (username: string): string => nicki[username]?.trim() || username,
+    [nicki],
+  );
+
+  /**
+   * Etykieta rozmowy: nazwa grupy, a gdy jej nie ma — sklejone nicki uczestników.
+   *
+   * Nazwa grupy (współdzielona metadana) wygrywa nad sklejaniem nazw. Bez niej
+   * wracamy do składu z drzewa MLS, ale każdą osobę pokazujemy jej nickiem,
+   * jeśli go znamy. Pusto znaczy „sami" albo „grupa bez stanu MLS".
+   */
+  const etykietaGrupy = useCallback(
+    (groupId: Uint8Array): string => {
+      const nazwa = nazwyGrup[kluczRozmowy(groupId)];
+      if (nazwa && nazwa.trim()) return nazwa.trim();
 
       try {
-        const z = nazwaRozmowy(messenger.memberUserIds(pozycja.groupId), messenger.account.userId);
-        return z || "rozmowa bez nazwy";
+        const inni = messenger
+          .memberUserIds(groupId)
+          .filter((osoba) => osoba !== messenger.account.userId);
+        if (inni.length === 0) return "";
+        return inni.map(nick).join(", ");
       } catch {
-        return "rozmowa bez nazwy";
+        return "";
       }
     },
-    [messenger],
+    [nazwyGrup, nick, messenger],
+  );
+
+  const nazwaPozycji = useCallback(
+    (pozycja: PozycjaListy): string => {
+      const etykieta = etykietaGrupy(pozycja.groupId);
+      if (etykieta) return etykieta;
+      // Grupa bez stanu MLS: zostaje surowa nazwa zapisana na dysku.
+      return pozycja.rozmowca || "rozmowa bez nazwy";
+    },
+    [etykietaGrupy],
+  );
+
+  /*
+   * Rozmowy dzielą się na zaakceptowane i prośby. Prośba to rozmowa obecna
+   * w historii, ale spoza zbioru zaakceptowanych — trafia do osobnej sekcji,
+   * nie między rozmowy, i nie podbija licznika nieprzeczytanych.
+   */
+  const zaakceptowaneRozmowy = useMemo(
+    () => rozmowy.filter((p) => zaakceptowane.has(kluczRozmowy(p.groupId))),
+    [rozmowy, zaakceptowane],
+  );
+  const prosby = useMemo(
+    () => rozmowy.filter((p) => !zaakceptowane.has(kluczRozmowy(p.groupId))),
+    [rozmowy, zaakceptowane],
   );
 
   const widoczne = useMemo(
-    () => filtrujRozmowy(rozmowy, szukane, nazwaPozycji),
-    [rozmowy, szukane, nazwaPozycji],
+    () => filtrujRozmowy(zaakceptowaneRozmowy, szukane, nazwaPozycji),
+    [zaakceptowaneRozmowy, szukane, nazwaPozycji],
   );
+
+  /*
+   * Kontakty = osoby z Twoich zaakceptowanych rozmów, bez duplikatów.
+   *
+   * To z nich „Nowa grupa" pozwala wybrać uczestników. Katalog nie ma listy do
+   * przeglądania (to decyzja, nie brak), więc jedyni ludzie, których możemy
+   * podpowiedzieć, to ci, z którymi już rozmawiamy.
+   */
+  const kontakty = useMemo(() => {
+    const zbior = new Set<string>();
+    for (const p of zaakceptowaneRozmowy) {
+      try {
+        for (const osoba of messenger.memberUserIds(p.groupId)) {
+          if (osoba !== messenger.account.userId) zbior.add(osoba);
+        }
+      } catch {
+        // Rozmowa bez stanu MLS nie wnosi kontaktów.
+      }
+    }
+    return [...zbior].sort((a, b) => a.localeCompare(b));
+  }, [zaakceptowaneRozmowy, messenger]);
 
   /**
    * Ile razy dana koperta odpadła przy przetwarzaniu.
@@ -462,6 +572,88 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     [],
   );
 
+  /**
+   * Nanosi odebraną metadaną na mapy nazw — nazwa grupy i/lub nick nadawcy.
+   *
+   * Metadana NIE jest dymkiem: aktualizuje wyłącznie warstwę wyświetlania
+   * i utrwala ją na dysku. `undefined` w polu znaczy „nadawca nie ruszał",
+   * więc pomijamy je; `""` znaczy „wyczyścił" i wtedy kasujemy wpis (brak nazwy
+   * to powrót do zachowania domyślnego).
+   *
+   * Własny nick z DRUGIEGO urządzenia trafia w `mojNick`, nie w mapę cudzych:
+   * to ta sama osoba, więc ma się zsynchronizować, a nie pojawić jako obcy
+   * kontakt.
+   */
+  const naMetadane = useCallback(
+    (groupId: Uint8Array, senderUserId: string, metadata: { groupName?: string; displayName?: string }) => {
+      if (metadata.groupName !== undefined) {
+        void ustawNazweGrupy(groupId, metadata.groupName || undefined)
+          .then((z) => setNazwyGrup({ ...z.grupy }))
+          .catch(() => {});
+      }
+
+      if (metadata.displayName !== undefined) {
+        if (senderUserId === messenger.account.userId) {
+          void ustawMojNick(metadata.displayName)
+            .then((z) => setMojNick(z.mojNick))
+            .catch(() => {});
+        } else {
+          void ustawNick(senderUserId, metadata.displayName || undefined)
+            .then((z) => setNicki({ ...z.nicki }))
+            .catch(() => {});
+        }
+      }
+    },
+    [messenger],
+  );
+
+  /**
+   * Dołączenie do NOWEJ rozmowy przez Welcome — rozstrzyga: prośba czy wprost.
+   *
+   * Kontakt = osoba, z którą mamy już rozmowę ZAAKCEPTOWANĄ. Jeśli którykolwiek
+   * z uczestników nowej grupy jest kontaktem, rozmowa wchodzi wprost; inaczej
+   * ląduje w prośbach. Rozmowę, którą zakładamy sami, akceptuje ścieżka jej
+   * tworzenia — tu obsługujemy wyłącznie zaproszenia od innych.
+   *
+   * Zbiór zaakceptowanych czytamy przez referencję, bo wołanie zwrotne jest
+   * przypięte do messengera raz i nie goni za każdą zmianą zbioru.
+   */
+  const obsluzDolaczenie = useCallback(
+    async (groupId: Uint8Array, czlonkowie: string[]) => {
+      const ja = messenger.account.userId;
+      const inni = czlonkowie.filter((osoba) => osoba !== ja);
+
+      const accepted = zaakceptowaneRef.current;
+      const pozycje = await listaRozmow();
+      const kontakty = new Set<string>();
+      for (const p of pozycje) {
+        if (!accepted.has(kluczRozmowy(p.groupId))) continue;
+        try {
+          for (const osoba of messenger.memberUserIds(p.groupId)) {
+            if (osoba !== ja) kontakty.add(osoba);
+          }
+        } catch {
+          // Rozmowa bez stanu MLS nie wnosi kontaktów — pomijamy.
+        }
+      }
+
+      const jestKontaktem = inni.some((osoba) => kontakty.has(osoba));
+
+      // Wiersz musi powstać nawet pusty, inaczej prośba nie ma się gdzie
+      // pokazać (lista rośnie z historii, a Welcome nie niesie wiadomości).
+      // Nazwę zapisujemy SUROWĄ — nick jest tylko warstwą wyświetlania.
+      await zapewnijRozmowe(groupId, inni.join(", ") || undefined);
+
+      if (jestKontaktem) {
+        const stan = await zaakceptujProsbe(groupId);
+        setZaakceptowane(new Set(stan.zaakceptowane));
+      }
+
+      setRozmowy(await listaRozmow());
+    },
+    [messenger],
+  );
+
   const obsluzKoperte = useCallback(
     async (ramkaBuf: ArrayBuffer, potwierdz: (id: bigint) => void) => {
       const ramka = new Uint8Array(ramkaBuf);
@@ -478,7 +670,15 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         // po odświeżeniu strony — czyli gubiłoby wiadomość bezpowrotnie.
         potwierdz(id);
 
-        if (odebrana?.receipt) {
+        if (odebrana?.metadata) {
+          /*
+           * Metadana nie jest wiadomością do pokazania — aktualizuje nazwy
+           * (grupy i nicki), a nie treść wątku. Rozpoznajemy ją po obecności
+           * pola i tu jej ścieżka się kończy: żadnego dymka, licznika ani
+           * potwierdzenia dostarczenia.
+           */
+          naMetadane(odebrana.groupId, odebrana.senderUserId, odebrana.metadata);
+        } else if (odebrana?.receipt) {
           /*
            * Potwierdzenie nie jest wiadomością do pokazania — zmienia stan
            * dymków, które już są na ekranie.
@@ -536,7 +736,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         }
       }
     },
-    [messenger, dodaj, nanieStan, przenieRoznacznikOdczytu, otworzRozmowe],
+    [messenger, dodaj, nanieStan, przenieRoznacznikOdczytu, otworzRozmowe, naMetadane],
   );
 
   // Ustawienie przez referencję: obsługa koperty nie może zależeć od stanu,
@@ -627,10 +827,21 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   useEffect(() => {
     let aktualne = true;
 
-    void listaRozmow().then((pozycje) => {
+    void listaRozmow().then(async (pozycje) => {
       if (!aktualne) return;
       messenger.otworzZnaneRozmowy(pozycje.map((p) => p.groupId));
       setRozmowy(pozycje);
+
+      // Zbiór zaakceptowanych: przy pierwszym starcie zasiewamy go wszystkimi
+      // dotychczasowymi rozmowami, żeby żadna sprzed wdrożenia próśb nie
+      // wyglądała nagle jak prośba. Potem świeża rozmowa spoza zbioru jest już
+      // prawdziwą prośbą.
+      let stan = await wczytajProsby();
+      if (!stan.zainicjowano) {
+        stan = await zainicjujProsby(pozycje.map((p) => kluczRozmowy(p.groupId)));
+      }
+      if (aktualne) setZaakceptowane(new Set(stan.zaakceptowane));
+
       setRozmowyOtwarte(true);
     });
 
@@ -639,6 +850,31 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       setRozmowyOtwarte(false);
     };
   }, [messenger]);
+
+  // Wołanie zwrotne dołączenia: messenger nie wie, czy nowa rozmowa to prośba,
+  // czy kontakt — my to rozstrzygamy. Ustawiamy je raz i zdejmujemy przy
+  // odmontowaniu, żeby nie trafiało w komponent, którego już nie ma.
+  useEffect(() => {
+    messenger.naDolaczenie = (groupId, czlonkowie) => void obsluzDolaczenie(groupId, czlonkowie);
+    return () => {
+      messenger.naDolaczenie = null;
+    };
+  }, [messenger, obsluzDolaczenie]);
+
+  // Współdzielone nazwy z dysku — zasiane raz przy starcie, dalej aktualizowane
+  // metadaną z rdzenia.
+  useEffect(() => {
+    let aktualne = true;
+    void wczytajNazwy().then((z: ZapisNazw) => {
+      if (!aktualne) return;
+      setNazwyGrup({ ...z.grupy });
+      setNicki({ ...z.nicki });
+      setMojNick(z.mojNick);
+    });
+    return () => {
+      aktualne = false;
+    };
+  }, []);
 
   /*
    * Nazwa rozmowy pochodzi z drzewa MLS, nie ze stanu interfejsu.
@@ -729,8 +965,126 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         nazwa,
       );
 
-      otworzRozmowe(istniejaca ? istniejaca.groupId : await messenger.startConversation(nazwa));
+      if (istniejaca) {
+        setZaakceptowane(new Set((await zaakceptujProsbe(istniejaca.groupId)).zaakceptowane));
+        otworzRozmowe(istniejaca.groupId);
+        setGalaz("rozmowy");
+        return;
+      }
+
+      const groupId = await messenger.startConversation(nazwa);
+      // Rozmowa zakładana samodzielnie jest zaakceptowana z definicji.
+      setZaakceptowane(new Set((await zaakceptujProsbe(groupId)).zaakceptowane));
+      // Nick niesiemy od razu, żeby druga strona zobaczyła nas tak, jak chcemy.
+      if (mojNick.trim()) {
+        await messenger.sendMetadata(groupId, { displayName: mojNick.trim() }).catch(() => {});
+      }
+      otworzRozmowe(groupId);
+      setRozmowy(await listaRozmow());
       setGalaz("rozmowy");
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /**
+   * Zakłada grupę i wprowadza do niej wybrane osoby, po czym nadaje jej nazwę.
+   *
+   * Pierwsza osoba zakłada rozmowę (`startConversation` tworzy grupę i dodaje
+   * ją jednym ruchem), reszta dochodzi kolejnymi `addMember` — każdy z nich
+   * dokłada WSZYSTKIE urządzenia danej osoby jednym commitem (inwariant z
+   * rdzenia, nie obchodzimy go). Nazwa i nasz nick idą jedną metadaną.
+   */
+  const utworzGrupe = async (osoby: string[], nazwaGrupy: string) => {
+    const [pierwszy, ...reszta] = osoby;
+    if (!pierwszy) return;
+
+    try {
+      const groupId = await messenger.startConversation(pierwszy);
+      for (const osoba of reszta) {
+        await messenger.addMember(groupId, osoba);
+      }
+
+      const nazwa = nazwaGrupy.trim();
+      if (nazwa || mojNick.trim()) {
+        await messenger.sendMetadata(groupId, {
+          groupName: nazwa || undefined,
+          displayName: mojNick.trim() || undefined,
+        });
+      }
+      if (nazwa) {
+        setNazwyGrup({ ...(await ustawNazweGrupy(groupId, nazwa)).grupy });
+      }
+
+      setZaakceptowane(new Set((await zaakceptujProsbe(groupId)).zaakceptowane));
+      otworzRozmowe(groupId);
+      // Etykieta wątku: nazwa grupy, a bez niej surowe nazwy uczestników
+      // (nick nałoży `etykietaGrupy` przy renderze).
+      setRozmowca(nazwa || osoby.join(", "));
+      setRozmowy(await listaRozmow());
+      setGalaz("rozmowy");
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /** Przyjmuje prośbę: rozmowa staje się zwykłą i nadawca staje się kontaktem. */
+  const przyjmijProsbe = async (pozycja: PozycjaListy) => {
+    try {
+      setZaakceptowane(new Set((await zaakceptujProsbe(pozycja.groupId)).zaakceptowane));
+      otworzRozmowe(pozycja.groupId);
+      setRozmowca(nazwaPozycji(pozycja));
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /**
+   * Odrzuca prośbę: ukrywa rozmowę lokalnie.
+   *
+   * Nie opuszczamy grupy MLS — rdzeń nie ma na to drogi, a „nie chcę tego
+   * widzieć" to nie „wypisz mnie". Kasujemy lokalną historię; anty-flood działa,
+   * bo nieproszona rozmowa nigdy nie wpadła między prawdziwe. Gdyby nadawca
+   * napisał znowu, wróci znów jako prośba, nie na listę.
+   */
+  const odrzucProsbe = async (pozycja: PozycjaListy) => {
+    try {
+      if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
+        otworzRozmowe(null);
+      }
+      await zapomnijProsbe(pozycja.groupId);
+      await usunRozmowe(pozycja.groupId);
+      setRozmowy(await listaRozmow());
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /** Zmienia (albo czyści) nazwę grupy i rozsyła ją współdzieloną metadaną. */
+  const zmienNazweGrupy = async (grupa: Uint8Array, nazwa: string) => {
+    try {
+      await messenger.sendMetadata(grupa, { groupName: nazwa.trim() });
+      setNazwyGrup({ ...(await ustawNazweGrupy(grupa, nazwa.trim() || undefined)).grupy });
+      setRozmowy(await listaRozmow());
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /**
+   * Zmienia własny nick i rozsyła go do wszystkich zaakceptowanych rozmów.
+   *
+   * Wybór: rozsyłamy OD RAZU do istniejących rozmów (proste i przewidywalne),
+   * a nowe rozmowy dostają nick w chwili założenia. Do próśb nie wysyłamy nic —
+   * nie ogłaszamy się komuś, z kim jeszcze nie zgodziliśmy się rozmawiać.
+   */
+  const zmienMojNick = async (nowy: string) => {
+    try {
+      setMojNick((await ustawMojNick(nowy)).mojNick);
+      const nick = nowy.trim();
+      for (const p of zaakceptowaneRozmowy) {
+        await messenger.sendMetadata(p.groupId, { displayName: nick }).catch(() => {});
+      }
     } catch (err) {
       onBlad(err);
     }
@@ -817,11 +1171,18 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           {galaz === "rozmowy" && (
         <PanelListy
           rozmowy={widoczne}
-          wszystkich={rozmowy.length}
+          prosby={prosby}
+          wszystkich={zaakceptowaneRozmowy.length}
           szukane={szukane}
           onSzukane={setSzukane}
           nazwaPozycji={nazwaPozycji}
           otwarta={groupId}
+          onNowyCzat={rozpocznijZ}
+          onNowaGrupa={utworzGrupe}
+          kontakty={kontakty}
+          nick={nick}
+          onPrzyjmij={przyjmijProsbe}
+          onOdrzuc={odrzucProsbe}
           onOtworz={(pozycja) => {
             otworzRozmowe(pozycja.groupId);
             setRozmowca(nazwaPozycji(pozycja));
@@ -832,7 +1193,8 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
               otworzRozmowe(null);
             }
-            void usunRozmowe(pozycja.groupId)
+            void zapomnijProsbe(pozycja.groupId)
+              .then(() => usunRozmowe(pozycja.groupId))
               .then(() => listaRozmow())
               .then(setRozmowy)
               .catch((err) => onBlad(err));
@@ -845,7 +1207,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           <Pusto
             ikona="rozmowy"
             tytul="Wybierz rozmowę"
-            wskazowka="Albo zacznij nową w Kontaktach — wystarczy nazwa użytkownika."
+            wskazowka="Albo zacznij nową — „Nowy czat” wymaga tylko nazwy użytkownika."
           />
         )}
 
@@ -853,7 +1215,8 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           <Watek
             messenger={messenger}
             groupId={groupId}
-            rozmowca={rozmowca}
+            rozmowca={etykietaGrupy(groupId) || rozmowca}
+            nick={nick}
             wiadomosci={wiadomosci}
             wLocie={wLocie}
             setWiadomosci={setWiadomosci}
@@ -874,14 +1237,14 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           />
         )}
 
-        {galaz === "kontakty" && <Kontakty onRozpocznij={rozpocznijZ} />}
-
         {galaz === "konto" && (
           <Konto
             messenger={messenger}
             stanSieci={stanSieci}
             trwaly={trwaly}
             odczyt={odczyt}
+            mojNick={mojNick}
+            onNick={zmienMojNick}
             onOdczyt={(wlaczony) => {
               ustawOdczyt(wlaczony);
               setOdczyt(wlaczony);
@@ -907,7 +1270,14 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             </button>
           </div>
 
-          <Uczestnicy messenger={messenger} groupId={groupId} onBlad={onBlad} />
+          <Uczestnicy
+            messenger={messenger}
+            groupId={groupId}
+            nazwaGrupy={nazwyGrup[kluczRozmowy(groupId)] ?? ""}
+            onZmienNazweGrupy={(nazwa) => void zmienNazweGrupy(groupId, nazwa)}
+            nick={nick}
+            onBlad={onBlad}
+          />
         </aside>
       )}
         </>
@@ -930,7 +1300,6 @@ function Nawigacja({
 }) {
   const galezie: { klucz: Galaz; ikona: NazwaIkony; etykieta: string }[] = [
     { klucz: "rozmowy", ikona: "rozmowy", etykieta: "Rozmowy" },
-    { klucz: "kontakty", ikona: "kontakty", etykieta: "Kontakty" },
     { klucz: "konto", ikona: "konto", etykieta: "Konto" },
   ];
 
@@ -977,20 +1346,34 @@ function Nawigacja({
 
 function PanelListy({
   rozmowy,
+  prosby,
   wszystkich,
   szukane,
   onSzukane,
   nazwaPozycji,
   otwarta,
+  onNowyCzat,
+  onNowaGrupa,
+  kontakty,
+  nick,
+  onPrzyjmij,
+  onOdrzuc,
   onOtworz,
   onUsun,
 }: {
   rozmowy: PozycjaListy[];
+  prosby: PozycjaListy[];
   wszystkich: number;
   szukane: string;
   onSzukane: (s: string) => void;
   nazwaPozycji: (p: PozycjaListy) => string;
   otwarta: Uint8Array | null;
+  onNowyCzat: (nazwa: string) => void;
+  onNowaGrupa: (osoby: string[], nazwa: string) => void;
+  kontakty: string[];
+  nick: (username: string) => string;
+  onPrzyjmij: (p: PozycjaListy) => void;
+  onOdrzuc: (p: PozycjaListy) => void;
   onOtworz: (p: PozycjaListy) => void;
   onUsun: (p: PozycjaListy) => void;
 }) {
@@ -1002,11 +1385,87 @@ function PanelListy({
   // Który wiersz ma otwarte menu kebaba (po kluczu). Naraz najwyżej jeden.
   const [menuKlucz, setMenuKlucz] = useState<string | null>(null);
 
+  // Który sposób rozpoczęcia rozmowy jest otwarty: pole „Nowy czat”, okno
+  // „Nowa grupa", albo żaden.
+  const [zaczyn, setZaczyn] = useState<"czat" | "grupa" | null>(null);
+  const [nowaNazwa, setNowaNazwa] = useState("");
+
   return (
     <aside className="panel-listy" aria-label="Lista rozmów">
       <div className="panel-listy-naglowek">
         <h2>Rozmowy</h2>
       </div>
+
+      {/*
+        Dwa wejścia zamiast zakładki Kontakty: „Nowy czat” (nazwa użytkownika →
+        rozmowa jeden na jeden) i „Nowa grupa" (wybór osób). To akcje, więc
+        zostają OBRYSOWANE — reguła Nocturne: akcent jest linią, nie plamą.
+      */}
+      <div className="zaczyn-rozmowy">
+        {zaczyn === "czat" ? (
+          <form
+            className="nowy-czat"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (nowaNazwa.trim()) {
+                onNowyCzat(nowaNazwa.trim());
+                setNowaNazwa("");
+                setZaczyn(null);
+              }
+            }}
+          >
+            <input
+              autoFocus
+              value={nowaNazwa}
+              onChange={(e) => setNowaNazwa(e.target.value)}
+              placeholder="Nazwa użytkownika"
+              aria-label="Nazwa użytkownika, z którym zacząć rozmowę"
+            />
+            <button className="ikonowy glowny" disabled={!nowaNazwa.trim()} aria-label="Zacznij">
+              <Ikona nazwa="wyslij" rozmiar={16} />
+            </button>
+            <button
+              type="button"
+              className="ikonowy"
+              aria-label="Anuluj"
+              onClick={() => {
+                setNowaNazwa("");
+                setZaczyn(null);
+              }}
+            >
+              <Ikona nazwa="zamknij" rozmiar={16} />
+            </button>
+          </form>
+        ) : (
+          <button className="glowny" onClick={() => setZaczyn("czat")}>
+            <Ikona nazwa="dodaj" rozmiar={16} />
+            Nowy czat
+          </button>
+        )}
+
+        <button className="grupa-przycisk" onClick={() => setZaczyn("grupa")}>
+          <Ikona nazwa="osoby" rozmiar={16} />
+          Nowa grupa
+        </button>
+      </div>
+
+      {zaczyn === "grupa" && (
+        <NowaGrupa
+          kontakty={kontakty}
+          nick={nick}
+          onAnuluj={() => setZaczyn(null)}
+          onUtworz={(osoby, nazwa) => {
+            setZaczyn(null);
+            onNowaGrupa(osoby, nazwa);
+          }}
+        />
+      )}
+
+      {/* Prośby — nad rozmowami, zwijane, z licznikiem. Osobno, żeby nieproszona
+          rozmowa nigdy nie mieszała się z prawdziwymi. */}
+      {prosby.length > 0 && (
+        <Prosby prosby={prosby} nazwaPozycji={nazwaPozycji} onPrzyjmij={onPrzyjmij} onOdrzuc={onOdrzuc} />
+      )}
 
       {/* Szukanie pojawia się dopiero, gdy jest w czym szukać — pole nad pustą
           listą jest obietnicą bez pokrycia. */}
@@ -1024,11 +1483,13 @@ function PanelListy({
       )}
 
       {wszystkich === 0 ? (
-        <Pusto
-          ikona="rozmowy"
-          tytul="Nie masz jeszcze żadnej rozmowy"
-          wskazowka="Zacznij od kontaktu — wystarczy nazwa użytkownika."
-        />
+        prosby.length > 0 ? null : (
+          <Pusto
+            ikona="rozmowy"
+            tytul="Nie masz jeszcze żadnej rozmowy"
+            wskazowka="Zacznij od „Nowy czat” — wystarczy nazwa użytkownika."
+          />
+        )
       ) : rozmowy.length === 0 ? (
         <Pusto ikona="szukaj" tytul="Nic nie pasuje" wskazowka="Szukamy po nazwie i po ostatniej wiadomości." />
       ) : (
@@ -1302,6 +1763,7 @@ function Watek({
   messenger,
   groupId,
   rozmowca,
+  nick,
   wiadomosci,
   wLocie,
   setWiadomosci,
@@ -1317,6 +1779,7 @@ function Watek({
   messenger: Messenger;
   groupId: Uint8Array;
   rozmowca: string;
+  nick: (username: string) => string;
   wiadomosci: Wiadomosc[];
   wLocie: WLocie[];
   setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>;
@@ -1506,6 +1969,7 @@ function Watek({
                 key={pozycja.klucz}
                 messenger={messenger}
                 wiadomosc={pozycja.wiadomosc}
+                nick={nick}
                 ciag={pozycja.ciag}
                 ogon={pozycja.ogon}
                 ostatniaWlasna={pozycja.ostatniaWlasna}
@@ -1629,6 +2093,7 @@ function trwanieRozmowy(sekundy: number): string {
 function Dymek({
   messenger,
   wiadomosc,
+  nick,
   ciag,
   ogon,
   ostatniaWlasna,
@@ -1637,6 +2102,7 @@ function Dymek({
 }: {
   messenger: Messenger;
   wiadomosc: Wiadomosc;
+  nick: (username: string) => string;
   ciag: boolean;
   ogon: boolean;
   ostatniaWlasna: boolean;
@@ -1678,7 +2144,7 @@ function Dymek({
     <li className={klasy.join(" ").trim()} title={pelnaGodzina(wiadomosc.czas)}>
       {/* Autor tylko na początku bloku i tylko przy cudzych — przy własnych
           mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem. */}
-      {!wiadomosc.wlasna && !ciag && <span className="autor">{wiadomosc.autor}</span>}
+      {!wiadomosc.wlasna && !ciag && <span className="autor">{nick(wiadomosc.autor)}</span>}
 
       {/*
         Załącznik i treść mogą stać w jednym dymku.
@@ -1793,41 +2259,228 @@ function DolaczPlik({
 }
 
 /**
- * Rozpoczęcie rozmowy z nazwy użytkownika.
+ * Sekcja próśb o rozmowę — zwijana, z licznikiem, nad listą rozmów.
  *
- * Katalog nie ma listy do przeglądania i to jest decyzja, nie brak: lista
- * wszystkich użytkowników mówiłaby każdemu, kto jest w systemie.
+ * # Po co osobno
+ *
+ * Nieproszona rozmowa nie ma prawa wpaść między prawdziwe ani udawać „nowej
+ * wiadomości" — to jest cała zapora. Każda prośba niesie podgląd i dwie decyzje:
+ * „Przyjmij" (staje się zwykłą rozmową, nadawca staje się kontaktem) albo
+ * „Odrzuć" (znika lokalnie).
+ *
+ * Domyślnie zwinięta: prośby są sygnałem, że ktoś czeka, a nie treścią, którą
+ * czyta się co chwilę.
  */
-function Kontakty({ onRozpocznij }: { onRozpocznij: (nazwa: string) => void }) {
-  const [nazwa, setNazwa] = useState("");
+function Prosby({
+  prosby,
+  nazwaPozycji,
+  onPrzyjmij,
+  onOdrzuc,
+}: {
+  prosby: PozycjaListy[];
+  nazwaPozycji: (p: PozycjaListy) => string;
+  onPrzyjmij: (p: PozycjaListy) => void;
+  onOdrzuc: (p: PozycjaListy) => void;
+}) {
+  const [rozwinięte, setRozwiniete] = useState(false);
 
   return (
-    <>
-      <header className="naglowek-konta">
-        <h2>Nowa rozmowa</h2>
-        <p className="wskazowka">Rozmowę zaczyna się od nazwy, którą już się zna.</p>
-      </header>
+    <section className="prosby" aria-label="Prośby o rozmowę">
+      <button
+        type="button"
+        className="prosby-naglowek"
+        aria-expanded={rozwinięte}
+        onClick={() => setRozwiniete((r) => !r)}
+      >
+        <Ikona nazwa="rozwin" rozmiar={14} klasa={rozwinięte ? "obrocona" : undefined} />
+        <span className="prosby-tytul">Prośby o rozmowę</span>
+        <span className="znacznik">{prosby.length}</span>
+      </button>
 
-      <div className="siatka-konta">
+      {rozwinięte && (
+        <ul className="lista-prosb">
+          {prosby.map((pozycja) => {
+            const nazwa = nazwaPozycji(pozycja);
+            return (
+              <li key={kluczRozmowy(pozycja.groupId)} className="prosba">
+                <span className="awatar maly" aria-hidden="true">
+                  {nazwa.slice(0, 1)}
+                </span>
+                <span className="prosba-tresc">
+                  <span className="prosba-nazwa">{nazwa}</span>
+                  <span className="prosba-podglad">
+                    {pozycja.ostatnia ? zapowiedz(pozycja.ostatnia) : "chce zacząć rozmowę"}
+                  </span>
+                </span>
+                <span className="prosba-akcje">
+                  <button
+                    type="button"
+                    className="ikonowy glowny"
+                    aria-label={`Przyjmij prośbę od ${nazwa}`}
+                    title="Przyjmij"
+                    onClick={() => onPrzyjmij(pozycja)}
+                  >
+                    <Ikona nazwa="dodaj" rozmiar={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="ikonowy"
+                    aria-label={`Odrzuć prośbę od ${nazwa}`}
+                    title="Odrzuć"
+                    onClick={() => onOdrzuc(pozycja)}
+                  >
+                    <Ikona nazwa="zamknij" rozmiar={16} />
+                  </button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Zakładanie grupy: wybór osób z kontaktów plus dodanie po nazwie.
+ *
+ * Kontakty to osoby, z którymi już rozmawiamy — katalog nie ma listy do
+ * przeglądania (decyzja, nie brak). Kogoś spoza tej listy dodaje się po nazwie
+ * użytkownika, tak samo jak w „Nowym czacie". Nazwa grupy jest opcjonalna:
+ * bez niej wątek pokazuje sklejone nazwy uczestników, dokładnie jak dotąd.
+ */
+function NowaGrupa({
+  kontakty,
+  nick,
+  onAnuluj,
+  onUtworz,
+}: {
+  kontakty: string[];
+  nick: (username: string) => string;
+  onAnuluj: () => void;
+  onUtworz: (osoby: string[], nazwa: string) => void;
+}) {
+  const [wybrani, setWybrani] = useState<Set<string>>(new Set());
+  const [poNazwie, setPoNazwie] = useState("");
+  const [nazwaGrupy, setNazwaGrupy] = useState("");
+  // Osoby dodane po nazwie, spoza listy kontaktów.
+  const [dodatkowi, setDodatkowi] = useState<string[]>([]);
+
+  const przelacz = (osoba: string) =>
+    setWybrani((zbior) => {
+      const kolejny = new Set(zbior);
+      if (kolejny.has(osoba)) kolejny.delete(osoba);
+      else kolejny.add(osoba);
+      return kolejny;
+    });
+
+  const dodajPoNazwie = () => {
+    const nazwa = poNazwie.trim();
+    if (!nazwa) return;
+    setPoNazwie("");
+    // Kontakt z listy → po prostu go zaznacz; ktoś spoza → dołóż jako dodatkowy.
+    if (kontakty.includes(nazwa)) {
+      setWybrani((zbior) => new Set(zbior).add(nazwa));
+    } else {
+      setDodatkowi((lista) => (lista.includes(nazwa) ? lista : [...lista, nazwa]));
+    }
+  };
+
+  const wszyscy = [...new Set([...wybrani, ...dodatkowi])];
+
+  return (
+    <div className="nakladka-modal" role="dialog" aria-modal="true" aria-label="Nowa grupa" onClick={onAnuluj}>
+      <div className="modal-karta nowa-grupa" onClick={(e) => e.stopPropagation()}>
+        <h3>Nowa grupa</h3>
+
+        <label className="pole-nazwy-grupy">
+          Nazwa grupy (opcjonalnie)
+          <input
+            value={nazwaGrupy}
+            onChange={(e) => setNazwaGrupy(e.target.value)}
+            placeholder="np. Ekipa z Bydgoszczy"
+          />
+        </label>
+
+        {kontakty.length > 0 && (
+          <fieldset className="wybor-osob">
+            <legend>Z kim rozmawiasz</legend>
+            <ul>
+              {kontakty.map((osoba) => (
+                <li key={osoba}>
+                  <label className="osoba-wybor">
+                    <input
+                      type="checkbox"
+                      checked={wybrani.has(osoba)}
+                      onChange={() => przelacz(osoba)}
+                    />
+                    <span className="awatar maly" aria-hidden="true">
+                      {nick(osoba).slice(0, 1)}
+                    </span>
+                    <span className="kto">{nick(osoba)}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+        )}
+
         <form
-          className="karta"
+          className="dodaj-po-nazwie"
           onSubmit={(e) => {
             e.preventDefault();
-            if (nazwa.trim()) onRozpocznij(nazwa.trim());
+            dodajPoNazwie();
           }}
         >
           <label>
-            Z kim chcesz rozmawiać
-            <input value={nazwa} onChange={(e) => setNazwa(e.target.value)} required />
+            Dodaj po nazwie
+            <span className="pole-z-przyciskiem">
+              <input
+                value={poNazwie}
+                onChange={(e) => setPoNazwie(e.target.value)}
+                placeholder="Nazwa użytkownika"
+              />
+              <button type="submit" className="ikonowy" disabled={!poNazwie.trim()} aria-label="Dodaj">
+                <Ikona nazwa="dodaj" rozmiar={16} />
+              </button>
+            </span>
           </label>
-
-          <button className="glowny" disabled={!nazwa.trim()}>
-            <Ikona nazwa="rozmowy" rozmiar={16} />
-            Rozpocznij rozmowę
-          </button>
         </form>
+
+        {dodatkowi.length > 0 && (
+          <ul className="dodani-po-nazwie" aria-label="Dodani po nazwie">
+            {dodatkowi.map((osoba) => (
+              <li key={osoba}>
+                <span className="kto">{nick(osoba)}</span>
+                <button
+                  type="button"
+                  className="ikonowy"
+                  aria-label={`Usuń ${osoba} z grupy`}
+                  onClick={() => setDodatkowi((lista) => lista.filter((o) => o !== osoba))}
+                >
+                  <Ikona nazwa="zamknij" rozmiar={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="modal-przyciski">
+          <button type="button" onClick={onAnuluj}>
+            Anuluj
+          </button>
+          <button
+            type="button"
+            className="glowny"
+            disabled={wszyscy.length === 0}
+            onClick={() => onUtworz(wszyscy, nazwaGrupy)}
+          >
+            <Ikona nazwa="osoby" rozmiar={16} />
+            Utwórz grupę
+          </button>
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1836,6 +2489,8 @@ function Konto({
   stanSieci,
   trwaly,
   odczyt,
+  mojNick,
+  onNick,
   onOdczyt,
   onBlad,
 }: {
@@ -1843,10 +2498,20 @@ function Konto({
   stanSieci: StanPolaczenia;
   trwaly: boolean;
   odczyt: boolean;
+  mojNick: string;
+  onNick: (nick: string) => void;
   onOdczyt: (wlaczony: boolean) => void;
   onBlad: (e: unknown) => void;
 }) {
   const siec = opisSieci(stanSieci);
+  // Pole nicku trzymane lokalnie — zapisujemy dopiero, gdy pole traci fokus
+  // albo na Enter, żeby nie rozsyłać metadany po każdym naciśnięciu klawisza.
+  const [nickPole, setNickPole] = useState(mojNick);
+  useEffect(() => setNickPole(mojNick), [mojNick]);
+
+  const zapiszNick = () => {
+    if (nickPole.trim() !== mojNick.trim()) onNick(nickPole);
+  };
 
   return (
     <>
@@ -1858,13 +2523,41 @@ function Konto({
         <div className="karta">
           <div className="tozsamosc">
             <span className="awatar" aria-hidden="true">
-              {messenger.account.username.slice(0, 1)}
+              {(mojNick || messenger.account.username).slice(0, 1)}
             </span>
             <span>
               <strong>{messenger.account.username}</strong>
               <span className="wskazowka">{messenger.account.deviceId}</span>
             </span>
           </div>
+
+          {/*
+            Nazwa wyświetlana (nick) — WARSTWA WYŚWIETLANIA, nie tożsamość.
+            Adresem skrzynki i tożsamością MLS zostaje nazwa użytkownika wyżej;
+            nick to tylko to, jak widzą Cię inni w rozmowach. Zmiana rozsyła się
+            współdzieloną metadaną do Twoich rozmów.
+          */}
+          <label className="pole-nicku">
+            Nazwa wyświetlana
+            <input
+              value={nickPole}
+              onChange={(e) => setNickPole(e.target.value)}
+              onBlur={zapiszNick}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  zapiszNick();
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder={messenger.account.username}
+              aria-label="Nazwa wyświetlana"
+            />
+          </label>
+          <p className="wskazowka">
+            Tak zobaczą Cię inni w rozmowach. Twoja nazwa użytkownika się nie
+            zmienia — to po niej dochodzą wiadomości.
+          </p>
 
           {/*
             Stan konta powiedziany po ludzku.

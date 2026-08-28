@@ -68,6 +68,21 @@ export interface ReceivedMessage {
   call?: ReceivedCallSignal;
   /** Obecne, gdy wiadomość jest potwierdzeniem dostarczenia albo odczytu. */
   receipt?: ReceivedReceipt;
+  /** Obecne, gdy wiadomość niesie aktualizację współdzielonych nazw. */
+  metadata?: ReceivedMetadata;
+}
+
+/**
+ * Współdzielone nazwy odebrane kanałem MLS.
+ *
+ * `undefined` znaczy „nadawca nie zmieniał tego pola", `""` — „wyczyścił je".
+ * To rozróżnienie pochodzi wprost z `Option<String>` w rdzeniu i nie wolno go
+ * zwijać: bez niego wyczyszczenie nicku byłoby nie do odróżnienia od zmiany
+ * dotyczącej tylko nazwy grupy.
+ */
+export interface ReceivedMetadata {
+  groupName?: string;
+  displayName?: string;
 }
 
 /**
@@ -168,6 +183,21 @@ export class Messenger {
    * mutexem (`przetworzKoperte`); tutaj robi to ten łańcuch obietnic.
    */
   private lancuchKopert: Promise<void> = Promise.resolve();
+
+  /**
+   * Wołane po dołączeniu do NOWEJ rozmowy przez Welcome.
+   *
+   * Welcome nie jest wiadomością do pokazania, więc `handleEnvelope` zwraca dla
+   * niego `null` — a mimo to interfejs musi się dowiedzieć, że doszła nowa
+   * rozmowa: to na tej podstawie rozstrzyga, czy trafia wprost na listę, czy do
+   * próśb. Zamiast rozszerzać zwracany typ o wariant „dołączono", który
+   * dotyczyłby jednej ścieżki na wiele, oddajemy to wywołaniem zwrotnym. Ustawia
+   * je warstwa interfejsu (`Czat.tsx`); domyślnie nie robi nic.
+   *
+   * `czlonkowie` to nazwy użytkowników w grupie (bez duplikatów urządzeń) —
+   * z nich interfejs sprawdza, czy zapraszający jest już kontaktem.
+   */
+  naDolaczenie: ((groupId: Uint8Array, czlonkowie: string[]) => void) | null = null;
 
   /** Token dostępowy — potrzebny warstwie rozmów do pobrania adresów TURN. */
   get accessToken(): string {
@@ -798,13 +828,26 @@ export class Messenger {
        * niedoręczone zaproszenie zepsuło już kiedyś doręczanie po cichu
        * i nie chcemy drugi raz zgadywać.
        */
+      let dolaczonaGrupa: Uint8Array;
       try {
-        this.client.joinFromWelcome(envelope.payload);
+        dolaczonaGrupa = this.client.joinFromWelcome(envelope.payload);
       } catch (blad) {
         console.warn("zaproszenie odrzucone (zapewne już jesteśmy w grupie)", blad);
         return null;
       }
       await this.persist();
+
+      // Interfejs rozstrzyga, czy to prośba, czy rozmowa wprost — my tylko
+      // mówimy, że doszła nowa grupa i kto w niej jest. Skład bierzemy PO
+      // dołączeniu, z drzewa MLS; wyjątek (grupa bez stanu) nie może wywrócić
+      // odbioru, więc pomijamy zgłoszenie zamiast rzucać.
+      if (this.naDolaczenie) {
+        try {
+          this.naDolaczenie(dolaczonaGrupa, this.memberUserIds(dolaczonaGrupa));
+        } catch (blad) {
+          console.warn("obsługa dołączenia do rozmowy zawiodła", blad);
+        }
+      }
       return null;
     }
 
@@ -870,7 +913,47 @@ export class Messenger {
               messageIds: rozetnijIdentyfikatory(incoming.receipt.message_ids),
             }
           : undefined,
+      // Metadana rozpoznawana po OBECNOŚCI pola, jak załącznik czy potwierdzenie.
+      // Wołający ma jej NIE pokazywać jako dymka — aktualizuje mapy nazw
+      // i tyle. `undefined`/`""` w polach niesie znaczenie („nie zmieniam"/
+      // „czyszczę"), więc przenosimy je bez zwijania.
+      metadata: incoming.metadata
+        ? {
+            groupName: incoming.metadata.group_name,
+            displayName: incoming.metadata.display_name,
+          }
+        : undefined,
     };
+  }
+
+  /**
+   * Rozsyła aktualizację współdzielonych nazw — nazwy grupy i/lub własnego nicku.
+   *
+   * Idzie DOKŁADNIE tą samą drogą co wiadomość tekstowa: rdzeń zwraca sam
+   * szyfrogram (jak `sendText`), a my pakujemy go w kopertę `application`,
+   * zapamiętujemy do odsiania echa i deponujemy w skrzynkach rozmowy. Serwer
+   * widzi wyłącznie szyfrogram — nie pozna, jak nazwano grupę ani nadawcę.
+   *
+   * `groupName`/`displayName` są niezależne: `undefined` znaczy „nie zmieniam
+   * tego pola", `""` — „czyszczę je". Rdzeń rozróżnia te przypadki
+   * (`Option<String>`), więc przekazujemy je bez zwijania w jedno.
+   */
+  async sendMetadata(
+    groupId: Uint8Array,
+    dane: { groupName?: string; displayName?: string },
+  ): Promise<void> {
+    const ciphertext = this.client.sendMetadata(
+      groupId,
+      dane.groupName,
+      dane.displayName,
+      Date.now(),
+    );
+
+    // Ratchet przesunął się już przy szyfrowaniu — zapis musi nastąpić nawet
+    // wtedy, gdy wysyłka po nim zawiedzie.
+    await this.persist();
+
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
   }
 
   /**

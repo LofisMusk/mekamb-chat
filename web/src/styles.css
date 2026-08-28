@@ -2440,3 +2440,147 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
   font-size: 0.85rem;
   color: var(--tekst-drugi);
 }
+
+/* --- Zaczynanie rozmowy: „Nowy czat" i „Nowa grupa" ---------------------- */
+
+/*
+ * Dwa wejścia na górze listy zamiast dawnej zakładki Kontakty. To akcje, więc
+ * zostają OBRYSOWANE — akcent jest linią, nie plamą. „Nowy czat" prowadzi (obrys
+ * akcentu), „Nowa grupa" jest cichszym rodzeństwem obok.
+ */
+.zaczyn-rozmowy {
+  display: flex;
+  gap: var(--odstep-2);
+}
+.zaczyn-rozmowy > .glowny,
+.zaczyn-rozmowy > .nowy-czat {
+  flex: 1;
+  min-width: 0;
+}
+.grupa-przycisk { flex: none; }
+
+.nowy-czat {
+  display: flex;
+  gap: var(--odstep-2);
+  align-items: center;
+}
+.nowy-czat input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--dotyk-ikona);
+  font-size: .875rem;
+}
+
+/* --- Prośby o rozmowę ---------------------------------------------------- */
+
+/*
+ * Prośby stoją nad rozmowami, w zwijanej sekcji z licznikiem — nieproszona
+ * rozmowa nigdy nie miesza się z prawdziwymi. Licznik jest ZALANY, jak znacznik
+ * nieprzeczytanych: odpowiada na „ktoś czeka", a nie „to jest przycisk".
+ */
+.prosby {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-2);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-2);
+}
+.prosby-naglowek {
+  border-color: transparent;
+  justify-content: flex-start;
+  gap: var(--odstep-3);
+  min-height: var(--dotyk-ikona);
+  color: var(--tekst-drugi);
+}
+.prosby-naglowek:hover { color: var(--tekst); background: transparent; }
+.prosby-tytul { flex: 1; text-align: left; }
+
+.lista-prosb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-2);
+}
+.prosba {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  padding: var(--odstep-2);
+  border-radius: var(--promien-s);
+}
+.prosba-tresc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.prosba-nazwa { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prosba-podglad {
+  font-size: .8125rem;
+  color: var(--tekst-drugi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prosba-akcje { flex: none; display: flex; gap: var(--odstep-2); }
+
+/* --- Nowa grupa (okno) --------------------------------------------------- */
+
+.modal-karta.nowa-grupa {
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+}
+.pole-nazwy-grupy,
+.pole-nicku,
+.dodaj-po-nazwie label { display: flex; flex-direction: column; gap: var(--odstep-2); }
+
+.wybor-osob {
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  padding: var(--odstep-3) var(--odstep-4);
+  margin: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.wybor-osob legend {
+  padding: 0 var(--odstep-2);
+  font-size: .8125rem;
+  color: var(--tekst-drugi);
+}
+.wybor-osob ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.osoba-wybor {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--odstep-3);
+  padding: var(--odstep-2) 0;
+  cursor: pointer;
+}
+.osoba-wybor input { flex: none; width: auto; min-height: 0; }
+.osoba-wybor .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pole-z-przyciskiem { display: flex; gap: var(--odstep-2); align-items: center; }
+.pole-z-przyciskiem input { flex: 1; min-width: 0; }
+
+.dodani-po-nazwie {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--odstep-2);
+}
+.dodani-po-nazwie li {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  border: 1px solid var(--linia);
+  border-radius: 999px;
+  padding: var(--odstep-1) var(--odstep-2) var(--odstep-1) var(--odstep-3);
+  font-size: .8125rem;
+}
+
+/* --- Edytor nazwy grupy w inspektorze ------------------------------------ */
+
+.edytor-nazwy-grupy { display: flex; gap: var(--odstep-2); }
+.edytor-nazwy-grupy input { flex: 1; min-width: 0; font-size: .875rem; min-height: var(--dotyk-ikona); }
+.edytor-nazwy-grupy button { flex: none; width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }

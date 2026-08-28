@@ -31,6 +31,8 @@ const STATE_ID = "stan-mls";
 const ACCOUNT_ID = "konto";
 const HISTORY_ID = "historia";
 const REFRESH_ID = "token-odswiezajacy";
+const NAMES_ID = "nazwy-wspolne";
+const REQUESTS_ID = "prosby";
 
 const IV_BYTES = 12;
 
@@ -175,6 +177,43 @@ export async function saveHistory(history: Uint8Array): Promise<void> {
 
 export async function loadHistory(): Promise<Uint8Array | null> {
   const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(HISTORY_ID));
+  return packed ? decrypt(packed) : null;
+}
+
+/**
+ * Współdzielone nazwy — nazwy grup i nicki rozmówców — szyfrowane jak reszta.
+ *
+ * # Dlaczego to leży zaszyfrowane, a nie w localStorage
+ *
+ * Nazwa grupy „Ekipa z Bydgoszczy" i mapa `nazwa użytkownika → nick` to mapa
+ * społeczna: kto jest w jakiej grupie i jak się nazywa. Serwer jej nie widzi
+ * (metadane jadą wewnątrz MLS), więc nie ma powodu, żeby leżała jawnie na
+ * dysku, skoro reszta stanu rozmów i tak jest tu zaszyfrowana.
+ */
+export async function saveNames(bytes: Uint8Array): Promise<void> {
+  const packed = await encrypt(bytes);
+  await tx("readwrite", (store) => store.put(packed, NAMES_ID));
+}
+
+export async function loadNames(): Promise<Uint8Array | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(NAMES_ID));
+  return packed ? decrypt(packed) : null;
+}
+
+/**
+ * Stan próśb o rozmowę — zbiór zaakceptowanych rozmów, szyfrowany jak reszta.
+ *
+ * Trzymamy tu, kto już przeszedł przez „prośbę", bo to informacja o tym, z kim
+ * się zgodziliśmy rozmawiać — czyli znów fragment mapy społecznej, której
+ * serwer nie ma i mieć nie ma prawa.
+ */
+export async function saveRequests(bytes: Uint8Array): Promise<void> {
+  const packed = await encrypt(bytes);
+  await tx("readwrite", (store) => store.put(packed, REQUESTS_ID));
+}
+
+export async function loadRequests(): Promise<Uint8Array | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(REQUESTS_ID));
   return packed ? decrypt(packed) : null;
 }
 

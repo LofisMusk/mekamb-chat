@@ -1761,6 +1761,10 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   margin-top: auto;
   padding-top: var(--odstep-3);
   flex-wrap: wrap;
+  /* Zawsze nad kaflami — pas na wypadek, gdyby kafel jednak coś wypuścił. */
+  position: relative;
+  z-index: 1;
+  background: var(--tlo);
 }
 .rozmowa-przyciski button.ikonowy {
   width: 3.25rem;
@@ -1782,29 +1786,73 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   background: color-mix(in srgb, var(--alarm) 14%, transparent);
 }
 
-/* Ekran dzwonienia: kto dzwoni na środku, odpowiedź pod spodem. */
-.ekran-rozmowy.dzwoni { justify-content: center; text-align: center; }
+/*
+ * Ekran dzwonienia: karta na środku, tło przygaszone i rozmyte.
+ *
+ * To jeszcze nie rozmowa, tylko pytanie „odebrać?" — więc nie zabiera całego
+ * ekranu na czerń. `backdrop-filter` rozmywa to, co było pod spodem (wątek,
+ * lista), zostawiając kontekst; `-webkit-` obok, bo Safari na iOS wciąż go
+ * wymaga.
+ */
+.ekran-rozmowy.dzwoni {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  background: rgb(0 0 0 / .45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.panel-dzwonienia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-6);
+  width: min(21rem, 100%);
+  padding: var(--odstep-7) var(--odstep-5);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  box-shadow: 0 24px 64px rgb(0 0 0 / .5);
+}
 .rozmowa-kto {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--odstep-3);
-  margin: auto 0;
 }
 .rozmowa-kto strong { font-size: 1.375rem; }
 .rozmowa-podpis { color: var(--tekst-drugi); font-size: .875rem; }
 .awatar.duzy { width: 5rem; height: 5rem; font-size: 2rem; }
 
-/* Dzwoniąc, odpowiedź jest wyborem z trzech, nie trzema ikonami. */
-.ekran-rozmowy.dzwoni .rozmowa-przyciski button {
-  flex: 1;
-  min-width: 8rem;
-  border-radius: var(--promien-m);
+/* Trzy okrągłe przyciski z podpisem pod spodem. */
+.dzwoni-akcje {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--odstep-5);
 }
-.ekran-rozmowy.dzwoni .rozmowa-przyciski button.niszczacy {
-  border-color: var(--alarm);
-  color: var(--alarm);
+.akcja-dzwonienia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .75rem;
+  color: var(--tekst-drugi);
 }
+button.okragly {
+  width: 3.5rem;
+  height: 3.5rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+button.okragly.przyjmij { border-color: var(--akcent); color: var(--akcent); }
+button.okragly.przyjmij:hover { background: color-mix(in srgb, var(--akcent) 14%, transparent); }
+button.okragly.niszczacy { border-color: var(--alarm); color: var(--alarm); }
+button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%, transparent); }
 
 /*
  * Siatka kafelków: ja i rozmówcy, każdy z nazwą i drogą połączenia.
@@ -1824,6 +1872,17 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
      tu być, bo bez niego siatka rozpycha rodzica zamiast się w nim zmieścić. */
   flex: 1;
   min-height: 0;
+  /*
+   * Rzędy dzielą wysokość po równo i NIE wylewają się poza siatkę.
+   *
+   * Bez tego przy trzech–czterech osobach (dwa rzędy) kafle liczyły wysokość
+   * z własnej szerokości i rosły ponad miejsce, które siatka dostała — dolny
+   * rząd wchodził pod przyciski mikrofonu/kamery/rozłączenia. `minmax(0, 1fr)`
+   * każe rzędom zmieścić się w siatce, a `overflow: hidden` przycina resztę,
+   * więc kontrolki na dole zawsze stoją na czystym tle.
+   */
+  grid-auto-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 /*
  * Dwie kolumny dopiero wtedy, gdy okno jest szersze niż wysokie.

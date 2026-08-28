@@ -41,8 +41,33 @@ export interface ZrodlaRozruchu {
 }
 
 /** Zamienia cokolwiek, co zostało rzucone, w tekst dla użytkownika. */
+/**
+ * Surowe komunikaty przetłumaczone na ludzki język.
+ *
+ * # Dlaczego to tu, a nie w miejscu rzucania
+ *
+ * Część błędów nie pochodzi z naszego kodu — „duplicate signature key" wypada
+ * z biblioteki MLS w rdzeniu (openmls), gdy próbujesz dodać do rozmowy klucz,
+ * który już w niej jest, czyli w praktyce **napisać do samego siebie**. Takiego
+ * tekstu nie da się poprawić u źródła, bo źródłem jest zależność. `opisBledu`
+ * jest wspólnym lejkiem, przez który przechodzi każdy komunikat pokazywany
+ * użytkownikowi, więc to jedyne miejsce, gdzie tłumaczenie łapie WSZYSTKIE
+ * drogi naraz. Dopasowanie jest po fragmencie, bo pełny tekst biblioteki bywa
+ * dłuższy i zmienia się między wersjami.
+ */
+// Sieciowego „Failed to fetch" NIE tłumaczymy tutaj: `opisBledu` bywa wklejane
+// w środek zdania diagnostycznego („Serwer jest nieosiągalny (…)"), gdzie
+// druga wiadomość o połączeniu byłaby masłem maślanym. Tłumaczymy tylko błędy
+// DOMENOWE, które inaczej wychodzą użytkownikowi surowym żargonem biblioteki.
+const TLUMACZENIA: { wzorzec: RegExp; tekst: string }[] = [
+  { wzorzec: /duplicate signature|already.*member|is already in the group/i, tekst: "Nie możesz napisać do samego siebie." },
+  { wzorzec: /nie ma zarejestrowanych urządzeń/i, tekst: "Nie znaleziono takiego użytkownika." },
+  { wzorzec: /wolnych key packages/i, tekst: "Ta osoba musi otworzyć aplikację, zanim ją dodasz." },
+];
+
 export function opisBledu(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  const surowy = e instanceof Error ? e.message : String(e);
+  return TLUMACZENIA.find(({ wzorzec }) => wzorzec.test(surowy))?.tekst ?? surowy;
 }
 
 export async function ustalRozruch({

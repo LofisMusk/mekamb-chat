@@ -54,9 +54,34 @@ export function Pusto({
  * sam, bo błąd, który zdążył zniknąć, zanim go przeczytano, jest gorszy niż
  * żaden: użytkownik wie tylko tyle, że coś mignęło.
  */
+/**
+ * Pasek błędu, który sam znika po 5 sekundach.
+ *
+ * # Dlaczego znika, a wcześniej nie
+ *
+ * Baner wisiał aż do kliknięcia „×" — a większość komunikatów to rzecz, którą
+ * przeczytasz raz i chcesz, żeby zeszła z drogi. Zostawianie ich na ekranie
+ * zamieniało pomocną informację w natręta. Zegar startuje od nowa przy KAŻDEJ
+ * zmianie treści (`tekst` w zależnościach), więc dwa błędy pod rząd dostają po
+ * pełne 5 sekund, a nie resztkę cudzego okna. Najechanie kursorem pauzuje
+ * odliczanie — dłuższy komunikat da się doczytać, zanim zniknie.
+ */
 export function PasekBledu({ tekst, onZamknij }: { tekst: string; onZamknij: () => void }) {
+  const [zatrzymane, setZatrzymane] = useState(false);
+
+  useEffect(() => {
+    if (zatrzymane) return;
+    const id = setTimeout(onZamknij, 5000);
+    return () => clearTimeout(id);
+  }, [tekst, zatrzymane, onZamknij]);
+
   return (
-    <div className="blad" role="alert">
+    <div
+      className="blad"
+      role="alert"
+      onMouseEnter={() => setZatrzymane(true)}
+      onMouseLeave={() => setZatrzymane(false)}
+    >
       <Ikona nazwa="ostrzezenie" rozmiar={16} />
       <p>{tekst}</p>
       <button aria-label="Zamknij komunikat" onClick={onZamknij}>

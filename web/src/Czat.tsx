@@ -1278,7 +1278,6 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             nazwaGrupy={nazwyGrup[kluczRozmowy(groupId)] ?? ""}
             onZmienNazweGrupy={(nazwa) => void zmienNazweGrupy(groupId, nazwa)}
             nick={nick}
-            onBlad={onBlad}
           />
         </aside>
       )}

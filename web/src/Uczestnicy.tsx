@@ -17,7 +17,6 @@ export function Uczestnicy({
   nazwaGrupy,
   onZmienNazweGrupy,
   nick,
-  onBlad,
 }: {
   messenger: Messenger;
   groupId: Uint8Array;
@@ -27,12 +26,10 @@ export function Uczestnicy({
   onZmienNazweGrupy: (nazwa: string) => void;
   /** Nick rozmówcy do wyświetlenia — pod spodem zostaje nazwa użytkownika. */
   nick: (username: string) => string;
-  onBlad: (e: unknown) => void;
 }) {
-  const [nowy, setNowy] = useState("");
-  const [dodaje, setDodaje] = useState(false);
-  // Licznik wymusza odczytanie składu na nowo po każdej udanej zmianie.
-  const [odswiezenie, setOdswiezenie] = useState(0);
+  // Skład czytamy przy każdym otwarciu inspektora; dodawanie osób przeniosło
+  // się do „Nowej grupy", więc panel jest już tylko wglądem, nie edycją.
+  const [odswiezenie] = useState(0);
 
   /*
    * Skład czytamy OSTROŻNIE.
@@ -91,40 +88,6 @@ export function Uczestnicy({
             </li>
           ))}
         </ul>
-
-        <form
-          className="dodaj-osobe"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!nowy.trim()) return;
-
-            setDodaje(true);
-            try {
-              await messenger.addMember(groupId, nowy.trim());
-              setNowy("");
-              setOdswiezenie((n) => n + 1);
-            } catch (err) {
-              onBlad(err);
-            } finally {
-              setDodaje(false);
-            }
-          }}
-        >
-          <input
-            value={nowy}
-            onChange={(e) => setNowy(e.target.value)}
-            placeholder="Nazwa użytkownika · Username"
-            aria-label="Dodaj osobę do rozmowy · Add member"
-          />
-          <button disabled={dodaje} aria-label="Dodaj osobę" title="Dodaj osobę">
-            <Ikona nazwa={dodaje ? "zegar" : "dodaj"} rozmiar={16} />
-          </button>
-        </form>
-
-        <p className="wskazowka">
-          Nowa osoba zobaczy wiadomości wysłane od momentu dołączenia. Wcześniejszych nie da
-          się jej pokazać i jest to zamierzone.
-        </p>
       </section>
 
       <KodBezpieczenstwa messenger={messenger} groupId={groupId} odswiezenie={odswiezenie} />

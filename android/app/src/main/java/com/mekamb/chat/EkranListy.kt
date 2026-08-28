@@ -88,8 +88,11 @@ fun EkranListy(
      * Szukanie i licznik dotyczą wyłącznie zaakceptowanych — prośba nie ma
      * prawa udawać zwykłej rozmowy.
      */
-    val zaakceptowane = stan.rozmowy.filter { Historia.klucz(it.groupId) in stan.zaakceptowane }
-    val prosby = stan.rozmowy.filter { Historia.klucz(it.groupId) !in stan.zaakceptowane }
+    // Rozmowy w całości z osobami zablokowanymi znikają z obu list — DM
+    // z zablokowanym i grupa złożona z samych zablokowanych (patrz `Blokady.kt`).
+    val niezablokowane = stan.rozmowy.filterNot { model.czyCalaZablokowana(it.groupId) }
+    val zaakceptowane = niezablokowane.filter { Historia.klucz(it.groupId) in stan.zaakceptowane }
+    val prosby = niezablokowane.filter { Historia.klucz(it.groupId) !in stan.zaakceptowane }
 
     // Etykieta z nickami/nazwą grupy — po niej też szukamy, bo to ją widać.
     val etykieta: (PozycjaListy) -> String = { model.etykieta(it.groupId, it.rozmowca) }

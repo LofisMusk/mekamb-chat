@@ -26,11 +26,23 @@ import {
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
+  przytnijZnikajace,
   usunRozmowe,
   wczytajRozmowe,
   zapewnijRozmowe,
   zapiszRozmowe,
 } from "./lib/historia";
+import {
+  odblokuj as odblokujUzytkownika,
+  wczytajBlokady,
+  zablokuj as zablokujUzytkownika,
+} from "./lib/blokady";
+import {
+  graniceOdciecia,
+  ustawZnikanie,
+  wczytajZnikanie,
+  zapomnijZnikanie,
+} from "./lib/znikanie";
 import {
   type ZapisNazw,
   ustawMojNick,
@@ -171,6 +183,18 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [zaakceptowane, setZaakceptowane] = useState<Set<string>>(new Set());
 
   /*
+   * Zablokowane nazwy użytkowników i ustawienia znikania per rozmowa.
+   *
+   * Oba są lokalne i zaszyfrowane (patrz `blokady.ts`, `znikanie.ts`). Blokadę
+   * czytamy też przez referencję, bo obsługa koperty nie może zależeć od stanu —
+   * inaczej każda zmiana blokad zrywałaby połączenie ze skrzynką.
+   */
+  const [zablokowani, setZablokowani] = useState<Set<string>>(new Set());
+  const zablokowaniRef = useRef(zablokowani);
+  zablokowaniRef.current = zablokowani;
+  const [znikanie, setZnikanie] = useState<Record<string, number>>({});
+
+  /*
    * Obsługa dołączenia do nowej rozmowy (Welcome) czyta bieżący zbiór
    * zaakceptowanych przez referencję: wołanie zwrotne z messengera ustawiamy
    * raz i nie chcemy go przepinać przy każdej zmianie zbioru.
@@ -305,13 +329,42 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
    * w historii, ale spoza zbioru zaakceptowanych — trafia do osobnej sekcji,
    * nie między rozmowy, i nie podbija licznika nieprzeczytanych.
    */
+  /*
+   * Czy rozmowa jest w całości z osobami zablokowanymi.
+   *
+   * Ukrywamy DM z zablokowanym i grupę złożoną z samych zablokowanych — ale nie
+   * grupę, w której zablokowany jest JEDNYM z uczestników: chcesz w niej zostać,
+   * po prostu nie chcesz widzieć jego wiadomości (to odsiewa `dodaj`). Rozmowa
+   * bez stanu MLS albo „sam ze sobą" nie ma kogo blokować, więc zostaje.
+   */
+  const czyCalaZablokowana = useCallback(
+    (groupId: Uint8Array): boolean => {
+      if (zablokowani.size === 0) return false;
+      try {
+        const inni = messenger
+          .memberUserIds(groupId)
+          .filter((osoba) => osoba !== messenger.account.userId);
+        return inni.length > 0 && inni.every((osoba) => zablokowani.has(osoba));
+      } catch {
+        return false;
+      }
+    },
+    [zablokowani, messenger],
+  );
+
   const zaakceptowaneRozmowy = useMemo(
-    () => rozmowy.filter((p) => zaakceptowane.has(kluczRozmowy(p.groupId))),
-    [rozmowy, zaakceptowane],
+    () =>
+      rozmowy.filter(
+        (p) => zaakceptowane.has(kluczRozmowy(p.groupId)) && !czyCalaZablokowana(p.groupId),
+      ),
+    [rozmowy, zaakceptowane, czyCalaZablokowana],
   );
   const prosby = useMemo(
-    () => rozmowy.filter((p) => !zaakceptowane.has(kluczRozmowy(p.groupId))),
-    [rozmowy, zaakceptowane],
+    () =>
+      rozmowy.filter(
+        (p) => !zaakceptowane.has(kluczRozmowy(p.groupId)) && !czyCalaZablokowana(p.groupId),
+      ),
+    [rozmowy, zaakceptowane, czyCalaZablokowana],
   );
 
   const widoczne = useMemo(
@@ -395,6 +448,27 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   biezacaGrupa.current = groupId;
 
   /**
+   * Usuwa wiadomości, które przeżyły swój czas znikania.
+   *
+   * Liczy granice z bieżących ustawień i tnie zaszyfrowaną historię. Dla rozmowy
+   * otwartej na ekranie odejmuje przycięte też ze stanu — inaczej zniknęłyby
+   * z dysku, ale zostały na oczach do następnego wejścia. Wołane przy starcie,
+   * co minutę i zaraz po zmianie ustawienia, żeby skrócenie czasu działało od
+   * razu, a nie dopiero przy kolejnym tiku.
+   */
+  const przytnijTeraz = useCallback(async () => {
+    const granice = graniceOdciecia(znikanie, Date.now());
+    const zmieniono = await przytnijZnikajace(granice);
+    if (zmieniono) setRozmowy(await listaRozmow());
+
+    const otwarta = biezacaGrupa.current;
+    if (otwarta) {
+      const granica = granice[kluczRozmowy(otwarta)];
+      if (granica !== undefined) setWiadomosci((p) => p.filter((w) => w.czas >= granica));
+    }
+  }, [znikanie]);
+
+  /**
    * Nazwa rozmowy odtworzona ze składu grupy MLS.
    *
    * Potrzebna, gdy wiadomość przychodzi do rozmowy spoza ekranu: zapis na dysk
@@ -440,6 +514,17 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
        * wiarygodne źródło, bo pola spoza kanału MLS można podmienić.
        */
       const wlasna = odebrana.senderUserId === messenger.account.userId;
+
+      /*
+       * Zablokowanego nadawcę pomijamy tuż po rozpoznaniu, kto pisze.
+       *
+       * Kopertę i tak odszyfrowaliśmy — inaczej nie poznalibyśmy nadawcy
+       * z credentiala MLS, a tylko on jest wiarygodny. Ale dalej nie idzie:
+       * wiadomość nie dopisuje się do żadnej rozmowy, nie podbija licznika
+       * i nie wysyłamy za nią potwierdzenia dostarczenia. W grupie blokujemy
+       * po nadawcy, nie po całej rozmowie — reszta grupy pisze dalej.
+       */
+      if (!wlasna && zablokowaniRef.current.has(odebrana.senderUserId)) return;
 
       const wiadomosc: Wiadomosc = {
         id: idWiadomosci(odebrana.messageId),
@@ -623,6 +708,10 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       const ja = messenger.account.userId;
       const inni = czlonkowie.filter((osoba) => osoba !== ja);
 
+      // Zaproszenie od samych zablokowanych nie zakłada nawet prośby — dołączyć
+      // do grupy MLS musimy (Welcome już przetworzony), ale nie pokazujemy jej.
+      if (inni.length > 0 && inni.every((osoba) => zablokowaniRef.current.has(osoba))) return;
+
       const accepted = zaakceptowaneRef.current;
       const pozycje = await listaRozmow();
       const kontakty = new Set<string>();
@@ -716,8 +805,16 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           setGrupaRozmowy(odebrana.groupId);
           setSygnalRozmowy({ ...odebrana.call, nadawca: odebrana.senderUserId });
         } else if (odebrana) {
-          dodaj(odebrana);
-          if (!biezacaGrupa.current) otworzRozmowe(odebrana.groupId);
+          // Zablokowany nadawca nie dopisuje wiadomości ANI nie otwiera rozmowy:
+          // bez tego jego wiadomość, choć niepokazana, wskoczyłaby na ekran jako
+          // świeżo otwarty wątek. `dodaj` też go pomija, ale otwarcie jest tutaj.
+          const zablokowanyNadawca =
+            odebrana.senderUserId !== messenger.account.userId &&
+            zablokowaniRef.current.has(odebrana.senderUserId);
+          if (!zablokowanyNadawca) {
+            dodaj(odebrana);
+            if (!biezacaGrupa.current) otworzRozmowe(odebrana.groupId);
+          }
         }
         poSukcesie(nieudane.current, String(id));
       } catch (err) {
@@ -875,6 +972,28 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       aktualne = false;
     };
   }, []);
+
+  // Blokady i ustawienia znikania z dysku — zasiane raz przy starcie.
+  useEffect(() => {
+    let aktualne = true;
+    void wczytajBlokady().then((b) => aktualne && setZablokowani(new Set(b)));
+    void wczytajZnikanie().then((z) => aktualne && setZnikanie({ ...z }));
+    return () => {
+      aktualne = false;
+    };
+  }, []);
+
+  /*
+   * Zamiatanie znikających wiadomości: raz przy zmianie ustawień i dalej co
+   * minutę. Minuta wystarcza — znikanie jest o retencji, nie o sekundach; a przy
+   * zmianie ustawienia tniemy od razu, żeby świeżo skrócony czas zadziałał
+   * natychmiast, zamiast czekać na tik.
+   */
+  useEffect(() => {
+    void przytnijTeraz();
+    const tik = setInterval(() => void przytnijTeraz(), 60_000);
+    return () => clearInterval(tik);
+  }, [przytnijTeraz]);
 
   /*
    * Nazwa rozmowy pochodzi z drzewa MLS, nie ze stanu interfejsu.
@@ -1092,6 +1211,84 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     }
   };
 
+  /** Blokuje osobę po nazwie użytkownika. Filtrowanie robią listy i `dodaj`. */
+  const zablokuj = async (username: string) => {
+    try {
+      setZablokowani(new Set(await zablokujUzytkownika(username)));
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /** Zdejmuje blokadę — rozmowy i wiadomości tej osoby wracają. */
+  const odblokuj = async (username: string) => {
+    try {
+      setZablokowani(new Set(await odblokujUzytkownika(username)));
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /**
+   * Ustawia (albo wyłącza, przez `null`) znikanie dla rozmowy.
+   *
+   * Samo przycięcie odpala efekt zamiatania: zmiana `znikanie` odtwarza
+   * `przytnijTeraz`, a ten jest zależnością efektu, więc tnie od razu ze świeżymi
+   * granicami — nie trzeba tu wołać go ręcznie (i tak zamknąłby się nad starą
+   * mapą z domknięcia).
+   */
+  const zmienZnikanie = async (grupa: Uint8Array, sekundy: number | null) => {
+    try {
+      setZnikanie({ ...(await ustawZnikanie(grupa, sekundy)) });
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
+  /**
+   * Dodaje osobę do istniejącej rozmowy — rozbudowa grupy (albo DM → grupa).
+   *
+   * Rzuca dalej, żeby panel zostawił pole otwarte przy błędzie (np. brak
+   * urządzeń albo wolnych key packages); użytkownik widzi powód przez `onBlad`.
+   * Nick niesiemy metadaną, żeby nowy uczestnik od razu zobaczył nas tak, jak
+   * chcemy.
+   */
+  const dodajOsobe = async (grupa: Uint8Array, username: string) => {
+    try {
+      await messenger.addMember(grupa, username);
+      if (mojNick.trim()) {
+        await messenger.sendMetadata(grupa, { displayName: mojNick.trim() }).catch(() => {});
+      }
+      setRozmowy(await listaRozmow());
+    } catch (err) {
+      onBlad(err);
+      throw err;
+    }
+  };
+
+  /**
+   * Opuszcza grupę — wychodzi z MLS i kasuje ją lokalnie.
+   *
+   * Ta sama droga co odrzucenie prośby (`opuscGrupe` wysyła propozycję
+   * SelfRemove, pozostający ją zamknie), plus sprzątanie lokalnych ustawień tej
+   * rozmowy. Wyjście jest best-effort: gdyby rozesłanie nie przeszło (offline),
+   * i tak chowamy rozmowę u siebie.
+   */
+  const opuscGrupe = async (grupa: Uint8Array) => {
+    try {
+      if (groupId && kluczRozmowy(groupId) === kluczRozmowy(grupa)) {
+        otworzRozmowe(null);
+      }
+      await messenger.opuscGrupe(grupa).catch((err) => onBlad(err));
+      await zapomnijProsbe(grupa);
+      setZnikanie({ ...(await zapomnijZnikanie(grupa)) });
+      await usunRozmowe(grupa);
+      setRozmowy(await listaRozmow());
+    } catch (err) {
+      onBlad(err);
+    }
+  };
+
   /*
    * Ekran rozmowy A/V stoi PONAD układem, a nie w środku wątku.
    *
@@ -1195,6 +1392,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
               otworzRozmowe(null);
             }
+            void zapomnijZnikanie(pozycja.groupId).then((z) => setZnikanie({ ...z }));
             void zapomnijProsbe(pozycja.groupId)
               .then(() => usunRozmowe(pozycja.groupId))
               .then(() => listaRozmow())
@@ -1247,6 +1445,9 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             odczyt={odczyt}
             mojNick={mojNick}
             onNick={zmienMojNick}
+            zablokowani={zablokowani}
+            nick={nick}
+            onOdblokuj={(username) => void odblokuj(username)}
             onOdczyt={(wlaczony) => {
               ustawOdczyt(wlaczony);
               setOdczyt(wlaczony);
@@ -1278,6 +1479,13 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             nazwaGrupy={nazwyGrup[kluczRozmowy(groupId)] ?? ""}
             onZmienNazweGrupy={(nazwa) => void zmienNazweGrupy(groupId, nazwa)}
             nick={nick}
+            zablokowani={zablokowani}
+            onZablokuj={(username) => void zablokuj(username)}
+            onOdblokuj={(username) => void odblokuj(username)}
+            onDodajOsobe={(username) => dodajOsobe(groupId, username)}
+            onOpuscGrupe={() => void opuscGrupe(groupId)}
+            znikanieSekundy={znikanie[kluczRozmowy(groupId)] ?? null}
+            onZnikanie={(sekundy) => void zmienZnikanie(groupId, sekundy)}
           />
         </aside>
       )}
@@ -1593,7 +1801,11 @@ function WierszRozmowy({
   const odslania = przesuniecie !== 0 || odsloniete;
 
   return (
-    <li className={odslania ? "pozycja-rozmowy odslania" : "pozycja-rozmowy"}>
+    <li
+      className={["pozycja-rozmowy", odslania ? "odslania" : "", menuOtwarte ? "menu-otwarte" : ""]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <button
         type="button"
         className="wiersz-usun"
@@ -2011,6 +2223,21 @@ function Watek({
           onChange={(e) => setTresc(e.target.value)}
           placeholder="Napisz wiadomość"
           aria-label="Treść wiadomości"
+          onPaste={(e) => {
+            /*
+             * Wklejone zdjęcie ląduje w wiadomości, nie w polu tekstowym.
+             *
+             * Zrzut ekranu albo skopiowany obraz trafia do schowka jako plik —
+             * wcześniej `paste` nie robił z nim nic (pole tekstowe ignoruje
+             * pliki), więc gest, który wszędzie indziej „wkleja obrazek",
+             * tutaj po cichu przepadał. Sam tekst zostawiamy polu: `preventDefault`
+             * tylko wtedy, gdy naprawdę mamy obraz do wysłania.
+             */
+            const plik = obrazZeSchowka(e.clipboardData);
+            if (!plik) return;
+            e.preventDefault();
+            void wyslijPlik(messenger, groupId, plik, setWiadomosci, setWLocie, onBlad);
+          }}
           onKeyDown={(e) => {
             /*
              * Enter wysyła, Shift+Enter łamie wiersz.
@@ -2179,6 +2406,79 @@ function duzaLitera(tekst: string): string {
 }
 
 /**
+ * Wysyła jeden plik jako załącznik i nanosi go na wątek.
+ *
+ * Wyniesione z `DolaczPlik`, bo załącznik może teraz wejść dwiema drogami:
+ * spinaczem i wklejeniem ze schowka (Ctrl/⌘+V). Obie robią dokładnie to samo,
+ * więc robi to jedna funkcja — inaczej wklejanie i dołączanie rozjechałyby się
+ * przy pierwszej poprawce w jednej z nich.
+ */
+async function wyslijPlik(
+  messenger: Messenger,
+  groupId: Uint8Array,
+  plik: File,
+  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>,
+  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>,
+  onBlad: (e: unknown) => void,
+): Promise<void> {
+  // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie metadanych,
+  // szyfrowanie i wysyłka. Bez znacznika wygląda to jak zawieszenie.
+  const id = crypto.randomUUID();
+  const nazwa = plik.name || "zdjęcie";
+  setWLocie((p) => [...p, { id, tresc: `wysyłam: ${nazwa}`, czas: Date.now(), blad: false }]);
+
+  try {
+    const { stripped, messageId, zalacznik } = await messenger.sendFile(groupId, plik);
+
+    /*
+     * Własne zdjęcie jest ZDJĘCIEM, nie napisem „wysłano: kot.jpg".
+     *
+     * Tak było wcześniej i wyglądało na uszkodzoną wiadomość: druga strona
+     * widziała obraz, nadawca nazwę pliku. Opis załącznika wraca teraz
+     * z `sendFile`, więc własny dymek rysuje ten sam składnik co cudzy
+     * i odszyfrowuje ten sam szyfrogram.
+     *
+     * Treść zostaje pusta, gdy wszystko poszło dobrze. Nieudane czyszczenie
+     * metadanych mówimy wprost — użytkownik ma prawo wiedzieć, że akurat ten
+     * plik poszedł ze współrzędnymi, i jest to jedyna rzecz, z którą może coś
+     * zrobić.
+     */
+    setWiadomosci((p) => [
+      ...p,
+      {
+        id: messageId,
+        autor: "Ty",
+        tresc: stripped ? "" : "nie udało się usunąć metadanych z tego pliku",
+        czas: Date.now(),
+        wlasna: true,
+        zalacznik,
+      },
+    ]);
+    setWLocie((p) => p.filter((w) => w.id !== id));
+  } catch (err) {
+    setWLocie((p) => p.map((w) => (w.id === id ? { ...w, tresc: nazwa, blad: true } : w)));
+    onBlad(err);
+  }
+}
+
+/**
+ * Wyławia zdjęcie ze zdarzenia wklejenia.
+ *
+ * Zwraca pierwszy plik obrazkowy w schowku albo `null`. Wklejenie samego tekstu
+ * (najczęstszy przypadek) nie ma tu nic i zostawiamy je polu tekstowemu.
+ */
+function obrazZeSchowka(dane: DataTransfer | null): File | null {
+  if (!dane) return null;
+  for (const element of dane.items) {
+    if (element.kind === "file" && element.type.startsWith("image/")) {
+      const plik = element.getAsFile();
+      if (plik) return plik;
+    }
+  }
+  return null;
+}
+
+/**
  * Spinacz przy polu, nie prostokąt nad nim.
  *
  * Wielki obszar „Dołącz zdjęcie lub wideo" zajmował tyle miejsca co dwie
@@ -2207,50 +2507,7 @@ function DolaczPlik({
           // Czyścimy pole od razu, żeby dało się wysłać ten sam plik dwa razy.
           e.target.value = "";
           if (!plik) return;
-
-          // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie
-          // metadanych, szyfrowanie i wysyłka. Bez znacznika wygląda to
-          // jak zawieszenie.
-          const id = crypto.randomUUID();
-          setWLocie((p) => [
-            ...p,
-            { id, tresc: `wysyłam: ${plik.name}`, czas: Date.now(), blad: false },
-          ]);
-
-          try {
-            const { stripped, messageId, zalacznik } = await messenger.sendFile(groupId, plik);
-
-            /*
-             * Własne zdjęcie jest ZDJĘCIEM, nie napisem „wysłano: kot.jpg".
-             *
-             * Tak było wcześniej i wyglądało na uszkodzoną wiadomość: druga
-             * strona widziała obraz, nadawca nazwę pliku. Opis załącznika wraca
-             * teraz z `sendFile`, więc własny dymek rysuje ten sam składnik co
-             * cudzy i odszyfrowuje ten sam szyfrogram.
-             *
-             * Treść zostaje pusta, gdy wszystko poszło dobrze. Nieudane
-             * czyszczenie metadanych mówimy wprost — użytkownik ma prawo
-             * wiedzieć, że akurat ten plik poszedł ze współrzędnymi, i jest to
-             * jedyna rzecz, z którą może coś zrobić.
-             */
-            setWiadomosci((p) => [
-              ...p,
-              {
-                id: messageId,
-                autor: "Ty",
-                tresc: stripped ? "" : "nie udało się usunąć metadanych z tego pliku",
-                czas: Date.now(),
-                wlasna: true,
-                zalacznik,
-              },
-            ]);
-            setWLocie((p) => p.filter((w) => w.id !== id));
-          } catch (err) {
-            setWLocie((p) =>
-              p.map((w) => (w.id === id ? { ...w, tresc: plik.name, blad: true } : w)),
-            );
-            onBlad(err);
-          }
+          await wyslijPlik(messenger, groupId, plik, setWiadomosci, setWLocie, onBlad);
         }}
       />
       <Ikona nazwa="spinacz" rozmiar={18} />
@@ -2492,6 +2749,9 @@ function Konto({
   odczyt,
   mojNick,
   onNick,
+  zablokowani,
+  nick,
+  onOdblokuj,
   onOdczyt,
   onBlad,
 }: {
@@ -2501,6 +2761,9 @@ function Konto({
   odczyt: boolean;
   mojNick: string;
   onNick: (nick: string) => void;
+  zablokowani: Set<string>;
+  nick: (username: string) => string;
+  onOdblokuj: (username: string) => void;
   onOdczyt: (wlaczony: boolean) => void;
   onBlad: (e: unknown) => void;
 }) {
@@ -2627,6 +2890,36 @@ function Konto({
             Kiedy je wyłączysz, przestaniesz też widzieć cudze.
           </p>
         </div>
+
+        {/*
+          Zablokowani — jedyne miejsce, z którego da się ich odblokować.
+
+          Blokada ukrywa rozmowę z tą osobą, więc panelu uczestników już się nie
+          otworzy: gdyby odblokowanie było tylko tam, blokada byłaby pułapką bez
+          wyjścia. Karta pojawia się dopiero, gdy jest kogo pokazać.
+        */}
+        {zablokowani.size > 0 && (
+          <div className="karta">
+            <strong>Zablokowani</strong>
+            <p className="wskazowka">
+              Nie dostajesz od nich wiadomości ani zaproszeń. Odblokowanie
+              przywraca rozmowy i wszystko, co przyszło w międzyczasie.
+            </p>
+            <ul className="lista-zablokowanych">
+              {[...zablokowani].sort((a, b) => a.localeCompare(b)).map((osoba) => (
+                <li key={osoba}>
+                  <span className="awatar maly" aria-hidden="true">
+                    {nick(osoba).slice(0, 1)}
+                  </span>
+                  <span className="kto">{nick(osoba)}</span>
+                  <button type="button" className="cichy" onClick={() => onOdblokuj(osoba)}>
+                    Odblokuj
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Bez opisu: przełącznik z trzema podpisanymi opcjami mówi wszystko,
             co da się o nim powiedzieć. */}

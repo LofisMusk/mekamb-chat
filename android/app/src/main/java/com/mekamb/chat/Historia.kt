@@ -480,6 +480,38 @@ class Historia(private val vault: Vault) {
     }
 
     /**
+     * Usuwa wiadomości starsze niż granica podana dla ich rozmowy — znikanie.
+     *
+     * `granice` to `klucz rozmowy → najstarsza chwila do zachowania`: wiadomość
+     * z czasem OSTRO starszym przepada, razem ze śladami po rozmowach A/V — to
+     * też historia, której użytkownik nie chce trzymać dłużej niż ustawił.
+     * Rozmowy spoza mapy zostają nietknięte. Zwraca `true`, jeśli cokolwiek
+     * usunięto — wtedy wołający odświeża listę i otwarty wątek.
+     */
+    @Synchronized
+    fun przytnijZnikajace(granice: Map<String, Long>): Boolean {
+        if (granice.isEmpty()) return false
+
+        val zapis = wczytajWszystko()
+        var zmieniono = false
+        var rozmowy = zapis.rozmowy
+
+        for ((klucz, granica) in granice) {
+            val rozmowa = rozmowy[klucz] ?: continue
+            val zostaja = rozmowa.wiadomosci.filter { it.czas >= granica }
+            if (zostaja.size == rozmowa.wiadomosci.size) continue
+
+            rozmowy = rozmowy + (klucz to rozmowa.copy(wiadomosci = zostaja))
+            zmieniono = true
+        }
+
+        if (zmieniono) {
+            vault.saveHistory(json.encodeToString(zapis.copy(rozmowy = rozmowy)).toByteArray())
+        }
+        return zmieniono
+    }
+
+    /**
      * Wszystkie rozmowy, od najświeższej.
      *
      * Kolejność po czasie ostatniej wiadomości, a nie po nazwie: lista ma

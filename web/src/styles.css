@@ -1156,6 +1156,22 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .zaslona-menu { position: fixed; inset: 0; z-index: 2; background: transparent; border: none; }
 
 /*
+ * Wiersz z OTWARTYM menu przestaje przycinać swoją zawartość.
+ *
+ * `.pozycja-rozmowy` ma `overflow: hidden` dla gestu przeciągnięcia (chowa
+ * przycisk kosza zjeżdżający spod wiersza). To samo przycinanie ucinało jednak
+ * menu kebaba, które opada NIŻEJ niż dół wiersza — dropdown pojawiał się
+ * obcięty do wysokości wiersza i wchodził na sąsiada pod spodem. Menu jest
+ * desktopowe, a gest dotykowy, więc gdy menu jest otwarte, przycinania i tak
+ * nie potrzebujemy: puszczamy zawartość na wierzch i podnosimy wiersz nad te
+ * pod nim, żeby dropdown je przykrył, a nie odwrotnie.
+ */
+.pozycja-rozmowy.menu-otwarte {
+  overflow: visible;
+  z-index: 5;
+}
+
+/*
  * Potwierdzenie usunięcia rozmowy.
  *
  * Kasowanie jest nieodwracalne (historia jest tylko na tym urządzeniu), więc
@@ -1651,6 +1667,59 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 .zalacznik-pobierz:hover { background: color-mix(in srgb, var(--tekst) 8%, transparent); }
 
+/*
+ * Zdjęcie jako przycisk: kliknięcie powiększa je na pełny ekran.
+ *
+ * Przycisk, a nie samo `<img onclick>`, bo powiększenie to akcja — ma być
+ * osiągalne z klawiatury i czytane przez czytnik ekranu. Kadr zostaje dokładnie
+ * taki jak zdjęcia w wątku; zmienia się tylko kursor i lekkie podniesienie na
+ * najechanie, żeby było widać, że da się w nie kliknąć.
+ */
+.zalacznik-obraz {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  border-radius: calc(var(--promien-babel) - 4px);
+}
+.zalacznik-obraz .zalacznik { transition: filter .12s ease; }
+.zalacznik-obraz:hover .zalacznik { filter: brightness(1.06); }
+
+/*
+ * Nakładka zdjęcia na pełny ekran.
+ *
+ * Ponad wszystkim (`z-index` wyżej niż modale i ekran rozmowy), przygaszone tło,
+ * zdjęcie wpisane w widok bez przycinania. Klik w tło i krzyżyk zamykają;
+ * kliknięcie w samo zdjęcie nie — patrz `Pelnoekranowy`.
+ */
+.nakladka-zdjecia {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--odstep-6);
+  background: rgb(0 0 0 / .82);
+  cursor: zoom-out;
+}
+.zdjecie-pelne {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--promien-s);
+  cursor: default;
+}
+.zamknij-zdjecie {
+  position: absolute;
+  top: var(--odstep-4);
+  right: var(--odstep-4);
+  color: #fff;
+  background: rgb(255 255 255 / .12);
+}
+.zamknij-zdjecie:hover { background: rgb(255 255 255 / .22); }
+
 /* Placeholder na czas odszyfrowywania zdjęcia albo nagrania. */
 .zalacznik-czeka {
   display: flex;
@@ -1683,6 +1752,65 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   padding: var(--odstep-2) 0;
 }
 .lista-osob .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Blokada osoby stoi przy niej; przygaszona, aż wiersz jest pod kursorem. */
+.ikonowy.maly { width: 1.9rem; height: 1.9rem; padding: 0; color: var(--tekst-trzeci); }
+.lista-osob li .ikonowy.maly { opacity: .6; transition: opacity .12s ease, color .12s ease; }
+.lista-osob li:hover .ikonowy.maly { opacity: 1; }
+.ikonowy.maly:hover { color: var(--alarm); background: var(--alarm-tlo); }
+
+/* Dodawanie osoby: pole + „dodaj" + „anuluj", jak „Nowy czat". */
+.dodaj-osobe { display: flex; gap: var(--odstep-2); align-items: center; }
+.dodaj-osobe input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--dotyk-ikona);
+  padding: 0 .7rem;
+  border: 1px solid var(--linia);
+  background: var(--pole);
+  border-radius: 10px;
+  font-size: .875rem;
+}
+
+/*
+ * Wybór czasu znikania: „chipy" — obrysowane, akcent jako linia.
+ *
+ * Wybrany chip zaznaczamy linią akcentu, nie plamą (reguła Nocturne). „Wyłącz"
+ * niesie alarm, też jako linię.
+ */
+.wybor-znikania { display: flex; flex-wrap: wrap; gap: var(--odstep-2); }
+.chip {
+  padding: .3rem .7rem;
+  font-size: .8125rem;
+  border: 1px solid var(--linia-mocna);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tekst-drugi);
+}
+.chip:hover { background: var(--karta-hover); }
+.chip.aktywny {
+  border-color: var(--akcent);
+  color: var(--akcent-tekst);
+}
+.chip.niszczacy-chip { border-color: var(--alarm); color: var(--alarm); }
+.chip.niszczacy-chip:hover { background: var(--alarm-tlo); }
+
+.wlasny-czas { display: flex; gap: var(--odstep-2); align-items: center; margin-top: var(--odstep-2); }
+.wlasny-czas input { width: 4rem; min-height: var(--dotyk-ikona); padding: 0 .5rem; border: 1px solid var(--linia); background: var(--pole); border-radius: 10px; }
+.wlasny-czas select { flex: 1; min-width: 0; min-height: var(--dotyk-ikona); padding: 0 .5rem; border: 1px solid var(--linia); background: var(--pole); border-radius: 10px; color: var(--tekst); }
+.wlasny-czas .glowny { flex: none; }
+
+/* Opuszczenie grupy: za linią, na dole panelu — jak strefa kasowania konta. */
+.strefa-opuszczenia {
+  margin-top: var(--odstep-3);
+  padding-top: var(--odstep-4);
+  border-top: 1px solid var(--linia);
+}
+.strefa-opuszczenia .niszczacy { width: 100%; justify-content: center; }
+
+/* Lista zablokowanych w panelu konta. */
+.lista-zablokowanych { list-style: none; margin: var(--odstep-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.lista-zablokowanych li { display: flex; align-items: center; gap: var(--odstep-3); font-size: .875rem; }
+.lista-zablokowanych .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .safety-kod {
   display: block;

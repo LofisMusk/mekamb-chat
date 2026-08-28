@@ -33,6 +33,8 @@ const HISTORY_ID = "historia";
 const REFRESH_ID = "token-odswiezajacy";
 const NAMES_ID = "nazwy-wspolne";
 const REQUESTS_ID = "prosby";
+const BLOCKED_ID = "zablokowani";
+const EPHEMERAL_ID = "znikanie";
 
 const IV_BYTES = 12;
 
@@ -214,6 +216,44 @@ export async function saveRequests(bytes: Uint8Array): Promise<void> {
 
 export async function loadRequests(): Promise<Uint8Array | null> {
   const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(REQUESTS_ID));
+  return packed ? decrypt(packed) : null;
+}
+
+/**
+ * Lista zablokowanych nazw użytkowników — szyfrowana jak reszta skarbca.
+ *
+ * Kto kogo blokuje, to znów fragment mapy społecznej, której serwer nie zna
+ * i znać nie ma prawa: blokada jest decyzją TEGO urządzenia, egzekwowaną
+ * lokalnie (patrz [`blokady.ts`]). Protokół jej nie wymusza — nie da się
+ * ogłosić serwerowi „nie przyjmuj od tej osoby", bo depozyt do skrzynki nie
+ * niesie tożsamości nadawcy (patrz inwariant o tokenach doręczeniowych).
+ */
+export async function saveBlocked(bytes: Uint8Array): Promise<void> {
+  const packed = await encrypt(bytes);
+  await tx("readwrite", (store) => store.put(packed, BLOCKED_ID));
+}
+
+export async function loadBlocked(): Promise<Uint8Array | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(BLOCKED_ID));
+  return packed ? decrypt(packed) : null;
+}
+
+/**
+ * Ustawienia znikania wiadomości per rozmowa — szyfrowane jak reszta.
+ *
+ * Trzyma, po ilu sekundach wiadomości danej rozmowy mają być usuwane z tego
+ * urządzenia. To ustawienie RETENCJI LOKALNEJ, nie uzgadniane z rozmówcą:
+ * historia i tak żyje wyłącznie tutaj (patrz [`historia.ts`]), więc „znikanie"
+ * znaczy „nie trzymaj tego u siebie dłużej niż X", a nie „skasuj to drugiej
+ * stronie". Domyślnie wyłączone dla każdej rozmowy (patrz [`znikanie.ts`]).
+ */
+export async function saveEphemeral(bytes: Uint8Array): Promise<void> {
+  const packed = await encrypt(bytes);
+  await tx("readwrite", (store) => store.put(packed, EPHEMERAL_ID));
+}
+
+export async function loadEphemeral(): Promise<Uint8Array | null> {
+  const packed = await tx<ArrayBuffer | undefined>("readonly", (store) => store.get(EPHEMERAL_ID));
   return packed ? decrypt(packed) : null;
 }
 

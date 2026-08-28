@@ -340,6 +340,61 @@ impl MekambClient {
         }))
     }
 
+    /// Opuszcza rozmowę — usuwa **własny** liść i porzuca ją lokalnie.
+    ///
+    /// Zwraca **zaenvelopowane** bajty (rodzaj `commit`) gotowe do rozesłania
+    /// pozostałym członkom bez dalszego pakowania — po wyjściu klient tej grupy
+    /// już nie zna, więc nie mógłby ich potem opakować sam. Wewnątrz siedzi
+    /// propozycja SelfRemove: to **pozostały** członek zamyka ją commitem
+    /// (`commitPending`) i dopiero jego commit usuwa nasz liść u wszystkich.
+    /// Uzasadnienie „czemu propozycja, nie commit" — w `Conversation::stage_self_removal`.
+    ///
+    /// Rozmowa znika z klienta natychmiast: po wyjściu nie wolno jej już ani
+    /// wysyłać, ani odbierać.
+    #[wasm_bindgen(js_name = leaveConversation)]
+    pub fn leave_conversation(&mut self, group_id: &[u8]) -> Result<Vec<u8>, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let propozycja = pobierz_mut(conversations, group_id)?
+            .stage_self_removal(provider, identity)
+            .map_err(to_js)?;
+
+        let koperta =
+            mekamb_core::Envelope::new(group_id, mekamb_core::EnvelopeKind::Commit, propozycja)
+                .encode_to_vec();
+
+        conversations.remove(group_id);
+        Ok(koperta)
+    }
+
+    /// Zamyka commitem propozycje w kolejce — np. cudze wyjście z rozmowy.
+    ///
+    /// Po odebraniu propozycji SelfRemove (`receive` zwraca `membership-changed`
+    /// dopiero po commicie, a propozycję sygnalizuje `proposal-queued`) wołający
+    /// zajmuje nią epokę: commit idzie do `GroupRelay`, a scala go
+    /// `confirmCommit`. Bez tego liść wychodzącego zostałby w drzewie.
+    #[wasm_bindgen(js_name = commitPending)]
+    pub fn commit_pending(&mut self, group_id: &[u8]) -> Result<PendingCommitJs, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let pending = pobierz_mut(conversations, group_id)?
+            .stage_commit_pending(provider, identity)
+            .map_err(to_js)?;
+
+        Ok(PendingCommitJs {
+            commit: pending.commit,
+            welcome: pending.welcome,
+        })
+    }
+
     #[wasm_bindgen(js_name = confirmCommit)]
     pub fn confirm_commit(&mut self, group_id: &[u8]) -> Result<(), JsError> {
         let Self {

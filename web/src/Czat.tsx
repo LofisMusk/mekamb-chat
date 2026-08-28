@@ -1040,18 +1040,20 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   };
 
   /**
-   * Odrzuca prośbę: ukrywa rozmowę lokalnie.
+   * Odrzuca prośbę: NAPRAWDĘ wychodzi z grupy MLS i kasuje ją lokalnie.
    *
-   * Nie opuszczamy grupy MLS — rdzeń nie ma na to drogi, a „nie chcę tego
-   * widzieć" to nie „wypisz mnie". Kasujemy lokalną historię; anty-flood działa,
-   * bo nieproszona rozmowa nigdy nie wpadła między prawdziwe. Gdyby nadawca
-   * napisał znowu, wróci znów jako prośba, nie na listę.
+   * „Wypisz mnie", nie tylko „nie chcę tego widzieć": `opuscGrupe` wysyła
+   * propozycję SelfRemove, a pozostający ją zamknie, więc nadawca dowiaduje się,
+   * że go nie ma. Wyjście jest best-effort — gdyby rozesłanie nie przeszło
+   * (offline), i tak ukrywamy prośbę, żeby nie wracała na oczy; wtedy nasz liść
+   * zostaje w grupie do następnej okazji, ale z listy prośba znika.
    */
   const odrzucProsbe = async (pozycja: PozycjaListy) => {
     try {
       if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
         otworzRozmowe(null);
       }
+      await messenger.opuscGrupe(pozycja.groupId).catch((err) => onBlad(err));
       await zapomnijProsbe(pozycja.groupId);
       await usunRozmowe(pozycja.groupId);
       setRozmowy(await listaRozmow());

@@ -563,6 +563,72 @@ impl MekambClient {
         }))
     }
 
+    /// Opuszcza rozmowę — usuwa **własny** liść i porzuca ją lokalnie.
+    ///
+    /// Zwraca **zaenvelopowaną** kopertę (rodzaj `commit`) gotową do rozesłania
+    /// pozostałym członkom bez dalszego pakowania — po wyjściu klient tej grupy
+    /// już nie zna, więc nie mógłby jej potem opakować sam. Wewnątrz siedzi
+    /// propozycja SelfRemove: to **pozostały** członek zamyka ją commitem
+    /// (`commit_pending`) i dopiero jego commit usuwa nasz liść u wszystkich.
+    /// Uzasadnienie „czemu propozycja, nie commit" — w `Conversation::stage_self_removal`.
+    ///
+    /// Rozmowa znika z klienta natychmiast: po wyjściu nie wolno jej już ani
+    /// wysyłać, ani odbierać.
+    pub fn leave_conversation(&self, group_id: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let propozycja = conversation.stage_self_removal(provider, identity)?;
+        let koperta = Envelope::new(&group_id, EnvelopeKind::Commit, propozycja).encode_to_vec();
+
+        conversations.remove(&group_id);
+        Ok(koperta)
+    }
+
+    /// Zamyka commitem propozycje w kolejce — np. cudze wyjście z rozmowy.
+    ///
+    /// Po odebraniu propozycji SelfRemove wołający zajmuje nią epokę: commit
+    /// idzie do `GroupRelay`, a scala go `confirm_commit`. Bez tego liść
+    /// wychodzącego zostałby w drzewie.
+    pub fn commit_pending(&self, group_id: Vec<u8>) -> Result<PendingCommit, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let pending = conversation.stage_commit_pending(provider, identity)?;
+
+        // Envelopujemy jak `add_members`: koperta rodzaju `commit` gotowa do
+        // rozesłania. Welcome tu nie będzie (zamykamy usunięcie, nie dodanie),
+        // ale zachowujemy kształt na wypadek innych propozycji w kolejce.
+        Ok(PendingCommit {
+            commit: Envelope::new(&group_id, EnvelopeKind::Commit, pending.commit).encode_to_vec(),
+            welcome: pending.welcome.map(|welcome| {
+                Envelope::new(&group_id, EnvelopeKind::Welcome, welcome).encode_to_vec()
+            }),
+        })
+    }
+
     pub fn confirm_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
         let ClientState {

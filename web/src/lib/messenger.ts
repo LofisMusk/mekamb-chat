@@ -430,6 +430,33 @@ export class Messenger {
     await api.del(`/devices/${encodeURIComponent(deviceId)}`, this.token);
   }
 
+  /**
+   * Opuszcza rozmowę — wychodzimy z grupy MLS, nie tylko chowamy ją lokalnie.
+   *
+   * openmls nie pozwala samemu zamknąć własnego usunięcia commitem (RFC 9420),
+   * więc `leaveConversation` produkuje PROPOZYCJĘ SelfRemove i od razu porzuca
+   * stan rozmowy w rdzeniu. Odbiorców zbieramy PRZED wyjściem — po nim rdzeń
+   * składu już nie zna. Faktyczne usunięcie naszego liścia u wszystkich wykona
+   * ktoś pozostający, u siebie (`zamknijPropozycje`), po odebraniu tej koperty.
+   */
+  async opuscGrupe(groupId: Uint8Array): Promise<void> {
+    const odbiorcy = this.skrzynkiRozmowy(groupId).filter((o) => o !== this.account.userId);
+    const koperta = this.client.leaveConversation(groupId);
+    await this.zostawWSkrzynkach(odbiorcy, koperta);
+  }
+
+  /**
+   * Zamyka cudzą propozycję wyjścia commitem i rozsyła go.
+   *
+   * Wołane z obsługi `proposal-queued`: ktoś zgłosił SelfRemove, a że sam nie
+   * może go scalić, robimy to my, pozostający. `commitPending` daje commit
+   * w tym samym kształcie co dodawanie/usuwanie, więc idzie tą samą drogą
+   * przez `GroupRelay` (`zatwierdzIRozeslij`).
+   */
+  private async zamknijPropozycje(groupId: Uint8Array): Promise<void> {
+    await this.zatwierdzIRozeslij(groupId, this.client.commitPending(groupId), this.account.userId);
+  }
+
   /** Zajmuje epokę, scala commit i rozsyła go. Wspólne dla dodawania i usuwania. */
   private async zatwierdzIRozeslij(
     groupId: Uint8Array,
@@ -870,8 +897,17 @@ export class Messenger {
     // Commit zmienia skład grupy i epokę. Przetwarzamy go tą samą ścieżką co
     // wiadomość — `receive` rozpoznaje rodzaj sam.
     if (envelope.kind === "commit") {
-      this.client.receive(groupId, envelope.payload);
+      const wynik = this.client.receive(groupId, envelope.payload);
       await this.persist();
+
+      // Ktoś zgłosił wyjście z grupy (propozycja SelfRemove). openmls nie
+      // pozwala mu samemu zamknąć własnego usunięcia commitem, więc robimy to
+      // MY, pozostający: zamykamy propozycję i rozsyłamy commit, żeby jego liść
+      // wypadł u wszystkich. Bez tego kroku wychodzący zostałby „duchem" w
+      // drzewie — patrz `leaveConversation`/`commitPending` w rdzeniu.
+      if (wynik.kind === "proposal-queued") {
+        await this.zamknijPropozycje(groupId);
+      }
       return null;
     }
 

@@ -72,6 +72,19 @@ object Rdzen {
     @Volatile
     var otwartaGrupa: ByteArray? = null
 
+    /**
+     * Zbiór zaakceptowanych rozmów (`groupId` szesnastkowo) — anty-flood.
+     *
+     * Rozmowa spoza tego zbioru jest prośbą (patrz `Prosby.kt`), a prośba nie
+     * ma prawa dzwonić powiadomieniem ani podbijać licznika — inaczej ktoś
+     * nieproszony zalewałby telefon zdarzeniami. Model widoku trzyma go na
+     * bieżąco; usługa nasłuchu tylko czyta. `null` znaczy „jeszcze nie
+     * wczytano" — wtedy nie tłumimy niczego, żeby nie zgubić powiadomienia,
+     * zanim stan się zasieje.
+     */
+    @Volatile
+    var zaakceptowane: Set<String>? = null
+
     private val sluchacze = mutableListOf<(IncomingEvent, DeliveryMode) -> Unit>()
 
     /**
@@ -93,6 +106,7 @@ object Rdzen {
         messenger?.close()
         messenger = null
         otwartaGrupa = null
+        zaakceptowane = null
 
         kontekst.stopService(Intent(kontekst, UslugaNasluchu::class.java))
     }

@@ -151,6 +151,8 @@ private fun Zawartosc(
     // wyłącznie widoku — model nie musi o nim wiedzieć.
     var galaz by remember { mutableStateOf(Galaz.ROZMOWY) }
     var nowaRozmowa by remember { mutableStateOf(false) }
+    // Ekran tworzenia grupy — wchodzi się w niego z „Nowa rozmowa".
+    var nowaGrupa by remember { mutableStateOf(false) }
 
     // Czy pokazujemy rozmowę, czy listę. To stan WIDOKU, nie modelu: wyjście
     // z rozmowy przez skasowanie `groupId` odcięłoby drogę powrotną, bo bez
@@ -251,9 +253,10 @@ private fun Zawartosc(
     LaunchedEffect(stan.groupId) {
         if (stan.groupId != null) {
             nowaRozmowa = false
+            nowaGrupa = false
             wRozmowie = true
-            // Rozmowa zaczęta z Kontaktów ma otworzyć rozmowę, a nie zostawić
-            // użytkownika w gałęzi, z której wyszedł.
+            // Rozmowa zaczęta z „Nowej rozmowy" ma otworzyć wątek, a nie
+            // zostawić użytkownika na ekranie wyboru.
             galaz = Galaz.ROZMOWY
         }
     }
@@ -291,12 +294,17 @@ private fun Zawartosc(
         galaz = Galaz.ROZMOWY
     }
 
-    BackHandler(enabled = !wGlebi && stan.zalogowany && !wRozmowie && nowaRozmowa) {
+    // Tworzenie grupy wraca do wyboru „Nowa rozmowa", a ten do listy.
+    BackHandler(enabled = !wGlebi && stan.zalogowany && !wRozmowie && nowaGrupa) {
+        nowaGrupa = false
+    }
+
+    BackHandler(enabled = !wGlebi && stan.zalogowany && !wRozmowie && !nowaGrupa && nowaRozmowa) {
         nowaRozmowa = false
     }
 
     BackHandler(
-        enabled = !wGlebi && stan.zalogowany && !wRozmowie && !nowaRozmowa &&
+        enabled = !wGlebi && stan.zalogowany && !wRozmowie && !nowaRozmowa && !nowaGrupa &&
             galaz != Galaz.ROZMOWY,
     ) {
         galaz = Galaz.ROZMOWY
@@ -393,9 +401,6 @@ private fun Zawartosc(
             stan.zalogowany && wUczestnikach ->
                 EkranUczestnikow(model, onWstecz = { wUczestnikach = false })
 
-            stan.zalogowany && galaz == Galaz.KONTAKTY ->
-                EkranKontaktow(model, onGalaz = { galaz = it })
-
             stan.zalogowany && galaz == Galaz.KONTO ->
                 EkranKonta(
                     model = model,
@@ -419,7 +424,15 @@ private fun Zawartosc(
                     onRozmowa = { zWideo -> zacznijRozmowe(zWideo, odbior = false) },
                 )
 
-            stan.zalogowany && nowaRozmowa -> EkranKontaktow(model, onGalaz = { galaz = it })
+            stan.zalogowany && nowaGrupa ->
+                EkranNowaGrupa(model, onWstecz = { nowaGrupa = false })
+
+            stan.zalogowany && nowaRozmowa ->
+                EkranNowaRozmowa(
+                    model,
+                    onWstecz = { nowaRozmowa = false },
+                    onGrupa = { nowaGrupa = true },
+                )
 
             stan.zalogowany ->
                 EkranListy(

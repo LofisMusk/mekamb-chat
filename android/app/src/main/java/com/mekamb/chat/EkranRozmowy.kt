@@ -141,7 +141,10 @@ fun EkranRozmowy(
      */
     Column(modifier = Modifier.fillMaxSize().imePadding()) {
         PasekRozmowy(
-            nazwa = stan.rozmowca ?: "rozmowa",
+            // Etykieta z nickami/nazwą grupy — pod spodem zostaje nazwa
+            // użytkownika (tożsamość MLS).
+            nazwa = stan.groupId?.let { model.etykieta(it, stan.rozmowca.orEmpty()) }
+                ?: stan.rozmowca ?: "rozmowa",
             tryb = stan.trybPolaczenia,
             onWstecz = onWstecz,
             onUczestnicy = onUczestnicy,

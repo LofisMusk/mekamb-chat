@@ -160,7 +160,12 @@ pub enum IncomingEvent {
     /// Skład grupy uległ zmianie.
     MembershipChanged,
     /// Propozycja odłożona do czasu commitu.
-    ProposalQueued,
+    ///
+    /// Niesie `group_id`, bo odbiorca musi wiedzieć, KTÓRĄ rozmowę domknąć
+    /// commitem (`commit_pending`). Najczęściej jest to cudza propozycja wyjścia
+    /// (SelfRemove): openmls nie pozwala wychodzącemu scalić własnego usunięcia,
+    /// więc robi to pozostający — a bez `group_id` nie miałby jak wskazać grupy.
+    ProposalQueued { group_id: Vec<u8> },
     /// Dołączyliśmy do nowej rozmowy.
     JoinedConversation { group_id: Vec<u8> },
 }
@@ -1074,7 +1079,7 @@ impl MekambClient {
                 }
             }
             Incoming::MembershipChanged => IncomingEvent::MembershipChanged,
-            Incoming::ProposalQueued => IncomingEvent::ProposalQueued,
+            Incoming::ProposalQueued => IncomingEvent::ProposalQueued { group_id },
         })
     }
 }

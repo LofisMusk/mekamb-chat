@@ -52,8 +52,14 @@ import uniffi.mekamb_ffi.DeliveryMode
  * to wprost, zamiast zostawiać wrażenie, że coś się nie wczytało.
  */
 
-/** Gałęzie dolnej nawigacji. */
-enum class Galaz { ROZMOWY, KONTAKTY, KONTO }
+/**
+ * Gałęzie dolnej nawigacji.
+ *
+ * Kontaktów już tu nie ma: katalog nie ma listy do przeglądania (mówiłaby
+ * każdemu, kto jest w systemie), a rozmowę zaczyna się teraz przez „Nowy czat"
+ * albo „Nowa grupa". Zostają dwie: rozmowy i konto.
+ */
+enum class Galaz { ROZMOWY, KONTO }
 
 @Composable
 fun EkranListy(
@@ -76,9 +82,21 @@ fun EkranListy(
      * Dopasowanie bez rozróżniania wielkości liter, bo nikt nie pamięta,
      * czy zapisał kogoś z dużej.
      */
+    /*
+     * Rozmowy dzielą się na ZAAKCEPTOWANE i PROŚBY. Prośba to rozmowa obecna
+     * w historii, ale spoza zbioru zaakceptowanych (patrz `Prosby.kt`).
+     * Szukanie i licznik dotyczą wyłącznie zaakceptowanych — prośba nie ma
+     * prawa udawać zwykłej rozmowy.
+     */
+    val zaakceptowane = stan.rozmowy.filter { Historia.klucz(it.groupId) in stan.zaakceptowane }
+    val prosby = stan.rozmowy.filter { Historia.klucz(it.groupId) !in stan.zaakceptowane }
+
+    // Etykieta z nickami/nazwą grupy — po niej też szukamy, bo to ją widać.
+    val etykieta: (PozycjaListy) -> String = { model.etykieta(it.groupId, it.rozmowca) }
+
     val widoczne = szukanie?.trim().orEmpty().let { fraza ->
-        if (fraza.isEmpty()) stan.rozmowy
-        else stan.rozmowy.filter { it.rozmowca.contains(fraza, ignoreCase = true) }
+        if (fraza.isEmpty()) zaakceptowane
+        else zaakceptowane.filter { etykieta(it).contains(fraza, ignoreCase = true) }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -120,6 +138,17 @@ fun EkranListy(
             }
         }
 
+        // Prośby ponad listą — sekcja z przyjmij/odrzuć. Widoczna tylko wtedy,
+        // gdy jest szukanie puste: prośba nie należy do wyników szukania rozmów.
+        if (prosby.isNotEmpty() && szukanie.isNullOrBlank()) {
+            SekcjaProsb(
+                prosby = prosby,
+                etykieta = etykieta,
+                onPrzyjmij = { model.przyjmijProsbe(it) },
+                onOdrzuc = { model.odrzucProsbe(it) },
+            )
+        }
+
         Column(Modifier.weight(1f).fillMaxWidth()) {
             if (widoczne.isNotEmpty()) {
                 LazyColumn(Modifier.fillMaxWidth()) {
@@ -144,7 +173,7 @@ fun EkranListy(
                             backgroundContent = { TloUsuwania() },
                         ) {
                             WierszRozmowy(
-                                nazwa = pozycja.rozmowca,
+                                nazwa = etykieta(pozycja),
                                 ostatnia = pozycja.ostatnia?.let {
                                     if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
                                 } ?: "brak wiadomości",
@@ -200,7 +229,8 @@ fun EkranListy(
         DolnaNawigacja(
             biezaca = Galaz.ROZMOWY,
             onGalaz = onGalaz,
-            nieprzeczytane = stan.rozmowy.sumOf { it.nieprzeczytane },
+            // Licznik liczy TYLKO zaakceptowane — prośba nie podbija badge'a.
+            nieprzeczytane = zaakceptowane.sumOf { it.nieprzeczytane },
         )
     }
 }
@@ -335,7 +365,98 @@ private fun Znacznik(ile: Int) {
 private val GODZINA_LISTY =
     java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
 
-/** Dolny pasek: Rozmowy · Kontakty · Konto. */
+/**
+ * Sekcja próśb ponad listą rozmów.
+ *
+ * # Po co osobna sekcja
+ *
+ * Rozmowa od kogoś spoza kontaktów nie wpada między prawdziwe — czeka tu na
+ * przyjęcie albo odrzucenie. Przyjęcie robi z nadawcy kontakt; odrzucenie
+ * opuszcza grupę (`leave_conversation`) i kasuje ją lokalnie (patrz
+ * `ChatViewModel.odrzucProsbe`). Anty-flood: prośba nie dzwoni i nie podbija
+ * licznika, dopóki nie zostanie przyjęta.
+ */
+@Composable
+private fun SekcjaProsb(
+    prosby: List<PozycjaListy>,
+    etykieta: (PozycjaListy) -> String,
+    onPrzyjmij: (PozycjaListy) -> Unit,
+    onOdrzuc: (PozycjaListy) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Odstep.l, vertical = Odstep.s),
+        verticalArrangement = Arrangement.spacedBy(Odstep.s),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            Icon(Ikony.Osoby, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(14.dp))
+            Text("Prośby", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "Requests · ${prosby.size}",
+                style = MaterialTheme.typography.labelSmall,
+                color = Nocturne.kolory.tekstDrugi,
+            )
+        }
+
+        prosby.forEach { pozycja ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(10.dp))
+                    .padding(horizontal = Odstep.m, vertical = Odstep.s),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+            ) {
+                Awatar(etykieta(pozycja), rozmiar = 36.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        etykieta(pozycja),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "Chce zacząć rozmowę",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Nocturne.kolory.tekstDrugi,
+                    )
+                }
+
+                // Odrzuć: obrys błędu, bez wypełnienia. Przyjmij: obrys akcentu.
+                IconButton(
+                    onClick = { onOdrzuc(pozycja) },
+                    modifier = Modifier.size(Dotyk.ikonaWPasku),
+                ) {
+                    Icon(
+                        Ikony.Zamknij,
+                        contentDescription = "Odrzuć prośbę",
+                        tint = Nocturne.kolory.alarm,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(
+                    onClick = { onPrzyjmij(pozycja) },
+                    modifier = Modifier.size(Dotyk.ikonaWPasku),
+                ) {
+                    Icon(
+                        Ikony.Wyslane,
+                        contentDescription = "Przyjmij prośbę",
+                        tint = Nocturne.kolory.akcent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
+    }
+}
+
+/** Dolny pasek: Rozmowy · Konto. */
 @Composable
 fun DolnaNawigacja(
     biezaca: Galaz,
@@ -355,9 +476,6 @@ fun DolnaNawigacja(
                 nieprzeczytane = nieprzeczytane,
             ) {
                 onGalaz(Galaz.ROZMOWY)
-            }
-            Zakladka("Kontakty", Ikony.Kontakty, biezaca == Galaz.KONTAKTY, Modifier.weight(1f)) {
-                onGalaz(Galaz.KONTAKTY)
             }
             Zakladka("Konto", Ikony.Konto, biezaca == Galaz.KONTO, Modifier.weight(1f)) {
                 onGalaz(Galaz.KONTO)

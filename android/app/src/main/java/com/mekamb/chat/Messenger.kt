@@ -526,6 +526,103 @@ class Messenger private constructor(
     }
 
     /**
+     * Rozsyła współdzieloną metadaną: nazwę grupy i/lub własny nick.
+     *
+     * `null` znaczy „nie zmieniam tego pola", `""` — „czyszczę je". Rdzeń zwraca
+     * gotową kopertę (wiadomość aplikacyjna MLS jak każda inna), więc serwer
+     * widzi wyłącznie szyfrogram i nie pozna, jak ktoś nazwał grupę ani siebie.
+     *
+     * Rozsyłka jest taka sama jak przy potwierdzeniu: do WSZYSTKICH uczestników
+     * i echo do siebie, żeby drugie własne urządzenie też dostało zmianę nicku
+     * czy nazwy. Nieudane doręczenie do jednej osoby nie może przerwać reszty —
+     * nazwa jest wygodą wyświetlania, nie treścią rozmowy.
+     */
+    suspend fun sendMetadata(
+        groupId: ByteArray,
+        nazwaGrupy: String?,
+        mojNick: String?,
+    ) = withContext(Dispatchers.IO) {
+        val koperta = client.sendMetadata(
+            groupId,
+            nazwaGrupy,
+            mojNick,
+            System.currentTimeMillis().toULong(),
+        )
+
+        vault.saveState(client.exportState())
+
+        for (osoba in uczestnicy(groupId)) {
+            if (osoba == account.userId) continue
+            runCatching { wyslij(osoba, drogaBezposrednia(groupId, osoba), koperta) }
+        }
+
+        echoDoSiebie(koperta)
+    }
+
+    /**
+     * Opuszcza grupę MLS — wołane przy odrzuceniu prośby.
+     *
+     * # Dwa kroki, bo openmls nie usunie własnego liścia
+     *
+     * `leave_conversation` zwraca **zaenvelopowaną** kopertę (rodzaj commit)
+     * niosącą PROPOZYCJĘ SelfRemove i usuwa rozmowę z rdzenia lokalnie. Sam
+     * commit usuwający własny liść jest przez RFC 9420 zabroniony, więc liść
+     * wypada dopiero, gdy któryś z POZOSTAŁYCH członków zamknie propozycję
+     * commitem (`commit_pending` u niego). My tu tylko rozsyłamy propozycję do
+     * ich skrzynek — a że po wyjściu już tej grupy nie znamy, kopertę pakuje
+     * rdzeń przed usunięciem i oddaje gotową.
+     *
+     * Skład pobieramy PRZED wyjściem: po `leave_conversation` rdzeń grupy już
+     * nie zna. Własnej nazwy użytkownika nie adresujemy — SelfRemove dotyczy
+     * TEGO liścia, a pozostałe nasze urządzenia zostają w grupie i sprzątnie je
+     * dopiero cudzy `commit_pending`.
+     */
+    suspend fun opuscGrupe(groupId: ByteArray) = withContext(Dispatchers.IO) {
+        val pozostali = uczestnicy(groupId).filter { it != account.userId }
+
+        val koperta = client.leaveConversation(groupId)
+        vault.saveState(client.exportState())
+
+        // Propozycja idzie do skrzynek pozostałych — jak commit z `dodajCzlonka`.
+        // Token doręczeniowy dobiera `zdeponuj`; nieudane doręczenie do jednej
+        // osoby nie może przerwać reszty.
+        for (osoba in pozostali) {
+            runCatching { zdeponuj(osoba, koperta) }
+        }
+        uzupelnijTokeny()
+    }
+
+    /**
+     * Domyka cudzą propozycję wyjścia commitem i rozsyła go.
+     *
+     * Wołane po odebraniu [IncomingEvent.ProposalQueued]: ktoś zgłosił wyjście
+     * (SelfRemove), a że openmls nie pozwala mu samemu scalić własnego usunięcia
+     * (RFC 9420), robimy to my — pozostający. Bez tego jego liść zostaje
+     * w drzewie „duchem" aż do najbliższego innego commitu.
+     *
+     * Bierzemy [mlsMutex], bo ruszamy stan MLS: to wywołanie przychodzi już PO
+     * zwolnieniu muteksu przez [przetworzKoperte] (event wraca do wołającego),
+     * więc nie ma zakleszczenia, a commit nie przeplata się z kolejną kopertą.
+     * `commitPending` zwraca commit tego samego kształtu co dodawanie, więc idzie
+     * tą samą drogą: zajęcie epoki w GroupRelay, confirm, rozsyłka do składu.
+     */
+    suspend fun domknijPropozycje(groupId: ByteArray) = withContext(Dispatchers.IO) {
+        mlsMutex.withLock {
+            val oczekujacy = client.commitPending(groupId)
+
+            zajmijEpoke(groupId)
+            client.confirmCommit(groupId)
+            vault.saveState(client.exportState())
+
+            Echa.zapamietaj(oczekujacy.commit)
+            for (osoba in uczestnicy(groupId)) {
+                zdeponuj(osoba, oczekujacy.commit)
+            }
+            uzupelnijTokeny()
+        }
+    }
+
+    /**
      * Wysyła załącznik: czyści metadane, szyfruje, wgrywa, rozsyła klucz.
      *
      * # Kolejność ma znaczenie

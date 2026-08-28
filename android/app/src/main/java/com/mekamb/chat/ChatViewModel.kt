@@ -48,6 +48,20 @@ data class StanCzatu(
     /** Kod bezpieczeństwa bieżącej rozmowy. */
     val kodBezpieczenstwa: String? = null,
     /**
+     * Współdzielone nazwy grup (`groupId` hex → nazwa) i nicki (nazwa
+     * użytkownika → nick) oraz własny nick. WARSTWA WYŚWIETLANIA — tożsamością
+     * w MLS zostaje nazwa użytkownika (patrz `Nazwy.kt`).
+     */
+    val nicki: Map<String, String> = emptyMap(),
+    val nazwyGrup: Map<String, String> = emptyMap(),
+    val mojNick: String = "",
+    /**
+     * `groupId` (hex) rozmów zaakceptowanych. Rozmowa spoza tego zbioru jest
+     * prośbą (patrz `Prosby.kt`) — nie dzwoni, nie podbija licznika i czeka na
+     * przyjęcie na osobnej sekcji listy.
+     */
+    val zaakceptowane: Set<String> = emptySet(),
+    /**
      * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
      *
      * Osobno od historii, a nie polem stanu w niej: wiadomość, której wysyłka
@@ -207,6 +221,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val vault = Vault(application)
     private val historia = Historia(vault)
+    private val nazwy = Nazwy(vault)
+    private val prosby = Prosby(vault)
     private val api = Api(BuildConfig.API_URL)
 
     /**
@@ -352,6 +368,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         if (Rdzen.messenger != null) {
             stan = stan.copy(zalogowany = true, rozmowy = historia.lista())
+            zasiejNazwyIProsby()
         } else if (konto != null && tokenOdswiezajacy != null) {
             viewModelScope.launch {
                 val wynik = runCatching { api.refreshSession(konto.deviceId, tokenOdswiezajacy) }
@@ -379,8 +396,90 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 Rdzen.podepnij(getApplication(), klient)
                 stan = stan.copy(zalogowany = true, rozmowy = zapisane)
+                zasiejNazwyIProsby()
             }
         }
+    }
+
+    /**
+     * Zasiewa współdzielone nazwy i stan próśb — po każdym wejściu w rozmowy.
+     *
+     * Nazwy i nicki idą wprost z dysku. Zbiór zaakceptowanych przy PIERWSZYM
+     * starcie z tą funkcją zasiewamy wszystkimi dotychczasowymi rozmowami, żeby
+     * żadna sprzed wdrożenia próśb nie wyglądała nagle jak prośba; potem świeża
+     * rozmowa spoza zbioru jest już prawdziwą prośbą. Zbiór trafia też do
+     * [Rdzen], skąd czyta go usługa nasłuchu przy tłumieniu powiadomień.
+     */
+    private fun zasiejNazwyIProsby() {
+        val stanN = nazwy.wczytaj()
+        var stanP = prosby.wczytaj()
+        if (!stanP.zainicjowano) {
+            stanP = prosby.zainicjuj(historia.lista().map { Historia.klucz(it.groupId) })
+        }
+        Rdzen.zaakceptowane = stanP.zaakceptowane
+        stan = stan.copy(
+            nicki = stanN.nicki,
+            nazwyGrup = stanN.grupy,
+            mojNick = stanN.mojNick,
+            zaakceptowane = stanP.zaakceptowane,
+        )
+    }
+
+    /**
+     * Nanosi nowy zbiór zaakceptowanych na stan i na [Rdzen] jednym ruchem.
+     *
+     * [Rdzen] musi iść w parze ze stanem, bo z niego usługa nasłuchu czyta, czy
+     * wolno powiadomić — rozjazd oznaczałby prośbę, która dzwoni, albo kontakt,
+     * który milczy.
+     */
+    private fun ustawZaakceptowane(zbior: Set<String>) {
+        Rdzen.zaakceptowane = zbior
+        stan = stan.copy(zaakceptowane = zbior)
+    }
+
+    /**
+     * Nick rozmówcy, jeśli go znamy — inaczej surowa nazwa użytkownika.
+     *
+     * Nick jest WYŁĄCZNIE warstwą wyświetlania: pod spodem zostaje nazwa
+     * użytkownika (tożsamość MLS), której używamy do routingu i historii.
+     */
+    fun nick(username: String): String =
+        stan.nicki[username]?.trim()?.takeIf { it.isNotEmpty() } ?: username
+
+    /**
+     * Etykieta rozmowy: nazwa grupy, a gdy jej nie ma — sklejone nicki.
+     *
+     * Surowa nazwa zapisana w historii to sklejone nazwy użytkowników (albo
+     * jedna przy rozmowie prywatnej). Nakładamy na nią nicki przy renderze,
+     * a nazwa grupy — jeśli ktoś ją nadał metadaną — ma przed nimi
+     * pierwszeństwo.
+     */
+    fun etykieta(groupId: ByteArray, rozmowcaSurowy: String): String {
+        val nazwaGrupy = stan.nazwyGrup[Historia.klucz(groupId)]?.trim()
+        if (!nazwaGrupy.isNullOrEmpty()) return nazwaGrupy
+        return rozmowcaSurowy.split(", ").joinToString(", ") { nick(it) }
+    }
+
+    /**
+     * Kontakty = osoby z Twoich zaakceptowanych rozmów, bez duplikatów.
+     *
+     * To z nich „Nowa grupa" pozwala wybrać uczestników. Katalog nie ma listy
+     * do przeglądania — kontakt to ktoś, z kim już rozmawiasz.
+     */
+    fun kontakty(): List<String> {
+        val klient = messenger ?: return emptyList()
+        val ja = vault.loadAccount()?.userId.orEmpty()
+        val zbior = linkedSetOf<String>()
+
+        for (pozycja in historia.lista()) {
+            if (Historia.klucz(pozycja.groupId) !in stan.zaakceptowane) continue
+            runCatching {
+                for (osoba in klient.uczestnicy(pozycja.groupId)) {
+                    if (osoba != ja) zbior.add(osoba)
+                }
+            }
+        }
+        return zbior.toList()
     }
 
     /**
@@ -622,6 +721,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         otpauthUri = null,
                         rozmowy = historia.lista(),
                     )
+                    zasiejNazwyIProsby()
                 }
                 .onFailure { blad ->
                     stan = stan.copy(
@@ -712,6 +812,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // pusta mimo zapisanej historii.
                     rozmowy = historia.lista(),
                 )
+                zasiejNazwyIProsby()
             }.onFailure { blad ->
                 // Sesja zostaje: kod mógł być po prostu przepisany z pomyłką
                 // albo zdążył wygasnąć, a przepisywanie hasła od nowa byłoby
@@ -737,6 +838,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         if (istniejaca != null) {
+            // Rozmowa zaczęta wprost jest zaakceptowana z definicji — także
+            // wtedy, gdy istniała jako prośba.
+            ustawZaakceptowane(prosby.zaakceptuj(istniejaca.groupId).zaakceptowane)
             otworzRozmowe(istniejaca)
             return
         }
@@ -744,6 +848,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { klient.startConversation(rozmowca) }
                 .onSuccess { groupId ->
+                    // Rozmowa zakładana samodzielnie jest zaakceptowana z definicji.
+                    ustawZaakceptowane(prosby.zaakceptuj(groupId).zaakceptowane)
+
                     stan = stan.copy(
                         groupId = groupId,
                         rozmowca = rozmowca,
@@ -757,10 +864,146 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // ktoś czegoś nie napisze — a założona i pusta też jest
                     // rozmową, do której trzeba móc wrócić.
                     zapiszHistorie()
+
+                    // Nick niesiemy od razu, żeby druga strona zobaczyła nas
+                    // tak, jak chcemy.
+                    val nick = stan.mojNick.trim()
+                    if (nick.isNotEmpty()) {
+                        runCatching { klient.sendMetadata(groupId, null, nick) }
+                    }
                 }
                 .onFailure { blad ->
                     stan = stan.copy(blad = blad.message ?: "nie udało się rozpocząć rozmowy")
                 }
+        }
+    }
+
+    /**
+     * Zakłada grupę z wybranych osób i nadaje jej nazwę.
+     *
+     * Pierwsza osoba zakłada rozmowę (`startConversation` tworzy grupę i dodaje
+     * ją jednym ruchem), reszta dochodzi kolejnymi `addMember` — każdy z nich
+     * dokłada WSZYSTKIE urządzenia danej osoby jednym commitem (inwariant
+     * z rdzenia, nietknięty). Nazwa grupy i nasz nick idą jedną metadaną.
+     */
+    fun utworzGrupe(osoby: List<String>, nazwaGrupy: String) {
+        val klient = messenger ?: return
+        val pierwszy = osoby.firstOrNull() ?: return
+        val reszta = osoby.drop(1)
+
+        viewModelScope.launch {
+            stan = stan.copy(pracuje = true, blad = null)
+
+            runCatching {
+                val groupId = klient.startConversation(pierwszy)
+                for (osoba in reszta) klient.dodajCzlonka(groupId, osoba)
+                groupId
+            }.onSuccess { groupId ->
+                val nazwa = nazwaGrupy.trim()
+                val nick = stan.mojNick.trim()
+
+                // Rozmowa zakładana samodzielnie jest zaakceptowana z definicji.
+                ustawZaakceptowane(prosby.zaakceptuj(groupId).zaakceptowane)
+
+                if (nazwa.isNotEmpty() || nick.isNotEmpty()) {
+                    runCatching {
+                        klient.sendMetadata(
+                            groupId,
+                            nazwa.ifEmpty { null },
+                            nick.ifEmpty { null },
+                        )
+                    }
+                }
+                if (nazwa.isNotEmpty()) {
+                    stan = stan.copy(nazwyGrup = nazwy.ustawNazweGrupy(groupId, nazwa).grupy)
+                }
+
+                // Etykieta wątku: nazwa grupy, a bez niej surowe nazwy uczestników
+                // (nick nałoży `etykieta` przy renderze).
+                val rozmowca = nazwa.ifEmpty { osoby.joinToString(", ") }
+                stan = stan.copy(
+                    pracuje = false,
+                    groupId = groupId,
+                    rozmowca = rozmowca,
+                    wiadomosci = historia.wczytaj(groupId),
+                    blad = null,
+                )
+                zapiszHistorie()
+            }.onFailure { blad ->
+                stan = stan.copy(
+                    pracuje = false,
+                    blad = blad.message ?: "nie udało się utworzyć grupy",
+                )
+            }
+        }
+    }
+
+    /** Przyjmuje prośbę: rozmowa staje się zwykłą i nadawca staje się kontaktem. */
+    fun przyjmijProsbe(pozycja: PozycjaListy) {
+        ustawZaakceptowane(prosby.zaakceptuj(pozycja.groupId).zaakceptowane)
+        otworzRozmowe(pozycja)
+    }
+
+    /**
+     * Odrzuca prośbę: NAPRAWDĘ opuszcza grupę i kasuje ją lokalnie.
+     *
+     * Wyjście idzie przez rdzeń ([Messenger.opuscGrupe] → `leave_conversation`):
+     * wysyłamy propozycję SelfRemove, a pozostały ją domknie ([domknijPropozycje]
+     * po `ProposalQueued`), więc nadawca dowiaduje się, że go nie ma. Lokalnie
+     * kasujemy historię i zapominamy akceptację: gdyby nadawca napisał znowu,
+     * wróci jako prośba, nie wprost na listę.
+     */
+    fun odrzucProsbe(pozycja: PozycjaListy) {
+        val klient = messenger
+
+        viewModelScope.launch {
+            if (klient != null) runCatching { klient.opuscGrupe(pozycja.groupId) }
+
+            ustawZaakceptowane(prosby.zapomnij(pozycja.groupId).zaakceptowane)
+            usunRozmowe(pozycja.groupId)
+        }
+    }
+
+    /** Zmienia (albo czyści) nazwę grupy i rozsyła ją współdzieloną metadaną. */
+    fun zmienNazweGrupy(groupId: ByteArray, nazwaGrupy: String) {
+        val klient = messenger ?: return
+        val nazwa = nazwaGrupy.trim()
+
+        viewModelScope.launch {
+            runCatching { klient.sendMetadata(groupId, nazwa, null) }
+                .onSuccess {
+                    stan = stan.copy(
+                        nazwyGrup = nazwy.ustawNazweGrupy(groupId, nazwa.ifEmpty { null }).grupy,
+                        rozmowy = historia.lista(),
+                    )
+                    // Nagłówek otwartej rozmowy odświeżamy od razu.
+                    if (stan.groupId?.contentEquals(groupId) == true && nazwa.isNotEmpty()) {
+                        stan = stan.copy(rozmowca = nazwa)
+                    }
+                }
+                .onFailure { blad ->
+                    stan = stan.copy(blad = blad.message ?: "nie udało się zmienić nazwy grupy")
+                }
+        }
+    }
+
+    /**
+     * Zmienia własny nick i rozsyła go do wszystkich zaakceptowanych rozmów.
+     *
+     * Rozsyłamy OD RAZU do istniejących rozmów, a nowe dostają nick w chwili
+     * założenia. Do PRÓŚB nie wysyłamy nic — nie ogłaszamy się komuś, z kim
+     * jeszcze nie zgodziliśmy się rozmawiać.
+     */
+    fun zmienMojNick(nowy: String) {
+        val klient = messenger ?: return
+        stan = stan.copy(mojNick = nazwy.ustawMojNick(nowy).mojNick)
+        val nick = nowy.trim()
+
+        viewModelScope.launch {
+            for (pozycja in historia.lista()) {
+                if (Historia.klucz(pozycja.groupId) !in stan.zaakceptowane) continue
+                runCatching { klient.sendMetadata(pozycja.groupId, null, nick) }
+            }
         }
     }
 
@@ -991,36 +1234,122 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             is IncomingEvent.CallSignal -> obsluzSygnalRozmowy(zdarzenie, tryb)
 
-            is IncomingEvent.JoinedConversation -> stan.copy(
-                groupId = zdarzenie.groupId,
-                // Nazwa ze SKŁADU grupy, nie ze stanu ekranu.
-                //
-                // Rozmowę założył ktoś inny, więc nie przeszła przez żadne
-                // miejsce, w którym użytkownik podaje nazwę. Zostawała nazwa
-                // poprzednio otwartej rozmowy — czyli wiadomości od jednej
-                // osoby podpisywały się drugą — albo nie było jej wcale
-                // i lista pokazywała wiersz bez imienia.
-                rozmowca = nazwaZeSkladu(zdarzenie.groupId) ?: stan.rozmowca,
-                // Dołączenie do rozmowy przez welcome: historia mogła już tu
-                // być, jeśli to nie pierwsze uruchomienie.
-                wiadomosci = historia.wczytaj(zdarzenie.groupId),
-            )
+            is IncomingEvent.JoinedConversation -> dolaczenie(zdarzenie.groupId)
 
-            // Zmiany składu grupy i propozycje nie mają odpowiednika w interfejsie,
-            // dopóki nie ma widoku listy członków.
-            //
-            // `Metadata` (współdzielona nazwa grupy i nazwa wyświetlana) też jest
-            // tu na razie pominięta: rdzeń i binding już ją niosą, ale warstwa
-            // wyświetlania nicków na Androidzie to świadomy follow-up — web ma ją
-            // pierwszy. Pominięcie jest CELOWE i bezpieczne: metadana nie jest
-            // wiadomością do pokazania, więc jej zignorowanie niczego nie gubi.
-            is IncomingEvent.MembershipChanged,
-            is IncomingEvent.ProposalQueued,
-            is IncomingEvent.Metadata,
-            -> stan
+            /*
+             * Metadana nie jest wiadomością do pokazania — aktualizuje mapy
+             * nazw (grupy i nicki), a nie treść wątku. Żadnego dymka, licznika
+             * ani potwierdzenia dostarczenia.
+             *
+             * `null` w polu znaczy „nadawca go nie zmieniał", `""` — „wyczyścił".
+             * Własny nick z DRUGIEGO urządzenia trafia w `mojNick`, nie w mapę
+             * cudzych nicków: to my na laptopie, nie rozmówca.
+             */
+            is IncomingEvent.Metadata -> {
+                var s = stan
+                if (zdarzenie.groupName != null) {
+                    val st = nazwy.ustawNazweGrupy(zdarzenie.groupId, zdarzenie.groupName)
+                    s = s.copy(nazwyGrup = st.grupy)
+                }
+                if (zdarzenie.displayName != null) {
+                    if (czyOdNas(zdarzenie.senderUserId)) {
+                        val st = nazwy.ustawMojNick(zdarzenie.displayName.orEmpty())
+                        s = s.copy(mojNick = st.mojNick)
+                    } else {
+                        val st = nazwy.ustawNick(zdarzenie.senderUserId, zdarzenie.displayName)
+                        s = s.copy(nicki = st.nicki)
+                    }
+                }
+                // Etykieta bieżącej rozmowy mogła się zmienić — odśwież listę.
+                s.copy(rozmowy = historia.lista())
+            }
+
+            // Zmiana składu nie ma odpowiednika w interfejsie, dopóki nie ma
+            // widoku listy członków na żywo.
+            is IncomingEvent.MembershipChanged -> stan
+
+            /*
+             * Propozycja odłożona w kolejce — najczęściej cudze wyjście z grupy
+             * (SelfRemove). Domykamy ją commitem u siebie: openmls nie pozwala
+             * wychodzącemu scalić własnego usunięcia, więc robi to pozostający,
+             * a `group_id` mówi którą rozmowę. Idzie osobną korutyną, bo
+             * `domknijPropozycje` bierze `mlsMutex`, a tu jesteśmy już poza nim.
+             * Porażka nie jest krytyczna: liść i tak sprzątnie najbliższy commit.
+             */
+            is IncomingEvent.ProposalQueued -> {
+                val grupa = zdarzenie.groupId
+                viewModelScope.launch {
+                    runCatching { messenger?.domknijPropozycje(grupa) }
+                }
+                stan
+            }
         }
 
         zapiszHistorie()
+    }
+
+    /**
+     * Dołączenie do NOWEJ rozmowy przez Welcome — rozstrzyga: prośba czy wprost.
+     *
+     * Kontakt = osoba, z którą mamy już rozmowę ZAAKCEPTOWANĄ. Jeśli którykolwiek
+     * z uczestników nowej grupy jest kontaktem, rozmowa wchodzi wprost i otwiera
+     * się na ekranie; inaczej ląduje w PROŚBACH — nie kradnie ekranu, nie dzwoni
+     * i nie podbija licznika, dopóki nie zostanie przyjęta. Rozmowę, którą
+     * zakładamy sami, akceptuje ścieżka jej tworzenia; tu obsługujemy wyłącznie
+     * zaproszenia od innych. Odpowiednik `obsluzDolaczenie` w `web/src/Czat.tsx`.
+     */
+    private fun dolaczenie(groupId: ByteArray): StanCzatu {
+        val klient = messenger
+        val ja = vault.loadAccount()?.userId.orEmpty()
+        val czlonkowie = runCatching { klient?.uczestnicy(groupId) ?: emptyList() }
+            .getOrDefault(emptyList())
+        val inni = czlonkowie.filter { it != ja }
+
+        // Zbiór osób, z którymi mamy już zaakceptowaną rozmowę.
+        val kontaktoweId = mutableSetOf<String>()
+        if (klient != null) {
+            for (pozycja in historia.lista()) {
+                if (Historia.klucz(pozycja.groupId) !in stan.zaakceptowane) continue
+                runCatching {
+                    for (osoba in klient.uczestnicy(pozycja.groupId)) {
+                        if (osoba != ja) kontaktoweId.add(osoba)
+                    }
+                }
+            }
+        }
+        val jestKontaktem = inni.any { it in kontaktoweId }
+
+        // Wiersz musi powstać nawet pusty: lista rośnie z historii, a Welcome nie
+        // niesie wiadomości. Nazwę zapisujemy SUROWĄ — nick nakłada się przy
+        // renderze.
+        val nazwaSurowa = nazwaZeSkladu(groupId) ?: inni.joinToString(", ")
+        zapewnijRozmowe(groupId, nazwaSurowa)
+
+        if (jestKontaktem) {
+            val zbior = prosby.zaakceptuj(groupId).zaakceptowane
+            Rdzen.zaakceptowane = zbior
+            return stan.copy(
+                zaakceptowane = zbior,
+                groupId = groupId,
+                rozmowca = if (nazwaSurowa.isNotEmpty()) nazwaSurowa else stan.rozmowca,
+                wiadomosci = historia.wczytaj(groupId),
+                rozmowy = historia.lista(),
+            )
+        }
+
+        // Prośba: tylko pojawia się w sekcji „Prośby" na liście.
+        return stan.copy(rozmowy = historia.lista())
+    }
+
+    /**
+     * Zakłada w historii pusty wiersz rozmowy, jeśli jeszcze go nie ma.
+     *
+     * Lista rozmów rośnie z historii, a Welcome nie niesie żadnej wiadomości,
+     * więc bez tego prośba nie miałaby się gdzie pokazać.
+     */
+    private fun zapewnijRozmowe(groupId: ByteArray, nazwa: String) {
+        if (historia.rozmowca(groupId) != null) return
+        runCatching { historia.zapisz(groupId, nazwa, emptyList()) }
     }
 
     // -----------------------------------------------------------------------
@@ -1523,9 +1852,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun usunRozmowe(groupId: ByteArray) {
         runCatching {
             historia.usun(groupId)
+            // Zapominamy akceptację, żeby po skasowaniu i ewentualnym ponownym
+            // założeniu ta sama grupa nie została z „duchem" akceptacji.
+            val zbior = prosby.zapomnij(groupId).zaakceptowane
+            Rdzen.zaakceptowane = zbior
+
             val byla = stan.groupId?.contentEquals(groupId) == true
             stan = stan.copy(
                 rozmowy = historia.lista(),
+                zaakceptowane = zbior,
                 groupId = if (byla) null else stan.groupId,
                 wiadomosci = if (byla) emptyList() else stan.wiadomosci,
             )

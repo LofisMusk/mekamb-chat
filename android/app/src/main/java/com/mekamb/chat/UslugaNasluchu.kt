@@ -143,11 +143,19 @@ class UslugaNasluchu : Service() {
      */
     private fun powiadomOWiadomosci(groupId: ByteArray, od: String) {
         if (Rdzen.naWierzchu && czytana(groupId)) return
+        // Anty-flood: prośba (rozmowa spoza zbioru zaakceptowanych) nie ma prawa
+        // dzwonić. Nieproszona wiadomość nie udaje „nowej" i nie zalewa telefonu
+        // powiadomieniami — patrz `Prosby.kt`. Dopóki zbiór nie jest wczytany
+        // (`null`), nie tłumimy nic, żeby nie zgubić powiadomienia przy starcie.
+        if (!zaakceptowana(groupId)) return
         Powiadomienia.pokazWiadomosc(this, groupId, od)
     }
 
     private fun czytana(groupId: ByteArray): Boolean =
         Rdzen.otwartaGrupa?.contentEquals(groupId) == true
+
+    private fun zaakceptowana(groupId: ByteArray): Boolean =
+        Rdzen.zaakceptowane?.contains(Historia.klucz(groupId)) ?: true
 
     /**
      * Wchodzi w tryb pierwszoplanowy z odpowiednim typem usługi.

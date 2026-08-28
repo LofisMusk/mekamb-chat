@@ -11,13 +11,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -35,17 +38,26 @@ import androidx.compose.ui.unit.dp
  * rozjechałaby się przy pierwszej zmianie zrobionej przez kogoś innego.
  */
 
-/** Kontakty — gałąź nawigacji. Katalog nie ma listy, więc zaczyna się od nazwy. */
+/**
+ * Nowa rozmowa: nowy czat jeden-na-jeden albo droga do nowej grupy.
+ *
+ * Katalog nie ma listy kontaktów do przeglądania i to jest decyzja, nie brak:
+ * lista wszystkich użytkowników mówiłaby każdemu, kto jest w systemie. Rozmowę
+ * zaczyna się od nazwy, którą już się zna.
+ */
 @Composable
-fun EkranKontaktow(
+fun EkranNowaRozmowa(
     model: ChatViewModel,
     modifier: Modifier = Modifier,
-    onGalaz: (Galaz) -> Unit,
+    onWstecz: () -> Unit,
+    onGrupa: () -> Unit,
 ) {
     var nazwa by remember { mutableStateOf("") }
     val stan = model.stan
 
     Column(modifier = modifier.fillMaxSize()) {
+        PasekZPowrotem("Nowa rozmowa", "New chat", onWstecz = onWstecz)
+
         Column(
             Modifier
                 .weight(1f)
@@ -55,31 +67,167 @@ fun EkranKontaktow(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Column {
-                Text("Kontakty", style = MaterialTheme.typography.titleLarge)
-                Text("Directory", style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
-            }
-
             Pole("Nazwa użytkownika · Username", nazwa, { nazwa = it })
 
             PrzyciskGlowny(
-                if (stan.pracuje) "Zaczynam…" else "Rozpocznij rozmowę · Start chat",
+                if (stan.pracuje) "Zaczynam…" else "Nowy czat · Start chat",
                 wlaczony = !stan.pracuje && nazwa.isNotBlank(),
             ) {
                 model.rozpocznijRozmowe(nazwa.trim())
             }
 
-            // Katalog nie ma listy kontaktów do przeglądania i to jest decyzja,
-            // nie brak: lista wszystkich użytkowników mówiłaby każdemu, kto jest
-            // w systemie. Rozmowę zaczyna się od nazwy, którą już się zna.
+            // Grupa to osobna droga: zaczyna się od wyboru kilku osób, nie
+            // jednej nazwy.
+            PrzyciskDrugi("Nowa grupa · New group", wlaczony = !stan.pracuje) { onGrupa() }
+
             Wskazowka(
                 "Katalog przechowuje tylko nazwy, urządzenia i key packages. " +
                     "Kto z kim rozmawia — nie.",
                 Ikony.Klucz,
             )
         }
+    }
+}
 
-        DolnaNawigacja(biezaca = Galaz.KONTAKTY, onGalaz = onGalaz)
+/**
+ * Nowa grupa: wielokrotny wybór osób z kontaktów plus dodanie po nazwie.
+ *
+ * # Skąd biorą się kontakty
+ *
+ * To uczestnicy Twoich ZAAKCEPTOWANYCH rozmów (patrz `ChatViewModel.kontakty`).
+ * Kogoś spoza tej listy dodaje się po nazwie użytkownika — katalog nie ma
+ * listy do przeglądania.
+ *
+ * Grupę zakłada pierwsza osoba (`startConversation`), reszta dochodzi kolejnymi
+ * `addMember` — inwariant „wszystkie urządzenia jednym commitem" zostaje
+ * nietknięty. Nazwa grupy idzie współdzieloną metadaną w chwili utworzenia.
+ */
+@Composable
+fun EkranNowaGrupa(
+    model: ChatViewModel,
+    modifier: Modifier = Modifier,
+    onWstecz: () -> Unit,
+) {
+    val stan = model.stan
+    val kontakty = remember(stan.rozmowy, stan.zaakceptowane) { model.kontakty() }
+
+    var nazwaGrupy by remember { mutableStateOf("") }
+    var dopisany by remember { mutableStateOf("") }
+    // Wybrane osoby: kontakty zaznaczone plus dopisani po nazwie.
+    val wybrani = remember { mutableStateListOf<String>() }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        PasekZPowrotem("Nowa grupa", "New group", onWstecz = onWstecz)
+
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = Odstep.l),
+            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+        ) {
+            Pole("Nazwa grupy · Group name", nazwaGrupy, { nazwaGrupy = it })
+
+            if (kontakty.isNotEmpty()) {
+                Text(
+                    "Wybierz z kontaktów",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                kontakty.forEach { osoba ->
+                    val zaznaczony = osoba in wybrani
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = Dotyk.kontrolka)
+                            .clickable {
+                                if (zaznaczony) wybrani.remove(osoba) else wybrani.add(osoba)
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+                    ) {
+                        Awatar(model.nick(osoba), rozmiar = 40.dp)
+                        Text(model.nick(osoba), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = if (zaznaczony) Ikony.Wyslane else Ikony.Dodaj,
+                            contentDescription = if (zaznaczony) "Wybrany" else "Dodaj",
+                            tint = if (zaznaczony) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+
+            // Dodanie po nazwie — dla kogoś, z kim jeszcze nie rozmawiasz.
+            Text(
+                "Dodaj po nazwie",
+                style = MaterialTheme.typography.labelMedium,
+                color = Nocturne.kolory.tekstDrugi,
+            )
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+            ) {
+                Pole(
+                    "Nazwa użytkownika · Username",
+                    dopisany,
+                    { dopisany = it },
+                    modifier = Modifier.weight(1f),
+                )
+                PrzyciskDrugi(
+                    "Dodaj",
+                    modifier = Modifier.widthIn(min = 96.dp),
+                    wlaczony = dopisany.isNotBlank(),
+                ) {
+                    val nazwa = dopisany.trim()
+                    if (nazwa.isNotEmpty() && nazwa !in wybrani) wybrani.add(nazwa)
+                    dopisany = ""
+                }
+            }
+
+            if (wybrani.isNotEmpty()) {
+                Text(
+                    "W grupie · ${wybrani.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                wybrani.forEach { osoba ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = Dotyk.kontrolka),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+                    ) {
+                        Awatar(model.nick(osoba), rozmiar = 32.dp)
+                        Text(model.nick(osoba), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Icon(
+                            Ikony.Zamknij,
+                            contentDescription = "Usuń z grupy",
+                            tint = Nocturne.kolory.tekstTrzeci,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { wybrani.remove(osoba) },
+                        )
+                    }
+                }
+            }
+
+            PrzyciskGlowny(
+                if (stan.pracuje) "Tworzę…" else "Utwórz grupę · Create group",
+                wlaczony = !stan.pracuje && wybrani.isNotEmpty(),
+            ) {
+                model.utworzGrupe(wybrani.toList(), nazwaGrupy.trim())
+            }
+
+            Wskazowka(
+                "Każdy dołączy ze wszystkimi swoimi urządzeniami. Wcześniejszych wiadomości " +
+                    "nie da się nowym osobom pokazać — i jest to zamierzone.",
+                Ikony.Klucz,
+            )
+        }
     }
 }
 
@@ -102,10 +250,12 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
     val stan = model.stan
     val uczestnicy = stan.uczestnicy
     val kod = stan.kodBezpieczenstwa
+    val grupa = uczestnicy.size > 2
+    val groupId = stan.groupId
 
     Column(modifier = modifier.fillMaxSize()) {
         PasekZPowrotem(
-            if (uczestnicy.size > 2) "Grupa · ${uczestnicy.size} osób" else "Rozmowa prywatna",
+            if (grupa) "Grupa · ${uczestnicy.size} osób" else "Rozmowa prywatna",
             "Members from the MLS tree",
             onWstecz = onWstecz,
         )
@@ -119,6 +269,19 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
+            /*
+             * Nazwa grupy — edytowalna i WSPÓŁDZIELONA (metadana MLS), nie
+             * lokalna etykieta. Tylko dla grup: rozmowa prywatna nazywa się
+             * rozmówcą, nie da się jej „przemianować". Puste pole kasuje nazwę
+             * i wraca do sklejanych nicków uczestników.
+             */
+            if (grupa && groupId != null) {
+                EdytorNazwyGrupy(
+                    nazwa = stan.nazwyGrup[Historia.klucz(groupId)].orEmpty(),
+                    onZapisz = { model.zmienNazweGrupy(groupId, it) },
+                )
+            }
+
             uczestnicy.forEach { osoba ->
                 Row(
                     modifier = Modifier
@@ -127,8 +290,10 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.l),
                 ) {
-                    Awatar(osoba, rozmiar = 40.dp)
-                    Text(osoba, style = MaterialTheme.typography.bodyLarge)
+                    // Nick tylko przy renderze — pod spodem zostaje nazwa
+                    // użytkownika (tożsamość MLS).
+                    Awatar(model.nick(osoba), rozmiar = 40.dp)
+                    Text(model.nick(osoba), style = MaterialTheme.typography.bodyLarge)
                 }
             }
 
@@ -183,6 +348,41 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     Ikony.Odcisk,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Edytor nazwy grupy w widoku uczestników.
+ *
+ * Zapis dopiero na przycisk, nie po każdym znaku — zmiana rozsyła metadaną do
+ * całej grupy, więc nie ma jej wysyłać przy każdym naciśnięciu. Puste pole
+ * zapisane wprost kasuje nazwę (wraca sklejanie nicków uczestników).
+ */
+@Composable
+private fun EdytorNazwyGrupy(nazwa: String, onZapisz: (String) -> Unit) {
+    // `remember(nazwa)` przeładowuje pole, gdy nazwa zmieni się z zewnątrz
+    // (np. cudzą metadaną) — bez tego edytor zostałby przy starej wartości.
+    var pole by remember(nazwa) { mutableStateOf(nazwa) }
+    val zmienione = pole.trim() != nazwa.trim()
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+    ) {
+        Pole("Nazwa grupy · Group name", pole, { pole = it }, modifier = Modifier.weight(1f))
+        IconButton(
+            onClick = { if (zmienione) onZapisz(pole.trim()) },
+            enabled = zmienione,
+            modifier = Modifier.size(Dotyk.kontrolka),
+        ) {
+            Icon(
+                Ikony.Wyslane,
+                contentDescription = "Zapisz nazwę grupy",
+                tint = if (zmienione) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

@@ -13,6 +13,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -80,6 +84,38 @@ fun EkranUstawien(
                 Text(
                     "„Systemowy\" idzie za ustawieniem telefonu i zmienia się razem z nim. " +
                         "Wybór jasnego albo ciemnego przestaje go słuchać.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+            }
+
+            /*
+             * Nazwa wyświetlana (nick) — WARSTWA WYŚWIETLANIA.
+             *
+             * To, jak widzą Cię inni. Rozsyłamy ją współdzieloną metadaną do
+             * wszystkich zaakceptowanych rozmów; tożsamością w MLS i adresem
+             * skrzynki zostaje nazwa użytkownika (patrz `Nazwy.kt`). Do próśb
+             * nie wysyłamy nic — nie ogłaszamy się komuś, z kim jeszcze nie
+             * zgodziliśmy się rozmawiać.
+             */
+            Karta {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(Ikony.Konto, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+                    Text("Nazwa wyświetlana", style = MaterialTheme.typography.labelLarge)
+                }
+
+                var nick by remember(stan.mojNick) { mutableStateOf(stan.mojNick) }
+                val zmienione = nick.trim() != stan.mojNick.trim()
+
+                Pole("Nazwa wyświetlana · Display name", nick, { nick = it })
+                PrzyciskDrugi("Zapisz", wlaczony = zmienione) { model.zmienMojNick(nick.trim()) }
+
+                Text(
+                    "Widzą ją Twoi rozmówcy zamiast nazwy użytkownika. Zostawiona pusta " +
+                        "wraca do nazwy użytkownika.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )

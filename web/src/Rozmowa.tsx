@@ -442,27 +442,52 @@ export function Rozmowa({
   if (przychodzace) {
     return (
       <section className="ekran-rozmowy dzwoni" aria-label="Rozmowa przychodząca">
-        <div className="rozmowa-kto">
-          <span className="awatar duzy" aria-hidden="true">
-            {przychodzace.nadawca.slice(0, 1)}
-          </span>
-          <strong>{przychodzace.nadawca}</strong>
-          <span className="rozmowa-podpis">dzwoni</span>
-        </div>
+        {/*
+          Karta na środku, reszta ekranu przygaszona i rozmyta.
 
-        <div className="rozmowa-przyciski">
-          <button className="glowny" onClick={() => void odbierz(false)}>
-            <Ikona nazwa="sluchawka" rozmiar={16} />
-            Odbierz
-          </button>
-          <button onClick={() => void odbierz(true)}>
-            <Ikona nazwa="kamera" rozmiar={16} />
-            Z obrazem
-          </button>
-          <button className="niszczacy" onClick={odrzuc}>
-            <Ikona nazwa="rozlacz" rozmiar={16} />
-            Odrzuć
-          </button>
+          Dzwoniący nie zabiera całego ekranu — to nie jest jeszcze rozmowa,
+          tylko pytanie „odebrać?". Rozmyte tło zostawia kontekst tego, co
+          robiłeś, zamiast wymazywać go czernią na pełny ekran.
+        */}
+        <div className="panel-dzwonienia">
+          <div className="rozmowa-kto">
+            <span className="awatar duzy" aria-hidden="true">
+              {przychodzace.nadawca.slice(0, 1)}
+            </span>
+            <strong>{przychodzace.nadawca}</strong>
+            <span className="rozmowa-podpis">dzwoni</span>
+          </div>
+
+          {/* Okrągłe przyciski z podpisem pod spodem — kształt niesie akcję,
+              podpis ją nazywa. */}
+          <div className="dzwoni-akcje">
+            <span className="akcja-dzwonienia">
+              <button className="okragly niszczacy" aria-label="Odrzuć" onClick={odrzuc}>
+                <Ikona nazwa="rozlacz" rozmiar={22} />
+              </button>
+              <span>Odrzuć</span>
+            </span>
+            <span className="akcja-dzwonienia">
+              <button
+                className="okragly przyjmij"
+                aria-label="Odbierz z obrazem"
+                onClick={() => void odbierz(true)}
+              >
+                <Ikona nazwa="kamera" rozmiar={22} />
+              </button>
+              <span>Z obrazem</span>
+            </span>
+            <span className="akcja-dzwonienia">
+              <button
+                className="okragly przyjmij"
+                aria-label="Odbierz"
+                onClick={() => void odbierz(false)}
+              >
+                <Ikona nazwa="sluchawka" rozmiar={22} />
+              </button>
+              <span>Odbierz</span>
+            </span>
+          </div>
         </div>
       </section>
     );
@@ -472,7 +497,19 @@ export function Rozmowa({
   // startu stoją w nagłówku wątku, tam gdzie w projekcie.
   if (!call) return null;
 
-  const uczestnicy = stan?.uczestnicy ?? [];
+  /*
+   * Po jednym kafelku na OSOBĘ, nie na urządzenie ani na sygnał.
+   *
+   * Warstwa niżej (`calls.ts`) trzyma połączenia w mapie po nazwie użytkownika,
+   * a `memberUserIds` już usuwa duplikaty — więc w normalnym biegu ta lista jest
+   * unikalna. Dedup po nazwie jest tu zabezpieczeniem brzegowym: gdyby ta sama
+   * osoba trafiła na listę dwa razy (np. dwa urządzenia albo powtórzony sygnał),
+   * bez tego widać by ją było jako dwa kafelki, a React ostrzegałby o
+   * zdublowanym `key`. Zostawiamy ostatni wpis, bo niesie najświeższy stan fazy.
+   */
+  const uczestnicy = [
+    ...new Map((stan?.uczestnicy ?? []).map((u) => [u.username, u])).values(),
+  ];
   const zerwane = uczestnicy.filter((u) => u.odrzuconyOdcisk).length;
 
   /*

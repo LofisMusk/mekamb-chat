@@ -1,0 +1,13 @@
+-- Zmiana authenticatora: sekret OCZEKUJĄCY na potwierdzenie.
+--
+-- Wymiana drugiego składnika jest dwuetapowa jak rejestracja: najpierw serwer
+-- wydaje nowy sekret (użytkownik skanuje QR w nowej aplikacji), a dopiero
+-- pierwszy kod z tej nowej aplikacji przełącza konto na nowy sekret. Między
+-- tymi krokami nowy sekret musi gdzieś przeczekać — i NIE MOŻE być aktywny,
+-- bo inaczej zeskanowanie QR bez potwierdzenia wylogowałoby użytkownika ze
+-- starego authenticatora, którego jeszcze nie zastąpił działającym nowym.
+--
+-- Kolumna jest NULL w spoczynku; wypełnia ją `POST /auth/totp/change/start`
+-- (po ponownym uwierzytelnieniu passkeyem albo starym kodem), a
+-- `POST /auth/totp/change/confirm` przenosi ją do `totp_secret_enc` i zeruje.
+ALTER TABLE users ADD COLUMN totp_secret_pending_enc TEXT;

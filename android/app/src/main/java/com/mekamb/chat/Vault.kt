@@ -65,6 +65,28 @@ class Vault(context: Context) {
 
     fun loadRefreshToken(): String? = odczytaj(KLUCZ_REFRESH)?.let { String(it) }
 
+    /**
+     * Współdzielone nazwy: nazwy grup i nicki rozmówców.
+     *
+     * Chronione tak samo jak historia — mówią, jak ktoś nazwał grupę i siebie,
+     * czego serwer nie ma prawa poznać. To WARSTWA WYŚWIETLANIA: tożsamością
+     * w MLS zostaje nazwa użytkownika (patrz `Nazwy.kt`).
+     */
+    fun saveNames(bytes: ByteArray) = zapisz(KLUCZ_NAZWY, bytes)
+
+    fun loadNames(): ByteArray? = odczytaj(KLUCZ_NAZWY)
+
+    /**
+     * Zbiór zaakceptowanych rozmów — zapora przed zalewem nieproszonych.
+     *
+     * „Kontakt" jest pojęciem tego urządzenia, nie faktem o grupie MLS, więc
+     * ten stan jest LOKALNY i szyfrowany kluczem z Keystore jak reszta
+     * (patrz `Prosby.kt`).
+     */
+    fun saveRequests(bytes: ByteArray) = zapisz(KLUCZ_PROSBY, bytes)
+
+    fun loadRequests(): ByteArray? = odczytaj(KLUCZ_PROSBY)
+
     fun saveAccount(account: Account) {
         prefs.edit()
             .putString(KLUCZ_UZYTKOWNIK, account.username)
@@ -163,6 +185,8 @@ class Vault(context: Context) {
         const val KLUCZ_UZYTKOWNIK = "uzytkownik"
         const val KLUCZ_URZADZENIE = "urzadzenie"
         const val KLUCZ_REFRESH = "token-odswiezajacy"
+        const val KLUCZ_NAZWY = "nazwy"
+        const val KLUCZ_PROSBY = "prosby"
     }
 }
 

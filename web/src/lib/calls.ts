@@ -464,7 +464,12 @@ export class Call {
   async wlaczKamere(): Promise<void> {
     if (!this.lokalny || this.maWideo()) return;
 
-    const zKamery = await navigator.mediaDevices.getUserMedia({ video: true });
+    // `facingMode: "user"` zamiast gołego `true`: iOS Safari przy `video: true`
+    // bez wskazania kamery potrafi nie zapalić żadnej (obraz nie rusza, choć
+    // audio gra) — jawna przednia kamera to naprawia.
+    const zKamery = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+    });
     const sciezka = zKamery.getVideoTracks()[0];
     if (!sciezka) return;
 
@@ -497,7 +502,9 @@ export class Call {
   private async przygotuj(token: string): Promise<void> {
     this.lokalny = await navigator.mediaDevices.getUserMedia({
       audio: true,
-      video: this.wideo,
+      // Jawna przednia kamera zamiast `true` — patrz `wlaczKamere`. Na iOS gołe
+      // `video: true` bywało kamerą, która się nie zapala.
+      video: this.wideo ? { facingMode: "user" } : false,
     });
 
     this.iceServers = await pobierzIceServers(token);

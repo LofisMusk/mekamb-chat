@@ -386,3 +386,77 @@ describe("dostęp do skrzynki", () => {
     expect(odpowiedz.headers.get("Sec-WebSocket-Protocol")).toBe(wlasciciel.token);
   });
 });
+
+/**
+ * Pełen obieg DM: Android zostawia kopertę, web ją odbiera ze skrzynki.
+ *
+ * # Sedno
+ *
+ * Rozmowa dwuosobowa idzie DOKŁADNIE tą samą drogą co grupowa: nadawca
+ * deponuje kopertę do skrzynki odbiorcy przez `POST /inbox/:userId`, bez tokenu
+ * konta (tożsamość nadawcy jest wewnątrz MLS). Klient webowy nie ma UDP, więc
+ * ta skrzynka to jego JEDYNA droga odbioru — jeśli serwer zgubiłby tu kopertę,
+ * web → nic, Android bez błędu.
+ *
+ * Ten test broni tego, że deponowanie surowej koperty (tak jak robi Android,
+ * także po rozmowie A/V czy po zdjęciu — te idą przez R2/WebRTC i skrzynki nie
+ * dotykają) przeżywa w kolejce i rozchodzi się na KAŻDE urządzenie odbiorcy
+ * osobno: potwierdzenie jednego nie okrada drugiego.
+ */
+describe("obieg DM przez skrzynkę", () => {
+  async function post(userId: string, envelope: ArrayBuffer): Promise<Response> {
+    return SELF.fetch(`https://mekamb/inbox/${userId}`, {
+      method: "POST",
+      body: envelope,
+    });
+  }
+
+  it("koperta zdeponowana przez HTTP przeżywa i trafia do dwóch urządzeń web", async () => {
+    const odbiorca = `web-${crypto.randomUUID().slice(0, 8)}`;
+    const skrzynka = inbox(odbiorca);
+
+    // Web ma dwa urządzenia (laptop + telefon) na jednej nazwie użytkownika.
+    // Oba muszą się najpierw podłączyć, żeby TRZYMAĆ kolejkę — inaczej
+    // potwierdzenie jednego skasowałoby kopertę drugiemu (patrz nagłówek DO).
+    for (const urzadzenie of ["laptop", "telefon"]) {
+      await skrzynka.fetch(`https://inbox/connect?urzadzenie=${urzadzenie}`, {
+        headers: { Upgrade: "websocket" },
+      });
+    }
+
+    // Android deponuje BEZ tokenu konta — dokładnie jak `Api.deposit`.
+    const odpowiedz = await post(odbiorca, koperta("dm-od-androida"));
+    expect(odpowiedz.status).toBe(200);
+
+    // Oba urządzenia mają tę samą kopertę do odebrania.
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(1);
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+
+    // Laptop potwierdza — telefon NADAL ma kopertę do odebrania.
+    await skrzynka.acknowledge(1, "laptop");
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(0);
+    expect(await skrzynka.pendingCountFor("telefon")).toBe(1);
+
+    // Dopiero gdy oba potwierdzą, koperta znika z kolejki.
+    await skrzynka.acknowledge(1, "telefon");
+    expect(await skrzynka.pendingCount()).toBe(0);
+  });
+
+  it("kolejna koperta DM po pierwszej nie gubi się (seria po rozmowie/zdjęciu)", async () => {
+    const odbiorca = `web-${crypto.randomUUID().slice(0, 8)}`;
+
+    // Symuluje serię: po zdarzeniu (call/zdjęcie) Android wysyła jeszcze tekst.
+    await post(odbiorca, koperta("pierwsza"));
+    await post(odbiorca, koperta("druga"));
+
+    const skrzynka = inbox(odbiorca);
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(2);
+
+    // Nawet gdy web potwierdzi drugą przed pierwszą (przetwarza nie po kolei),
+    // pierwsza wraca — to jest ta różnica, przez którą ponawianie działa.
+    await skrzynka.acknowledge(2, "laptop");
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(1);
+    await skrzynka.acknowledge(1, "laptop");
+    expect(await skrzynka.pendingCountFor("laptop")).toBe(0);
+  });
+});

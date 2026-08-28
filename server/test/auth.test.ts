@@ -316,6 +316,74 @@ describe("logowanie", () => {
   });
 });
 
+describe("potwierdzenie rejestracji wydaje sesję", () => {
+  /**
+   * Sedno: po wpisaniu kodu TOTP użytkownik jest ZALOGOWANY, nie odesłany na
+   * ekran logowania. W tej chwili udowodnił oba składniki — hasło ustawił przy
+   * `register/finish`, a znajomość sekretu TOTP właśnie potwierdził — więc
+   * confirm zwraca dokładnie ten sam kształt co `login/totp`.
+   */
+  it("poprawny kod zwraca token, którym można wejść na własną skrzynkę", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-po-rejestracji-od-razu");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: aktualnyKod(konto.totpSecret),
+      deviceId: "telefon",
+      sesjaWTresci: true,
+    });
+
+    expect(res.status).toBe(200);
+    const dane = await res.json<{ token: string; expiresAt: number; refreshToken?: string }>();
+
+    // Ten sam kształt co logowanie: token dostępowy, znacznik wygaśnięcia i —
+    // bo poprosiliśmy `sesjaWTresci` — token odświeżający w treści.
+    expect(dane.token).toContain(".");
+    expect(dane.expiresAt).toBeGreaterThan(Date.now());
+    expect(typeof dane.refreshToken).toBe("string");
+
+    // Token musi od razu wpuszczać na uwierzytelniony endpoint — bez ponownego
+    // logowania. Skrzynka adresowana jest NAZWĄ użytkownika, a token niesie
+    // wewnętrzny UUID: serwer przelicza jedno na drugie i wpuszcza właściciela.
+    const polaczenie = await SELF.fetch(`https://mekamb/inbox/${konto.username}/connect`, {
+      headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": dane.token },
+    });
+    expect(polaczenie.status).toBe(101);
+  });
+
+  it("bez deviceId sesja wychodzi bez tokenu odświeżającego", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-bez-urzadzenia");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: aktualnyKod(konto.totpSecret),
+    });
+
+    expect(res.status).toBe(200);
+    const dane = await res.json<{ token: string; expiresAt: number; refreshToken?: string }>();
+    expect(dane.token).toContain(".");
+    expect(dane.refreshToken).toBeUndefined();
+  });
+
+  it("zły kod nie aktywuje konta i nie wydaje tokenu", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-ze-zlym-kodem");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: "000000",
+      deviceId: "telefon",
+    });
+
+    expect(res.status).toBe(401);
+    const dane = await res.json<{ token?: string; error?: string }>();
+    expect(dane.token).toBeUndefined();
+
+    // Konto zostało `pending` — logowanie wciąż niemożliwe.
+    const loginRes = await zalogujDoTotp(konto.username, konto.password);
+    expect(loginRes.status).toBe(401);
+  });
+});
+
 describe("sekret TOTP w spoczynku", () => {
   it("nie jest przechowywany jawnie", async () => {
     const konto = await zarejestruj(nazwa(), "haslo-uzytkownika");
@@ -333,5 +401,106 @@ describe("sekret TOTP w spoczynku", () => {
     expect(row).not.toBeNull();
     expect(row!.totp_secret_enc).not.toBe(konto.totpSecret);
     expect(row!.totp_secret_enc).not.toContain(konto.totpSecret);
+  });
+});
+
+/**
+ * Zmiana authenticatora — ścieżka starym kodem.
+ *
+ * Passkeyowej drogi tu nie sprawdzamy: assertion wymaga prawdziwego
+ * authenticatora WebAuthn, którego w workerd nie ma (tak samo pomijamy
+ * logowanie passkeyem). Testujemy re-auth kodem, dwuetapowość (oczekujący →
+ * potwierdzony) i to, że po zmianie działa NOWY sekret, a stary już nie.
+ */
+async function postAuth(sciezka: string, body: unknown, token: string): Promise<Response> {
+  return SELF.fetch(`https://mekamb${sciezka}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Aktywuje konto i zwraca token dostępowy (confirm z deviceId wydaje sesję). */
+async function aktywujZTokenem(username: string, totpSecret: string): Promise<string> {
+  const res = await post("/auth/register/confirm", {
+    username,
+    code: aktualnyKod(totpSecret),
+    deviceId: "telefon",
+    sesjaWTresci: true,
+  });
+  expect(res.status).toBe(200);
+  const { token } = await res.json<{ token: string }>();
+  return token;
+}
+
+describe("zmiana authenticatora", () => {
+  it("stary kod wydaje nowy sekret, a jego potwierdzenie przełącza konto", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-do-zmiany-totp");
+    const token = await aktywujZTokenem(konto.username, konto.totpSecret);
+
+    // Re-auth aktualnym kodem (okno po aktywacji, żeby nie było powtórką).
+    const startRes = await postAuth(
+      "/auth/totp/change/start",
+      { oldCode: kodPoAktywacji(konto.totpSecret) },
+      token,
+    );
+    expect(startRes.status).toBe(200);
+    const { totpSecret: nowySekret } = await startRes.json<{ totpSecret: string }>();
+    expect(nowySekret).toMatch(/^[A-Z2-7]+$/);
+    expect(nowySekret).not.toBe(konto.totpSecret);
+
+    // Dopóki nie potwierdzimy, STARY sekret dalej jest aktywny (nowy tylko czeka).
+    const przedRes = await postAuth(
+      "/auth/totp/change/confirm",
+      { code: aktualnyKod(nowySekret) },
+      token,
+    );
+    expect(przedRes.status).toBe(200);
+
+    // Po potwierdzeniu: NOWY sekret loguje, STARY już nie.
+    const logNowy = await zalogujDoTotp(konto.username, konto.password);
+    expect(logNowy.status).toBe(200);
+    const { loginId } = await logNowy.json<{ loginId: string }>();
+    const totpNowy = await post("/auth/login/totp", {
+      loginId,
+      code: kodPoAktywacji(nowySekret),
+    });
+    expect(totpNowy.status).toBe(200);
+
+    const logStary = await zalogujDoTotp(konto.username, konto.password);
+    expect(logStary.status).toBe(200);
+    const { loginId: loginId2 } = await logStary.json<{ loginId: string }>();
+    const totpStary = await post("/auth/login/totp", {
+      loginId: loginId2,
+      code: kodPoAktywacji(konto.totpSecret),
+    });
+    expect(totpStary.status).toBe(401);
+  });
+
+  it("zły stary kod nie wydaje nic i nie ma czego potwierdzać", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-zly-kod");
+    const token = await aktywujZTokenem(konto.username, konto.totpSecret);
+
+    const startRes = await postAuth("/auth/totp/change/start", { oldCode: "000000" }, token);
+    expect(startRes.status).toBe(401);
+
+    // Bez udanego startu nie ma sekretu oczekującego.
+    const confirmRes = await postAuth(
+      "/auth/totp/change/confirm",
+      { code: aktualnyKod(konto.totpSecret) },
+      token,
+    );
+    expect(confirmRes.status).toBe(400);
+  });
+
+  it("bez tokenu dostępowego odrzuca każdy krok", async () => {
+    for (const [sciezka, body] of [
+      ["/auth/totp/change/options", {}],
+      ["/auth/totp/change/start", { oldCode: "123456" }],
+      ["/auth/totp/change/confirm", { code: "123456" }],
+    ] as const) {
+      const res = await post(sciezka, body);
+      expect(res.status).toBe(401);
+    }
   });
 });

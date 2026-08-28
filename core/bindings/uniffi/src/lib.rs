@@ -143,10 +143,29 @@ pub enum IncomingEvent {
         /// Identyfikatory potwierdzanych wiadomości, po 16 bajtów każdy.
         message_ids: Vec<Vec<u8>>,
     },
+    /// Aktualizacja współdzielonych nazw: nazwy grupy i/lub nicku nadawcy.
+    ///
+    /// Nazwy są widoczne dla całej rozmowy, a nie lokalne — jadą zaszyfrowane
+    /// jak każda wiadomość aplikacyjna, więc serwer widzi tylko szyfrogram.
+    ///
+    /// Oba pola są niezależne: `None` znaczy „nadawca nie zmieniał tego pola",
+    /// `Some("")` — „wyczyścił je".
+    Metadata {
+        group_id: Vec<u8>,
+        sender_user_id: String,
+        sender_device_id: String,
+        group_name: Option<String>,
+        display_name: Option<String>,
+    },
     /// Skład grupy uległ zmianie.
     MembershipChanged,
     /// Propozycja odłożona do czasu commitu.
-    ProposalQueued,
+    ///
+    /// Niesie `group_id`, bo odbiorca musi wiedzieć, KTÓRĄ rozmowę domknąć
+    /// commitem (`commit_pending`). Najczęściej jest to cudza propozycja wyjścia
+    /// (SelfRemove): openmls nie pozwala wychodzącemu scalić własnego usunięcia,
+    /// więc robi to pozostający — a bez `group_id` nie miałby jak wskazać grupy.
+    ProposalQueued { group_id: Vec<u8> },
     /// Dołączyliśmy do nowej rozmowy.
     JoinedConversation { group_id: Vec<u8> },
 }
@@ -549,6 +568,72 @@ impl MekambClient {
         }))
     }
 
+    /// Opuszcza rozmowę — usuwa **własny** liść i porzuca ją lokalnie.
+    ///
+    /// Zwraca **zaenvelopowaną** kopertę (rodzaj `commit`) gotową do rozesłania
+    /// pozostałym członkom bez dalszego pakowania — po wyjściu klient tej grupy
+    /// już nie zna, więc nie mógłby jej potem opakować sam. Wewnątrz siedzi
+    /// propozycja SelfRemove: to **pozostały** członek zamyka ją commitem
+    /// (`commit_pending`) i dopiero jego commit usuwa nasz liść u wszystkich.
+    /// Uzasadnienie „czemu propozycja, nie commit" — w `Conversation::stage_self_removal`.
+    ///
+    /// Rozmowa znika z klienta natychmiast: po wyjściu nie wolno jej już ani
+    /// wysyłać, ani odbierać.
+    pub fn leave_conversation(&self, group_id: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let propozycja = conversation.stage_self_removal(provider, identity)?;
+        let koperta = Envelope::new(&group_id, EnvelopeKind::Commit, propozycja).encode_to_vec();
+
+        conversations.remove(&group_id);
+        Ok(koperta)
+    }
+
+    /// Zamyka commitem propozycje w kolejce — np. cudze wyjście z rozmowy.
+    ///
+    /// Po odebraniu propozycji SelfRemove wołający zajmuje nią epokę: commit
+    /// idzie do `GroupRelay`, a scala go `confirm_commit`. Bez tego liść
+    /// wychodzącego zostałby w drzewie.
+    pub fn commit_pending(&self, group_id: Vec<u8>) -> Result<PendingCommit, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let conversation =
+            conversations
+                .get_mut(&group_id)
+                .ok_or_else(|| MekambError::InvalidInput {
+                    powod: "nie ma takiej rozmowy".into(),
+                })?;
+
+        let pending = conversation.stage_commit_pending(provider, identity)?;
+
+        // Envelopujemy jak `add_members`: koperta rodzaju `commit` gotowa do
+        // rozesłania. Welcome tu nie będzie (zamykamy usunięcie, nie dodanie),
+        // ale zachowujemy kształt na wypadek innych propozycji w kolejce.
+        Ok(PendingCommit {
+            commit: Envelope::new(&group_id, EnvelopeKind::Commit, pending.commit).encode_to_vec(),
+            welcome: pending.welcome.map(|welcome| {
+                Envelope::new(&group_id, EnvelopeKind::Welcome, welcome).encode_to_vec()
+            }),
+        })
+    }
+
     pub fn confirm_commit(&self, group_id: Vec<u8>) -> Result<(), MekambError> {
         let mut state = self.lock();
         let ClientState {
@@ -858,6 +943,32 @@ impl MekambClient {
         Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
     }
 
+    /// Szyfruje aktualizację współdzielonych nazw i pakuje ją do wysłania.
+    ///
+    /// Nazwa grupy i display name są widoczne dla całej rozmowy, a jadą
+    /// **wewnątrz** MLS, więc serwer nigdy nie pozna, jak nazwano rozmowę ani
+    /// nadawcę. `group_name`/`display_name` są niezależne: `None` znaczy „nie
+    /// zmieniam tego pola", `Some("")` — „czyszczę je".
+    pub fn send_metadata(
+        &self,
+        group_id: Vec<u8>,
+        group_name: Option<String>,
+        display_name: Option<String>,
+        sent_at_ms: u64,
+    ) -> Result<Vec<u8>, MekambError> {
+        let mut state = self.lock();
+        let ClientState {
+            identity,
+            provider,
+            conversations,
+        } = &mut *state;
+
+        let message = ChatMessage::metadata(group_name, display_name, sent_at_ms);
+        let ciphertext = pobierz(conversations, &group_id)?.send(provider, identity, &message)?;
+
+        Ok(Envelope::new(&group_id, EnvelopeKind::Application, ciphertext).encode_to_vec())
+    }
+
     /// Przetwarza kopertę odebraną z sieci.
     ///
     /// Obsługuje też zaproszenia: koperta typu `welcome` wprowadza nas do nowej
@@ -948,6 +1059,14 @@ impl MekambClient {
                         target: sygnal.target.clone(),
                         sent_at_ms: message.sent_at_ms,
                     }
+                } else if let Some(metadane) = message.as_metadata() {
+                    IncomingEvent::Metadata {
+                        group_id,
+                        sender_user_id,
+                        sender_device_id,
+                        group_name: metadane.group_name.clone(),
+                        display_name: metadane.display_name.clone(),
+                    }
                 } else {
                     IncomingEvent::Message {
                         group_id,
@@ -960,7 +1079,7 @@ impl MekambClient {
                 }
             }
             Incoming::MembershipChanged => IncomingEvent::MembershipChanged,
-            Incoming::ProposalQueued => IncomingEvent::ProposalQueued,
+            Incoming::ProposalQueued => IncomingEvent::ProposalQueued { group_id },
         })
     }
 }

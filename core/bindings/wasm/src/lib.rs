@@ -48,6 +48,24 @@ pub struct IncomingMessage {
 
     /// Wypełnione, gdy wiadomość jest potwierdzeniem dostarczenia albo odczytu.
     pub receipt: Option<ReceiptInfo>,
+
+    /// Wypełnione, gdy wiadomość niesie aktualizację współdzielonych nazw.
+    pub metadata: Option<MetadataInfo>,
+}
+
+/// Współdzielone nazwy odebrane kanałem MLS.
+///
+/// Nazwa grupy i display name są widoczne dla całej rozmowy, a nie lokalne —
+/// jadą zaszyfrowane jak każda wiadomość, więc serwer widzi tylko szyfrogram.
+///
+/// Oba pola są niezależne: `None` znaczy „nadawca nie zmieniał tego pola",
+/// `Some("")` — „wyczyścił je". JS musi rozróżnić te dwa przypadki, dlatego
+/// nie zwijamy `None` i pustego łańcucha w jedno.
+#[derive(Clone)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct MetadataInfo {
+    pub group_name: Option<String>,
+    pub display_name: Option<String>,
 }
 
 /// Potwierdzenie odebrane kanałem MLS.
@@ -322,6 +340,61 @@ impl MekambClient {
         }))
     }
 
+    /// Opuszcza rozmowę — usuwa **własny** liść i porzuca ją lokalnie.
+    ///
+    /// Zwraca **zaenvelopowane** bajty (rodzaj `commit`) gotowe do rozesłania
+    /// pozostałym członkom bez dalszego pakowania — po wyjściu klient tej grupy
+    /// już nie zna, więc nie mógłby ich potem opakować sam. Wewnątrz siedzi
+    /// propozycja SelfRemove: to **pozostały** członek zamyka ją commitem
+    /// (`commitPending`) i dopiero jego commit usuwa nasz liść u wszystkich.
+    /// Uzasadnienie „czemu propozycja, nie commit" — w `Conversation::stage_self_removal`.
+    ///
+    /// Rozmowa znika z klienta natychmiast: po wyjściu nie wolno jej już ani
+    /// wysyłać, ani odbierać.
+    #[wasm_bindgen(js_name = leaveConversation)]
+    pub fn leave_conversation(&mut self, group_id: &[u8]) -> Result<Vec<u8>, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let propozycja = pobierz_mut(conversations, group_id)?
+            .stage_self_removal(provider, identity)
+            .map_err(to_js)?;
+
+        let koperta =
+            mekamb_core::Envelope::new(group_id, mekamb_core::EnvelopeKind::Commit, propozycja)
+                .encode_to_vec();
+
+        conversations.remove(group_id);
+        Ok(koperta)
+    }
+
+    /// Zamyka commitem propozycje w kolejce — np. cudze wyjście z rozmowy.
+    ///
+    /// Po odebraniu propozycji SelfRemove (`receive` zwraca `membership-changed`
+    /// dopiero po commicie, a propozycję sygnalizuje `proposal-queued`) wołający
+    /// zajmuje nią epokę: commit idzie do `GroupRelay`, a scala go
+    /// `confirmCommit`. Bez tego liść wychodzącego zostałby w drzewie.
+    #[wasm_bindgen(js_name = commitPending)]
+    pub fn commit_pending(&mut self, group_id: &[u8]) -> Result<PendingCommitJs, JsError> {
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        let pending = pobierz_mut(conversations, group_id)?
+            .stage_commit_pending(provider, identity)
+            .map_err(to_js)?;
+
+        Ok(PendingCommitJs {
+            commit: pending.commit,
+            welcome: pending.welcome,
+        })
+    }
+
     #[wasm_bindgen(js_name = confirmCommit)]
     pub fn confirm_commit(&mut self, group_id: &[u8]) -> Result<(), JsError> {
         let Self {
@@ -425,6 +498,37 @@ impl MekambClient {
             .collect();
 
         let message = ChatMessage::receipt(rodzaj, identyfikatory, sent_at_ms as u64);
+
+        let Self {
+            identity,
+            provider,
+            conversations,
+        } = self;
+
+        pobierz_mut(conversations, group_id)?
+            .send(provider, identity, &message)
+            .map_err(to_js)
+    }
+
+    /// Szyfruje aktualizację współdzielonych nazw i zwraca szyfrogram grupy.
+    ///
+    /// Zwraca sam szyfrogram, tak jak [`Self::send_text`] — JS pakuje go
+    /// w kopertę przez `encodeEnvelope`. Nazwa grupy i display name jadą
+    /// **wewnątrz** MLS, więc serwer nigdy nie pozna, jak nazwano rozmowę
+    /// ani nadawcę.
+    ///
+    /// `group_name`/`display_name` są niezależne: `None` znaczy „nie zmieniam
+    /// tego pola", `Some("")` — „czyszczę je". Dzięki `Option<String>` po
+    /// stronie JS `undefined` odróżnia się od pustego łańcucha.
+    #[wasm_bindgen(js_name = sendMetadata)]
+    pub fn send_metadata(
+        &mut self,
+        group_id: &[u8],
+        group_name: Option<String>,
+        display_name: Option<String>,
+        sent_at_ms: f64,
+    ) -> Result<Vec<u8>, JsError> {
+        let message = ChatMessage::metadata(group_name, display_name, sent_at_ms as u64);
 
         let Self {
             identity,
@@ -593,6 +697,10 @@ impl MekambClient {
                     }
                     .into(),
                     message_ids: r.message_ids.concat(),
+                }),
+                metadata: message.as_metadata().map(|m| MetadataInfo {
+                    group_name: m.group_name.clone(),
+                    display_name: m.display_name.clone(),
                 }),
             },
             Incoming::MembershipChanged => zdarzenie("membership-changed"),
@@ -782,6 +890,7 @@ fn zdarzenie(kind: &str) -> IncomingMessage {
         attachment: None,
         call: None,
         receipt: None,
+        metadata: None,
     }
 }
 

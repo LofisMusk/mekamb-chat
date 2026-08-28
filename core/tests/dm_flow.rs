@@ -640,3 +640,59 @@ fn nie_da_sie_usunac_wlasnego_urzadzenia() {
             .is_err()
     );
 }
+
+/// Opuszczenie rozmowy naprawdę wyprowadza z grupy.
+///
+/// „Odrzuć prośbę o rozmowę" ma faktycznie wyjąć z grupy, a nie tylko ukryć
+/// wątek lokalnie. W MLS nie da się scalić commitu usuwającego samego siebie
+/// (openmls: `CannotRemoveSelf`), więc wychodzący produkuje **propozycję**
+/// SelfRemove, a pozostały członek zamyka ją commitem — i dopiero ten commit
+/// usuwa liść u wszystkich. Sprawdzamy oba kroki i to, że wychodzący nie
+/// odczyta już niczego, co poszło po jego wyjściu.
+#[test]
+fn opuszczenie_rozmowy_usuwa_wlasny_lisc() {
+    let alice = Uczestnik::nowy("alice", "telefon");
+    let bob = Uczestnik::nowy("bob", "telefon");
+
+    let (mut u_alice, mut u_bob) = zaloz_rozmowe(&alice, &bob);
+    assert_eq!(u_alice.members().len(), 2);
+
+    // Bob wychodzi: produkuje propozycję SelfRemove. W bindingu rozmowa znika
+    // z mapy zaraz po tym — tu odpowiada temu porzucenie `u_bob` na końcu.
+    let wyjscie = u_bob
+        .stage_self_removal(&bob.provider, &bob.tozsamosc)
+        .unwrap();
+
+    // Sama propozycja niczego jeszcze nie usuwa — czeka na commit.
+    let incoming = u_alice.receive(&alice.provider, &wyjscie).unwrap();
+    assert!(matches!(incoming, Incoming::ProposalQueued));
+    assert_eq!(
+        u_alice.members().len(),
+        2,
+        "propozycja bez commitu nie zmienia składu"
+    );
+
+    // Alice zamyka propozycję commitem (w produkcji przez GroupRelay) i scala.
+    let _commit = u_alice
+        .stage_commit_pending(&alice.provider, &alice.tozsamosc)
+        .unwrap();
+    u_alice.confirm_pending_commit(&alice.provider).unwrap();
+
+    let czlonkowie = u_alice.members();
+    assert_eq!(czlonkowie.len(), 1, "zostaje sama Alice");
+    assert!(
+        !czlonkowie.iter().any(|c| c.starts_with("bob:")),
+        "Boba nie ma już w grupie"
+    );
+
+    // Wiadomość po wyjściu: Bob (który nie przetworzył commitu i nie ma czym)
+    // już jej nie odczyta — jest realnie poza rozmową.
+    let wiadomosc = ChatMessage::text("po wyjsciu Boba", 1_700_000_002_000);
+    let szyfrogram = u_alice
+        .send(&alice.provider, &alice.tozsamosc, &wiadomosc)
+        .unwrap();
+    assert!(
+        u_bob.receive(&bob.provider, &szyfrogram).is_err(),
+        "wychodzący nie odczyta niczego późniejszego"
+    );
+}

@@ -75,9 +75,41 @@ export async function register(
   });
 }
 
-/** Aktywuje konto pierwszym kodem z authenticatora. */
-export async function confirmRegistration(username: string, code: string): Promise<void> {
-  await api.post("/auth/register/confirm", { username, code });
+/**
+ * Aktywuje konto pierwszym kodem z authenticatora i od razu odbiera token
+ * dostępowy.
+ *
+ * # Dlaczego confirm zwraca token, tak jak logowanie
+ *
+ * Kod TOTP wpisany przy zakładaniu konta jest tym samym drugim składnikiem, co
+ * przy logowaniu — potwierdzenie go dowodzi tożsamości nie słabiej niż
+ * `loginWithTotp`. Zmuszanie świeżo założonego konta do przejścia jeszcze raz
+ * przez ekran logowania (hasło + kolejny, już inny kod) było wyłącznie tarciem:
+ * serwer i tak właśnie zweryfikował właściciela. Confirm zwraca więc token
+ * dostępowy w tym samym kształcie co `/auth/login/totp`, a klient wchodzi
+ * prosto na czat.
+ *
+ * `credentials: "include"` z tego samego powodu co w [`loginWithTotp`] — bez
+ * niego przeglądarka odrzuciłaby `Set-Cookie` trwałej sesji.
+ */
+export async function confirmRegistration(
+  username: string,
+  code: string,
+  deviceId: string,
+): Promise<AccessToken> {
+  // `deviceId` i `sesjaWTresci` jak w [`loginWithTotp`]: bez `deviceId` serwer
+  // nie zna urządzenia, do którego ma przypiąć trwałą sesję, a bez
+  // `sesjaWTresci` token odświeżający wróciłby tylko cookie'em trzeciej strony
+  // — czyli na iOS wcale (patrz [`ZAWSZE_W_TRESCI`]).
+  const wynik = await api.post<AccessToken>(
+    "/auth/register/confirm",
+    { username, code, deviceId, sesjaWTresci: ZAWSZE_W_TRESCI },
+    undefined,
+    { credentials: "include" },
+  );
+
+  await zapamietajTrwalaSesje(wynik);
+  return wynik;
 }
 
 export interface LoginSession {
@@ -307,4 +339,43 @@ export async function webauthnLoginVerify(
 
   await zapamietajTrwalaSesje(wynik);
   return wynik;
+}
+
+// ---------------------------------------------------------------------------
+// Zmiana authenticatora (drugiego składnika)
+//
+// Trzy kroki, wszystkie z tokenem dostępowym: opcje passkeya do ponownego
+// uwierzytelnienia, `start` (re-auth passkeyem ALBO starym kodem → nowy sekret
+// oczekujący) i `confirm` (pierwszy kod z nowej aplikacji przełącza konto).
+
+/** Wyzwanie assertion do ponownego uwierzytelnienia passkeyem przy zmianie TOTP. */
+export async function totpChangeOptions(token: string): Promise<PasskeyAuthenticationOptions> {
+  return api.post<PasskeyAuthenticationOptions>("/auth/totp/change/options", {}, token);
+}
+
+/** Nowy authenticator wydany przez serwer — do pokazania jako QR i sekret. */
+export interface NowyAuthenticator {
+  totpSecret: string;
+  otpauthUri: string;
+}
+
+/** Re-auth aktualnym kodem ze starego authenticatora → nowy sekret oczekujący. */
+export async function totpChangeStartKodem(
+  token: string,
+  oldCode: string,
+): Promise<NowyAuthenticator> {
+  return api.post<NowyAuthenticator>("/auth/totp/change/start", { oldCode }, token);
+}
+
+/** Re-auth passkeyem → nowy sekret oczekujący. */
+export async function totpChangeStartPasskeyem(
+  token: string,
+  response: PasskeyAuthenticationResponse,
+): Promise<NowyAuthenticator> {
+  return api.post<NowyAuthenticator>("/auth/totp/change/start", { response }, token);
+}
+
+/** Pierwszy kod z NOWEJ aplikacji — przełącza konto na nowy sekret. */
+export async function totpChangeConfirm(token: string, code: string): Promise<void> {
+  await api.post("/auth/totp/change/confirm", { code }, token);
 }

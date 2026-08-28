@@ -85,6 +85,7 @@ message ChatMessage {
     AttachmentBody attachment = 5;
     CallSignalBody call_signal = 6;
     ReceiptBody receipt = 8;
+    MetadataBody metadata = 9;
   }
 
   // message_id wiadomości, na którą to jest odpowiedź.
@@ -132,6 +133,26 @@ message ReceiptBody {
   // potwierdzenie: jedna koperta na wiele wiadomości ujawnia mniej niż
   // koperta na każdą z osobna.
   repeated bytes message_ids = 2;
+}
+
+// Współdzielone nazwy: nazwa grupy i nazwa wyświetlana nadawcy.
+//
+// Nazwa grupy i display name (nick) NIE są ustawieniem lokalnym — mają być
+// widoczne dla wszystkich uczestników rozmowy. Realizacja przez wiadomość
+// aplikacyjną MLS, dokładnie jak ReceiptBody: serwer widzi wyłącznie
+// szyfrogram i nigdy nie pozna, jak ktoś nazwał grupę ani siebie.
+//
+// Oba pola są OPCJONALNE i niezależne. Nadawca może zaktualizować samą nazwę
+// grupy, sam własny display name, albo oba naraz. `optional` (nie zwykły
+// string) jest tu potrzebny, żeby odróżnić „nie zmieniam tego pola" od
+// „ustawiam je na pusty łańcuch" — bez tego wyczyszczenie nicku byłoby nie do
+// odróżnienia od aktualizacji dotyczącej tylko nazwy grupy.
+//
+// CZEGO TU NIE MA: żadnego znacznika czasu ani niczego korelowalnego, dokładnie
+// jak w ReceiptBody. Nazwa to deklaracja nadawcy, a nie fakt o chwili.
+message MetadataBody {
+  optional string group_name = 1;
+  optional string display_name = 2;
 }
 
 // Sygnalizacja WebRTC przenoszona kanałem MLS.

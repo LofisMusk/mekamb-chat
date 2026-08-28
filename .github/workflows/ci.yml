@@ -170,6 +170,11 @@ jobs:
   audit:
     name: Audyt zależności
     runs-on: ubuntu-latest
+    # audit-check zapisuje wynik jako Check Run, co wymaga zapisu do checków.
+    # Reszta workflow zostaje read-only (permissions na górze pliku).
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v5
 

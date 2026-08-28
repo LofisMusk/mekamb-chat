@@ -259,6 +259,63 @@ impl Conversation {
             .map(Some)
     }
 
+    /// Przygotowuje **wyjście z rozmowy** — usunięcie własnego liścia.
+    ///
+    /// # Dlaczego to propozycja, a nie commit
+    ///
+    /// W MLS nikt nie może scalić commitu usuwającego **samego siebie**:
+    /// openmls odrzuca to jako [`CreateCommitError::CannotRemoveSelf`], zgodnie
+    /// z RFC 9420 (członek nie commituje własnego usunięcia). Wyjście robi się
+    /// więc **propozycją** SelfRemove/Remove — [`MlsGroup::leave_group`] — którą
+    /// dopiero **pozostały** członek zamyka commitem (patrz
+    /// [`Self::stage_commit_pending`]). To on zajmuje kolejną epokę przez
+    /// `GroupRelay`, jak przy każdym innym commicie, i to jego commit dociera
+    /// do reszty jako [`Incoming::MembershipChanged`].
+    ///
+    /// Zwracane bajty to zserializowana propozycja. Wychodzący **porzuca stan
+    /// lokalny** zaraz po jej wyprodukowaniu (robi to binding, usuwając rozmowę
+    /// z mapy) — po wyjściu grupy już nie zna, więc własnej propozycji nie
+    /// scala i niczego więcej z tej rozmowy nie przetwarza.
+    pub fn stage_self_removal(
+        &mut self,
+        provider: &Provider,
+        identity: &DeviceIdentity,
+    ) -> Result<Vec<u8>> {
+        let signer = identity.signature_keypair();
+
+        let proposal = self
+            .group
+            .leave_group(provider, &signer)
+            .map_err(|e| Error::Group(format!("nie udało się opuścić grupy: {e}")))?;
+
+        serialize_message(&proposal)
+    }
+
+    /// Zamyka commitem propozycje odłożone w kolejce (np. cudze wyjście).
+    ///
+    /// Odpowiednik po stronie **pozostającego**: gdy przyjdzie propozycja
+    /// SelfRemove od wychodzącego ([`Incoming::ProposalQueued`]), ktoś musi ją
+    /// scalić w commit, żeby liść naprawdę zniknął z drzewa. Commit jak każdy
+    /// inny — wymaga potwierdzenia kolejności przez `GroupRelay`, więc zwracamy
+    /// [`PendingCommit`], a scala dopiero [`Self::confirm_pending_commit`].
+    pub fn stage_commit_pending(
+        &mut self,
+        provider: &Provider,
+        identity: &DeviceIdentity,
+    ) -> Result<PendingCommit> {
+        let signer = identity.signature_keypair();
+
+        let (commit, welcome, _group_info) = self
+            .group
+            .commit_to_pending_proposals(provider, &signer)
+            .map_err(|e| Error::Group(format!("nie udało się scalić propozycji w commit: {e}")))?;
+
+        Ok(PendingCommit {
+            commit: serialize_message(&commit)?,
+            welcome: welcome.as_ref().map(serialize_message).transpose()?,
+        })
+    }
+
     /// Scala commit przygotowany wcześniej — po potwierdzeniu przez relay.
     pub fn confirm_pending_commit(&mut self, provider: &Provider) -> Result<()> {
         self.group

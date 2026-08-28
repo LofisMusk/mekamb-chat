@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Ikona } from "./Ikony";
 import type { Messenger } from "./lib/messenger";
@@ -14,10 +14,19 @@ import type { Messenger } from "./lib/messenger";
 export function Uczestnicy({
   messenger,
   groupId,
+  nazwaGrupy,
+  onZmienNazweGrupy,
+  nick,
   onBlad,
 }: {
   messenger: Messenger;
   groupId: Uint8Array;
+  /** Współdzielona nazwa grupy — pusta, gdy nikt jej nie nadał. */
+  nazwaGrupy: string;
+  /** Zmienia (albo czyści pustym napisem) nazwę grupy — rozsyła metadaną. */
+  onZmienNazweGrupy: (nazwa: string) => void;
+  /** Nick rozmówcy do wyświetlenia — pod spodem zostaje nazwa użytkownika. */
+  nick: (username: string) => string;
   onBlad: (e: unknown) => void;
 }) {
   const [nowy, setNowy] = useState("");
@@ -45,8 +54,26 @@ export function Uczestnicy({
     [messenger, groupId, odswiezenie],
   );
 
+  const grupa = osoby.length > 2;
+
   return (
     <>
+      {/*
+        Nazwa grupy — edytowalna i WSPÓLDZIELONA (metadana MLS), nie lokalna
+        etykieta. Tylko dla grup: DM nazywa się rozmówcą, nie da się go
+        „przemianować". Pusty zapis kasuje nazwę i wraca do sklejanych nazw
+        uczestników.
+      */}
+      {grupa && (
+        <section className="sekcja-inspektora">
+          <h3 className="naglowek-sekcji">
+            <Ikona nazwa="info" rozmiar={13} />
+            Nazwa grupy
+          </h3>
+          <NazwaGrupy nazwa={nazwaGrupy} onZapisz={onZmienNazweGrupy} />
+        </section>
+      )}
+
       <section className="sekcja-inspektora">
         <h3 className="naglowek-sekcji">
           <Ikona nazwa="osoby" rozmiar={13} />
@@ -57,9 +84,9 @@ export function Uczestnicy({
           {osoby.map((osoba) => (
             <li key={osoba}>
               <span className="awatar maly" aria-hidden="true">
-                {osoba.slice(0, 1)}
+                {nick(osoba).slice(0, 1)}
               </span>
-              <span className="kto">{osoba}</span>
+              <span className="kto">{nick(osoba)}</span>
               {osoba === messenger.account.userId && <span className="tryb">Ty</span>}
             </li>
           ))}
@@ -171,5 +198,45 @@ function KodBezpieczenstwa({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Edytor nazwy grupy w inspektorze.
+ *
+ * Zapis dopiero na „Zapisz" albo Enter, nie po każdym znaku — zmiana rozsyła
+ * metadaną do całej grupy, więc nie ma jej wysyłać przy każdym naciśnięciu.
+ * Puste pole zapisane wprost kasuje nazwę (wraca sklejanie nazw uczestników).
+ */
+function NazwaGrupy({
+  nazwa,
+  onZapisz,
+}: {
+  nazwa: string;
+  onZapisz: (nazwa: string) => void;
+}) {
+  const [pole, setPole] = useState(nazwa);
+  useEffect(() => setPole(nazwa), [nazwa]);
+
+  const zmienione = pole.trim() !== nazwa.trim();
+
+  return (
+    <form
+      className="edytor-nazwy-grupy"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (zmienione) onZapisz(pole.trim());
+      }}
+    >
+      <input
+        value={pole}
+        onChange={(e) => setPole(e.target.value)}
+        placeholder="Nazwa grupy"
+        aria-label="Nazwa grupy"
+      />
+      <button className="ikonowy glowny" disabled={!zmienione} aria-label="Zapisz nazwę" title="Zapisz">
+        <Ikona nazwa="wyslane" rozmiar={16} />
+      </button>
+    </form>
   );
 }

@@ -326,8 +326,10 @@ class Messenger private constructor(
                 // Bez niego rozsyłka commitu jest jedyną drogą do skrzynki,
                 // która go nie ma — a po włączeniu `DELIVERY_TOKEN_REQUIRED`
                 // serwer odpowiada `401` i zmiana składu grupy przestaje
-                // działać. Wyłączone wymuszanie skutecznie to ukrywa.
-                api.deposit(osoba, oczekujacy.commit, portfel?.wez()?.naglowek())
+                // działać. Wyłączone wymuszanie skutecznie to ukrywa. `zdeponuj`
+                // dobiera zapas synchronicznie przy pustym portfelu, więc seria
+                // commitów nie gubi żadnego po wyczerpaniu tokenów.
+                zdeponuj(osoba, oczekujacy.commit)
             }
 
             // Zapas uzupełniamy PO wysyłce, nie przed: pobranie go jest
@@ -524,6 +526,103 @@ class Messenger private constructor(
     }
 
     /**
+     * Rozsyła współdzieloną metadaną: nazwę grupy i/lub własny nick.
+     *
+     * `null` znaczy „nie zmieniam tego pola", `""` — „czyszczę je". Rdzeń zwraca
+     * gotową kopertę (wiadomość aplikacyjna MLS jak każda inna), więc serwer
+     * widzi wyłącznie szyfrogram i nie pozna, jak ktoś nazwał grupę ani siebie.
+     *
+     * Rozsyłka jest taka sama jak przy potwierdzeniu: do WSZYSTKICH uczestników
+     * i echo do siebie, żeby drugie własne urządzenie też dostało zmianę nicku
+     * czy nazwy. Nieudane doręczenie do jednej osoby nie może przerwać reszty —
+     * nazwa jest wygodą wyświetlania, nie treścią rozmowy.
+     */
+    suspend fun sendMetadata(
+        groupId: ByteArray,
+        nazwaGrupy: String?,
+        mojNick: String?,
+    ) = withContext(Dispatchers.IO) {
+        val koperta = client.sendMetadata(
+            groupId,
+            nazwaGrupy,
+            mojNick,
+            System.currentTimeMillis().toULong(),
+        )
+
+        vault.saveState(client.exportState())
+
+        for (osoba in uczestnicy(groupId)) {
+            if (osoba == account.userId) continue
+            runCatching { wyslij(osoba, drogaBezposrednia(groupId, osoba), koperta) }
+        }
+
+        echoDoSiebie(koperta)
+    }
+
+    /**
+     * Opuszcza grupę MLS — wołane przy odrzuceniu prośby.
+     *
+     * # Dwa kroki, bo openmls nie usunie własnego liścia
+     *
+     * `leave_conversation` zwraca **zaenvelopowaną** kopertę (rodzaj commit)
+     * niosącą PROPOZYCJĘ SelfRemove i usuwa rozmowę z rdzenia lokalnie. Sam
+     * commit usuwający własny liść jest przez RFC 9420 zabroniony, więc liść
+     * wypada dopiero, gdy któryś z POZOSTAŁYCH członków zamknie propozycję
+     * commitem (`commit_pending` u niego). My tu tylko rozsyłamy propozycję do
+     * ich skrzynek — a że po wyjściu już tej grupy nie znamy, kopertę pakuje
+     * rdzeń przed usunięciem i oddaje gotową.
+     *
+     * Skład pobieramy PRZED wyjściem: po `leave_conversation` rdzeń grupy już
+     * nie zna. Własnej nazwy użytkownika nie adresujemy — SelfRemove dotyczy
+     * TEGO liścia, a pozostałe nasze urządzenia zostają w grupie i sprzątnie je
+     * dopiero cudzy `commit_pending`.
+     */
+    suspend fun opuscGrupe(groupId: ByteArray) = withContext(Dispatchers.IO) {
+        val pozostali = uczestnicy(groupId).filter { it != account.userId }
+
+        val koperta = client.leaveConversation(groupId)
+        vault.saveState(client.exportState())
+
+        // Propozycja idzie do skrzynek pozostałych — jak commit z `dodajCzlonka`.
+        // Token doręczeniowy dobiera `zdeponuj`; nieudane doręczenie do jednej
+        // osoby nie może przerwać reszty.
+        for (osoba in pozostali) {
+            runCatching { zdeponuj(osoba, koperta) }
+        }
+        uzupelnijTokeny()
+    }
+
+    /**
+     * Domyka cudzą propozycję wyjścia commitem i rozsyła go.
+     *
+     * Wołane po odebraniu [IncomingEvent.ProposalQueued]: ktoś zgłosił wyjście
+     * (SelfRemove), a że openmls nie pozwala mu samemu scalić własnego usunięcia
+     * (RFC 9420), robimy to my — pozostający. Bez tego jego liść zostaje
+     * w drzewie „duchem" aż do najbliższego innego commitu.
+     *
+     * Bierzemy [mlsMutex], bo ruszamy stan MLS: to wywołanie przychodzi już PO
+     * zwolnieniu muteksu przez [przetworzKoperte] (event wraca do wołającego),
+     * więc nie ma zakleszczenia, a commit nie przeplata się z kolejną kopertą.
+     * `commitPending` zwraca commit tego samego kształtu co dodawanie, więc idzie
+     * tą samą drogą: zajęcie epoki w GroupRelay, confirm, rozsyłka do składu.
+     */
+    suspend fun domknijPropozycje(groupId: ByteArray) = withContext(Dispatchers.IO) {
+        mlsMutex.withLock {
+            val oczekujacy = client.commitPending(groupId)
+
+            zajmijEpoke(groupId)
+            client.confirmCommit(groupId)
+            vault.saveState(client.exportState())
+
+            Echa.zapamietaj(oczekujacy.commit)
+            for (osoba in uczestnicy(groupId)) {
+                zdeponuj(osoba, oczekujacy.commit)
+            }
+            uzupelnijTokeny()
+        }
+    }
+
+    /**
      * Wysyła załącznik: czyści metadane, szyfruje, wgrywa, rozsyła klucz.
      *
      * # Kolejność ma znaczenie
@@ -717,7 +816,7 @@ class Messenger private constructor(
             // Token doręczeniowy tylko na drodze przez skrzynkę: przy
             // dostarczeniu wprost serwera w ogóle nie ma w torze, więc nie ma
             // komu niczego dowodzić.
-            api.deposit(recipient, koperta, portfel?.wez()?.naglowek())
+            zdeponuj(recipient, koperta)
 
             // Uzupełnianie PO wysyłce, nie przed: pobranie zapasu jest żądaniem
             // uwierzytelnionym, więc trzymamy je z dala od chwili nadania.
@@ -725,6 +824,61 @@ class Messenger private constructor(
         }
 
         return sposob
+    }
+
+    /**
+     * Deponuje kopertę w skrzynce z tokenem doręczeniowym — odpornie na pusty
+     * portfel i na wymuszanie tokenów przez serwer.
+     *
+     * # Dlaczego zwykłe `deposit(…, portfel?.wez()?.naglowek())` nie wystarcza
+     *
+     * Zapas dobieramy zwykle PO wysyłce, z dala od chwili nadania. Ale seria
+     * wysyłek — sygnały rozmowy A/V, kolejne koperty przy zdjęciu — opróżnia
+     * portfel szybciej, niż zdąży się dobrać asynchronicznie. Wtedy `wez()`
+     * zwraca `null` i deponujemy bez tokenu. Dopóki serwer ich nie wymusza, to
+     * przechodzi (200); z `DELIVERY_TOKEN_REQUIRED` kolejny deposit dostaje
+     * `401` i koperta ginie — a że idą tędy też commit i welcome, seria po
+     * rozmowie albo zdjęciu potrafiła po cichu rozłączyć urządzenie od grupy.
+     *
+     * Dlatego: pusty portfel dobieramy synchronicznie, ZANIM nadamy, a jeśli
+     * serwer i tak odrzuci token przez `401`, dobieramy i próbujemy jeszcze raz
+     * ze świeżym. Wysyłka gubiąca kopertę po cichu jest gorsza niż chwilowe
+     * spowolnienie serii — a nadal nie blokujemy nadania, gdy tokenów zdobyć
+     * się nie da (wołający pracuje na `Dispatchers.IO`).
+     */
+    private suspend fun zdeponuj(recipient: String, koperta: ByteArray) {
+        try {
+            api.deposit(recipient, koperta, wezTokenDoreczenia())
+        } catch (e: Api.ApiException) {
+            // 401 = serwer wymusza tokeny, a nasz był pusty albo odrzucony.
+            // Dobierz synchronicznie i spróbuj raz jeszcze ze świeżym tokenem;
+            // gdy nadal nie wyjdzie, błąd leci wyżej, a nie ginie w milczeniu.
+            if (e.status == 401 && portfel != null) {
+                uzupelnijTokeny()
+                api.deposit(recipient, koperta, portfel?.wez()?.naglowek())
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /**
+     * Token doręczeniowy do jednego depozytu; przy pustym portfelu dobiera
+     * zapas synchronicznie, zanim nadamy.
+     *
+     * Zwraca `null` tylko wtedy, gdy portfela nie ma albo dobrać się nie udało
+     * (np. serwer nie skonfigurował tokenów) — nadanie bez tokenu jest wtedy
+     * poprawne, bo serwer ich nie wymaga.
+     */
+    private suspend fun wezTokenDoreczenia(): String? {
+        val portfel = portfel ?: return null
+        portfel.wez()?.let { return it.naglowek() }
+
+        // Pusty zapas w środku serii: dobierz TERAZ, zanim deposit poleci bez
+        // tokenu. Asynchroniczne dobieranie po wysyłce nie zdąży na kolejną
+        // kopertę tej samej serii.
+        uzupelnijTokeny()
+        return portfel.wez()?.naglowek()
     }
 
     /**

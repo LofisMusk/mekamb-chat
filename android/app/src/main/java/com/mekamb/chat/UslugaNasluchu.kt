@@ -1,6 +1,7 @@
 package com.mekamb.chat
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -58,19 +59,26 @@ class UslugaNasluchu : Service() {
         /*
          * Od Androida 14 typ usługi jest obowiązkowy i musi zgadzać się
          * z manifestem — inaczej system wyrzuca wyjątek zamiast uruchomić
-         * usługę. `DATA_SYNC` jest tu typem właściwym: utrzymujemy połączenie,
-         * którym płyną dane użytkownika.
+         * usługę. Domyślnie `DATA_SYNC`: utrzymujemy połączenie, którym płyną
+         * dane użytkownika.
+         *
+         * Na czas rozmowy A/V awansujemy do `MICROPHONE` (i `CAMERA` przy
+         * wideo). Rozmowa potrafi trwać po zablokowaniu ekranu, gdy nie ma już
+         * widocznej aktywności — a wtedy dostęp do mikrofonu z usługi bez tego
+         * typu jest od Androida 14 `SecurityException`. Typ zdejmujemy z powrotem
+         * po rozmowie [AKCJA_KONIEC_ROZMOWY], żeby nie trzymać mikrofonu dłużej,
+         * niż trzeba.
+         *
+         * Awans jest pod `runCatching` z odwrotem do `DATA_SYNC`: gdyby system
+         * odmówił typu mikrofonowego (np. cofnięte w międzyczasie uprawnienie),
+         * usługa ma zostać przy życiu jako skrzynka, a nie paść razem z wyjątkiem.
          */
-        ServiceCompat.startForeground(
-            this,
-            Powiadomienia.ID_USLUGI,
-            Powiadomienia.powiadomienieUslugi(this),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            } else {
-                0
-            },
-        )
+        val wRozmowie = intent?.action == AKCJA_ROZMOWA
+        val zWideo = intent?.getBooleanExtra(EXTRA_WIDEO, false) ?: false
+
+        if (!uruchomPierwszoplanowo(wRozmowie, zWideo)) {
+            uruchomPierwszoplanowo(wRozmowie = false, zWideo = false)
+        }
 
         /*
          * `START_STICKY`: po zabiciu przez system usługa ma wrócić.
@@ -135,11 +143,91 @@ class UslugaNasluchu : Service() {
      */
     private fun powiadomOWiadomosci(groupId: ByteArray, od: String) {
         if (Rdzen.naWierzchu && czytana(groupId)) return
+        // Anty-flood: prośba (rozmowa spoza zbioru zaakceptowanych) nie ma prawa
+        // dzwonić. Nieproszona wiadomość nie udaje „nowej" i nie zalewa telefonu
+        // powiadomieniami — patrz `Prosby.kt`. Dopóki zbiór nie jest wczytany
+        // (`null`), nie tłumimy nic, żeby nie zgubić powiadomienia przy starcie.
+        if (!zaakceptowana(groupId)) return
         Powiadomienia.pokazWiadomosc(this, groupId, od)
     }
 
     private fun czytana(groupId: ByteArray): Boolean =
         Rdzen.otwartaGrupa?.contentEquals(groupId) == true
+
+    private fun zaakceptowana(groupId: ByteArray): Boolean =
+        Rdzen.zaakceptowane?.contains(Historia.klucz(groupId)) ?: true
+
+    /**
+     * Wchodzi w tryb pierwszoplanowy z odpowiednim typem usługi.
+     *
+     * Zwraca `false`, gdy system odrzucił start z tym typem — wołający próbuje
+     * wtedy zwykłego `DATA_SYNC`, żeby usługa przetrwała jako skrzynka.
+     */
+    private fun uruchomPierwszoplanowo(wRozmowie: Boolean, zWideo: Boolean): Boolean {
+        val typ = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                var t = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                if (wRozmowie) {
+                    t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    if (zWideo) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                }
+                t
+            }
+
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+
+            else -> 0
+        }
+
+        return runCatching {
+            ServiceCompat.startForeground(
+                this,
+                Powiadomienia.ID_USLUGI,
+                Powiadomienia.powiadomienieUslugi(this),
+                typ,
+            )
+        }.isSuccess
+    }
+
+    companion object {
+        /** Awans usługi do typu mikrofon/aparat na czas rozmowy. */
+        private const val AKCJA_ROZMOWA = "com.mekamb.chat.ROZMOWA"
+        private const val EXTRA_WIDEO = "wideo"
+
+        /**
+         * Wchodzi w tryb rozmowy: usługa dostaje typ `microphone` (+`camera`).
+         *
+         * Wołane po przyznaniu `RECORD_AUDIO` (i `CAMERA` przy wideo), więc
+         * uprawnienia do typu są już na miejscu. Pod `runCatching`, bo start
+         * usługi nie może wywrócić samego zestawiania rozmowy.
+         */
+        fun wejdzWTrybRozmowy(kontekst: Context, zWideo: Boolean) {
+            val intencja = Intent(kontekst, UslugaNasluchu::class.java).apply {
+                action = AKCJA_ROZMOWA
+                putExtra(EXTRA_WIDEO, zWideo)
+            }
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    kontekst.startForegroundService(intencja)
+                } else {
+                    kontekst.startService(intencja)
+                }
+            }
+        }
+
+        /** Zdejmuje typ mikrofon/aparat po rozmowie — z powrotem do `dataSync`. */
+        fun wyjdzZTrybuRozmowy(kontekst: Context) {
+            val intencja = Intent(kontekst, UslugaNasluchu::class.java)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    kontekst.startForegroundService(intencja)
+                } else {
+                    kontekst.startService(intencja)
+                }
+            }
+        }
+    }
 
     override fun onDestroy() {
         odepnij?.invoke()

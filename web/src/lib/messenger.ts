@@ -68,6 +68,21 @@ export interface ReceivedMessage {
   call?: ReceivedCallSignal;
   /** Obecne, gdy wiadomość jest potwierdzeniem dostarczenia albo odczytu. */
   receipt?: ReceivedReceipt;
+  /** Obecne, gdy wiadomość niesie aktualizację współdzielonych nazw. */
+  metadata?: ReceivedMetadata;
+}
+
+/**
+ * Współdzielone nazwy odebrane kanałem MLS.
+ *
+ * `undefined` znaczy „nadawca nie zmieniał tego pola", `""` — „wyczyścił je".
+ * To rozróżnienie pochodzi wprost z `Option<String>` w rdzeniu i nie wolno go
+ * zwijać: bez niego wyczyszczenie nicku byłoby nie do odróżnienia od zmiany
+ * dotyczącej tylko nazwy grupy.
+ */
+export interface ReceivedMetadata {
+  groupName?: string;
+  displayName?: string;
 }
 
 /**
@@ -150,6 +165,39 @@ export class Messenger {
     readonly account: Account,
     private token: string,
   ) {}
+
+  /**
+   * Łańcuch serializujący przetwarzanie kopert.
+   *
+   * Koperty przychodzą seriami — sygnały rozmowy A/V, kolejne koperty przy
+   * wysyłce zdjęcia — i każda przesuwa ten sam ratchet MLS, po czym zapisuje
+   * stan. `handleEnvelope` ma po drodze `await` (odsianie własnego echa, zapis
+   * do IndexedDB), a wołający puszcza je BEZ czekania (`void obsluzKoperte(…)`
+   * w `Czat.tsx`). Bez łańcucha druga koperta wchodziła więc w środek pierwszej:
+   * dwa `receive` przeplatały się z `exportState`/zapisem i utrwalały stan
+   * STARSZY niż już wykonana — i już potwierdzona — operacja. Klient cofał się
+   * o epokę, a że kopertę zdążyliśmy potwierdzić, znikała ze skrzynki; kolejne
+   * wiadomości tej rozmowy nie odszyfrowywały się już nigdy, bez śladu błędu.
+   * To dokładnie ten sam objaw, który po serii (po rozmowie, po zdjęciu)
+   * wyglądał jak „DM z Androida nie dochodzi". Android trzyma tę regułę
+   * mutexem (`przetworzKoperte`); tutaj robi to ten łańcuch obietnic.
+   */
+  private lancuchKopert: Promise<void> = Promise.resolve();
+
+  /**
+   * Wołane po dołączeniu do NOWEJ rozmowy przez Welcome.
+   *
+   * Welcome nie jest wiadomością do pokazania, więc `handleEnvelope` zwraca dla
+   * niego `null` — a mimo to interfejs musi się dowiedzieć, że doszła nowa
+   * rozmowa: to na tej podstawie rozstrzyga, czy trafia wprost na listę, czy do
+   * próśb. Zamiast rozszerzać zwracany typ o wariant „dołączono", który
+   * dotyczyłby jednej ścieżki na wiele, oddajemy to wywołaniem zwrotnym. Ustawia
+   * je warstwa interfejsu (`Czat.tsx`); domyślnie nie robi nic.
+   *
+   * `czlonkowie` to nazwy użytkowników w grupie (bez duplikatów urządzeń) —
+   * z nich interfejs sprawdza, czy zapraszający jest już kontaktem.
+   */
+  naDolaczenie: ((groupId: Uint8Array, czlonkowie: string[]) => void) | null = null;
 
   /** Token dostępowy — potrzebny warstwie rozmów do pobrania adresów TURN. */
   get accessToken(): string {
@@ -380,6 +428,33 @@ export class Messenger {
     }
 
     await api.del(`/devices/${encodeURIComponent(deviceId)}`, this.token);
+  }
+
+  /**
+   * Opuszcza rozmowę — wychodzimy z grupy MLS, nie tylko chowamy ją lokalnie.
+   *
+   * openmls nie pozwala samemu zamknąć własnego usunięcia commitem (RFC 9420),
+   * więc `leaveConversation` produkuje PROPOZYCJĘ SelfRemove i od razu porzuca
+   * stan rozmowy w rdzeniu. Odbiorców zbieramy PRZED wyjściem — po nim rdzeń
+   * składu już nie zna. Faktyczne usunięcie naszego liścia u wszystkich wykona
+   * ktoś pozostający, u siebie (`zamknijPropozycje`), po odebraniu tej koperty.
+   */
+  async opuscGrupe(groupId: Uint8Array): Promise<void> {
+    const odbiorcy = this.skrzynkiRozmowy(groupId).filter((o) => o !== this.account.userId);
+    const koperta = this.client.leaveConversation(groupId);
+    await this.zostawWSkrzynkach(odbiorcy, koperta);
+  }
+
+  /**
+   * Zamyka cudzą propozycję wyjścia commitem i rozsyła go.
+   *
+   * Wołane z obsługi `proposal-queued`: ktoś zgłosił SelfRemove, a że sam nie
+   * może go scalić, robimy to my, pozostający. `commitPending` daje commit
+   * w tym samym kształcie co dodawanie/usuwanie, więc idzie tą samą drogą
+   * przez `GroupRelay` (`zatwierdzIRozeslij`).
+   */
+  private async zamknijPropozycje(groupId: Uint8Array): Promise<void> {
+    await this.zatwierdzIRozeslij(groupId, this.client.commitPending(groupId), this.account.userId);
   }
 
   /** Zajmuje epokę, scala commit i rozsyła go. Wspólne dla dodawania i usuwania. */
@@ -732,7 +807,31 @@ export class Messenger {
    * Zwraca `null`, gdy koperta nie była wiadomością do wyświetlenia — na
    * przykład niosła commit albo zaproszenie do grupy.
    */
+  /**
+   * Przetwarza kopertę ze skrzynki, szeregując ją względem pozostałych.
+   *
+   * Samo przetwarzanie jest w [`przetworzKoperte`]; ta warstwa tylko ustawia
+   * koperty w kolejce (patrz [`lancuchKopert`]), żeby ratchet MLS nie był
+   * dotykany przez dwie naraz. Kolejka nie może się zablokować jednym błędem:
+   * `finally` zwalnia następną nawet wtedy, gdy ta koperta rzuci — a rzuca
+   * w normalnym biegu (powtórka, nieaktualna epoka).
+   */
   async handleEnvelope(bytes: Uint8Array): Promise<ReceivedMessage | null> {
+    const poprzednia = this.lancuchKopert;
+    let zwolnij!: () => void;
+    this.lancuchKopert = new Promise<void>((res) => {
+      zwolnij = res;
+    });
+
+    await poprzednia;
+    try {
+      return await this.przetworzKoperte(bytes);
+    } finally {
+      zwolnij();
+    }
+  }
+
+  private async przetworzKoperte(bytes: Uint8Array): Promise<ReceivedMessage | null> {
     /*
      * Własne echo odsiewamy PRZED czymkolwiek innym.
      *
@@ -756,13 +855,26 @@ export class Messenger {
        * niedoręczone zaproszenie zepsuło już kiedyś doręczanie po cichu
        * i nie chcemy drugi raz zgadywać.
        */
+      let dolaczonaGrupa: Uint8Array;
       try {
-        this.client.joinFromWelcome(envelope.payload);
+        dolaczonaGrupa = this.client.joinFromWelcome(envelope.payload);
       } catch (blad) {
         console.warn("zaproszenie odrzucone (zapewne już jesteśmy w grupie)", blad);
         return null;
       }
       await this.persist();
+
+      // Interfejs rozstrzyga, czy to prośba, czy rozmowa wprost — my tylko
+      // mówimy, że doszła nowa grupa i kto w niej jest. Skład bierzemy PO
+      // dołączeniu, z drzewa MLS; wyjątek (grupa bez stanu) nie może wywrócić
+      // odbioru, więc pomijamy zgłoszenie zamiast rzucać.
+      if (this.naDolaczenie) {
+        try {
+          this.naDolaczenie(dolaczonaGrupa, this.memberUserIds(dolaczonaGrupa));
+        } catch (blad) {
+          console.warn("obsługa dołączenia do rozmowy zawiodła", blad);
+        }
+      }
       return null;
     }
 
@@ -785,8 +897,17 @@ export class Messenger {
     // Commit zmienia skład grupy i epokę. Przetwarzamy go tą samą ścieżką co
     // wiadomość — `receive` rozpoznaje rodzaj sam.
     if (envelope.kind === "commit") {
-      this.client.receive(groupId, envelope.payload);
+      const wynik = this.client.receive(groupId, envelope.payload);
       await this.persist();
+
+      // Ktoś zgłosił wyjście z grupy (propozycja SelfRemove). openmls nie
+      // pozwala mu samemu zamknąć własnego usunięcia commitem, więc robimy to
+      // MY, pozostający: zamykamy propozycję i rozsyłamy commit, żeby jego liść
+      // wypadł u wszystkich. Bez tego kroku wychodzący zostałby „duchem" w
+      // drzewie — patrz `leaveConversation`/`commitPending` w rdzeniu.
+      if (wynik.kind === "proposal-queued") {
+        await this.zamknijPropozycje(groupId);
+      }
       return null;
     }
 
@@ -828,7 +949,47 @@ export class Messenger {
               messageIds: rozetnijIdentyfikatory(incoming.receipt.message_ids),
             }
           : undefined,
+      // Metadana rozpoznawana po OBECNOŚCI pola, jak załącznik czy potwierdzenie.
+      // Wołający ma jej NIE pokazywać jako dymka — aktualizuje mapy nazw
+      // i tyle. `undefined`/`""` w polach niesie znaczenie („nie zmieniam"/
+      // „czyszczę"), więc przenosimy je bez zwijania.
+      metadata: incoming.metadata
+        ? {
+            groupName: incoming.metadata.group_name,
+            displayName: incoming.metadata.display_name,
+          }
+        : undefined,
     };
+  }
+
+  /**
+   * Rozsyła aktualizację współdzielonych nazw — nazwy grupy i/lub własnego nicku.
+   *
+   * Idzie DOKŁADNIE tą samą drogą co wiadomość tekstowa: rdzeń zwraca sam
+   * szyfrogram (jak `sendText`), a my pakujemy go w kopertę `application`,
+   * zapamiętujemy do odsiania echa i deponujemy w skrzynkach rozmowy. Serwer
+   * widzi wyłącznie szyfrogram — nie pozna, jak nazwano grupę ani nadawcę.
+   *
+   * `groupName`/`displayName` są niezależne: `undefined` znaczy „nie zmieniam
+   * tego pola", `""` — „czyszczę je". Rdzeń rozróżnia te przypadki
+   * (`Option<String>`), więc przekazujemy je bez zwijania w jedno.
+   */
+  async sendMetadata(
+    groupId: Uint8Array,
+    dane: { groupName?: string; displayName?: string },
+  ): Promise<void> {
+    const ciphertext = this.client.sendMetadata(
+      groupId,
+      dane.groupName,
+      dane.displayName,
+      Date.now(),
+    );
+
+    // Ratchet przesunął się już przy szyfrowaniu — zapis musi nastąpić nawet
+    // wtedy, gdy wysyłka po nim zawiedzie.
+    await this.persist();
+
+    await this.rozeslij(groupId, encodeEnvelope(groupId, "application", ciphertext));
   }
 
   /**

@@ -13,6 +13,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -555,6 +557,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
     val obraz = zalacznik.mimeType.startsWith("image/")
     var bitmapa by remember(zalacznik.blobId) { mutableStateOf<ImageBitmap?>(null) }
     var nieudane by remember(zalacznik.blobId) { mutableStateOf(false) }
+    var naPelnym by remember(zalacznik.blobId) { mutableStateOf(false) }
 
     LaunchedEffect(zalacznik.blobId) {
         if (!obraz) return@LaunchedEffect
@@ -579,7 +582,9 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
             modifier = Modifier
                 .widthIn(max = 260.dp)
                 .heightIn(max = 320.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .clip(RoundedCornerShape(8.dp))
+                // Kliknięcie powiększa zdjęcie na pełny ekran.
+                .clickable { naPelnym = true },
         )
 
         else -> Row(
@@ -604,6 +609,38 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
                 style = MaterialTheme.typography.labelSmall,
                 color = if (wlasna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
             )
+        }
+    }
+
+    /*
+     * Zdjęcie na pełny ekran.
+     *
+     * Bitmapa jest już odszyfrowana w pamięci — nie pobieramy jej drugi raz.
+     * `usePlatformDefaultWidth = false` zabiera dialogowi domyślną szerokość, więc
+     * wypełnia ekran; przygaszone tło i dopasowanie bez przycinania (`Fit`), a
+     * dotknięcie w dowolnym miejscu zamyka. Systemowe „wstecz" robi to samo
+     * (`onDismissRequest`).
+     */
+    val doPokazania = bitmapa
+    if (naPelnym && doPokazania != null) {
+        Dialog(
+            onDismissRequest = { naPelnym = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color(0xD1000000))
+                    .clickable { naPelnym = false },
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    bitmap = doPokazania,
+                    contentDescription = zalacznik.nazwaPliku ?: "zdjęcie",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().padding(Odstep.m),
+                )
+            }
         }
     }
 }

@@ -1,23 +1,30 @@
 package com.mekamb.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -26,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -247,11 +255,13 @@ fun EkranNowaGrupa(
 @Composable
 fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWstecz: () -> Unit) {
     var nowy by remember { mutableStateOf("") }
+    var pytajOOpuszczenie by remember { mutableStateOf(false) }
     val stan = model.stan
     val uczestnicy = stan.uczestnicy
     val kod = stan.kodBezpieczenstwa
     val grupa = uczestnicy.size > 2
     val groupId = stan.groupId
+    val mojeId = model.mojeId
 
     Column(modifier = modifier.fillMaxSize()) {
         PasekZPowrotem(
@@ -283,6 +293,8 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
             }
 
             uczestnicy.forEach { osoba ->
+                val jaTo = osoba == mojeId
+                val zablokowana = osoba in stan.zablokowani
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -293,7 +305,35 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     // Nick tylko przy renderze — pod spodem zostaje nazwa
                     // użytkownika (tożsamość MLS).
                     Awatar(model.nick(osoba), rozmiar = 40.dp)
-                    Text(model.nick(osoba), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        model.nick(osoba),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    if (jaTo) {
+                        Text(
+                            "Ty",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Nocturne.kolory.tekstDrugi,
+                        )
+                    } else {
+                        // Blokada per osoba — decyzja o TEJ osobie, po jej nazwie
+                        // użytkownika (tożsamości MLS), nie po nicku.
+                        IconButton(
+                            onClick = {
+                                if (zablokowana) model.odblokuj(osoba) else model.zablokuj(osoba)
+                            },
+                        ) {
+                            Icon(
+                                Ikony.Blokuj,
+                                contentDescription = if (zablokowana) "Odblokuj" else "Zablokuj",
+                                tint = if (zablokowana) MaterialTheme.colorScheme.error
+                                else Nocturne.kolory.tekstTrzeci,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -311,6 +351,15 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     "się jej pokazać — i jest to zamierzone.",
                 Ikony.Klucz,
             )
+
+            // Znikanie wiadomości — retencja lokalna tej rozmowy, domyślnie
+            // wyłączona (patrz `Znikanie.kt`).
+            if (groupId != null) {
+                SekcjaZnikania(
+                    sekundy = stan.znikanie[Historia.klucz(groupId)],
+                    onZmien = { model.zmienZnikanie(groupId, it) },
+                )
+            }
 
             if (kod != null) {
                 Karta {
@@ -348,8 +397,141 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     Ikony.Odcisk,
                 )
             }
+
+            // Opuszczenie grupy — NAPRAWDĘ wychodzimy z MLS. Tylko dla grup:
+            // z rozmowy prywatnej „wychodzi się" przez usunięcie albo blokadę.
+            if (grupa && groupId != null) {
+                PrzyciskNiszczacy("Opuść grupę · Leave group") { pytajOOpuszczenie = true }
+            }
         }
     }
+
+    if (pytajOOpuszczenie && groupId != null) {
+        AlertDialog(
+            onDismissRequest = { pytajOOpuszczenie = false },
+            title = { Text("Opuścić tę grupę?") },
+            text = {
+                Text(
+                    "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. " +
+                        "Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pytajOOpuszczenie = false
+                    model.opuscGrupe(groupId)
+                    onWstecz()
+                }) {
+                    Text("Opuść", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pytajOOpuszczenie = false }) { Text("Anuluj") }
+            },
+        )
+    }
+}
+
+/**
+ * Sekcja znikania wiadomości.
+ *
+ * # Co to znaczy i czego nie znaczy
+ *
+ * Retencja LOKALNA: po wybranym czasie wiadomości znikają z tego urządzenia.
+ * Nie kasuje ich rozmówcy — historia żyje u każdego osobno i nie ma jej gdzie
+ * indziej skasować. Mówimy to wprost, bo „znikające wiadomości" łatwo pomylić
+ * z obietnicą, której ta wersja nie składa. Domyślnie wyłączone.
+ */
+@Composable
+private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
+    var wlasny by remember { mutableStateOf(false) }
+    var ile by remember { mutableStateOf("1") }
+    // Domyślna jednostka: godziny (środkowa pozycja listy).
+    var jednostka by remember { mutableStateOf(JEDNOSTKI_ZNIKANIA[1].mnoznik) }
+
+    Karta {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+        ) {
+            Icon(Ikony.Zegar, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+            Text("Znikające wiadomości", style = MaterialTheme.typography.labelLarge)
+        }
+
+        Text(
+            if (sekundy != null) "Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}."
+            else "Wyłączone — wiadomości zostają, dopóki ich nie usuniesz.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Nocturne.kolory.tekstDrugi,
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            PRESETY_ZNIKANIA.forEach { preset ->
+                Chip(preset.etykieta, aktywny = sekundy == preset.sekundy) {
+                    onZmien(preset.sekundy)
+                }
+            }
+            Chip("Własny…", aktywny = wlasny) { wlasny = !wlasny }
+            if (sekundy != null) Chip("Wyłącz", niszczacy = true) { onZmien(null) }
+        }
+
+        if (wlasny) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+            ) {
+                Pole("Ile", ile, { ile = it.filter { z -> z.isDigit() } }, cyfry = true, modifier = Modifier.width(84.dp))
+                JEDNOSTKI_ZNIKANIA.forEach { j ->
+                    Chip(j.etykieta, aktywny = jednostka == j.mnoznik) { jednostka = j.mnoznik }
+                }
+            }
+            PrzyciskGlowny("Ustaw", wlaczony = (ile.toLongOrNull() ?: 0) > 0) {
+                val liczba = ile.toLongOrNull() ?: return@PrzyciskGlowny
+                onZmien(liczba * jednostka)
+                wlasny = false
+            }
+        }
+    }
+}
+
+/**
+ * „Chip" wyboru — obrysowany, akcent jako linia (reguła Nocturne).
+ *
+ * Zaznaczony chip niesie linię akcentu, nie plamę; „Wyłącz" niesie alarm, też
+ * jako linię.
+ */
+@Composable
+private fun Chip(
+    tekst: String,
+    aktywny: Boolean = false,
+    niszczacy: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val kolor = when {
+        niszczacy -> MaterialTheme.colorScheme.error
+        aktywny -> Nocturne.kolory.akcent
+        else -> Nocturne.kolory.liniaMocna
+    }
+    val tekstKolor = when {
+        niszczacy -> MaterialTheme.colorScheme.error
+        aktywny -> Nocturne.kolory.akcentTekst
+        else -> Nocturne.kolory.tekstDrugi
+    }
+    Text(
+        tekst,
+        style = MaterialTheme.typography.labelLarge,
+        color = tekstKolor,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .border(1.dp, kolor, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = Odstep.m, vertical = Odstep.s),
+    )
 }
 
 /**

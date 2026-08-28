@@ -5,7 +5,7 @@
  * Poprawka wpisana tutaj zniknie przy najbliższym generowaniu, a test
  * `web/src/lib/ikony.test.ts` wywali się, zanim zdąży komukolwiek pomóc.
  *
- * Zestaw: 48 ikon, płótno 24×24, kontur 1,8.
+ * Zestaw: 50 ikon, płótno 24×24, kontur 1,8.
  * Komponent rysuje kontur w `currentColor`, więc ikona bierze kolor z tekstu
  * obok — w tym systemie kolor niesie stan, a nie sama ikona.
  */
@@ -48,6 +48,8 @@ export type NazwaIkony =
   | "klucz"
   | "odcisk"
   | "blokada"
+  | "blokuj"
+  | "opusc"
   | "kodQr"
   | "ostrzezenie"
   | "info"
@@ -156,6 +158,11 @@ export const SCIEZKI: Record<NazwaIkony, string> = {
     " M12 12 V18 M7.5 15 V17.5",
   /** Rzecz zamknięta hasłem albo passkeyem. */
   blokada: "M6.5 10.5 H17.5 V20 H6.5 Z M8.5 10.5 V7.5 A3.5 3.5 0 0 1 15.5 7.5 V10.5 M12 14 V16.5",
+  /** Zablokowanie osoby — jej wiadomości i zaproszenia nie docierają do Ciebie. */
+  blokuj: "M12 4 A8 8 0 1 0 12 20 A8 8 0 1 0 12 4 Z M6.35 6.35 L17.65 17.65",
+  /** Wyjście z grupy — przestajesz być jej członkiem, u wszystkich. */
+  opusc: "M11 5 H5.5 A1.5 1.5 0 0 0 4 6.5 V17.5 A1.5 1.5 0 0 0 5.5 19 H11 M12.5 12 H20.5" +
+    " M17.5 9 L20.5 12 L17.5 15",
   /** Parowanie urządzenia i sekret TOTP — dane, których nie przepisuje się ręcznie. */
   kodQr: "M4 4 H9 V9 H4 Z M15 4 H20 V9 H15 Z M4 15 H9 V20 H4 Z M15 15 H17 M19 15 H20" +
     " M15 17 V20 M17 19 H20",

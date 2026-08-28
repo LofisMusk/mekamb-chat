@@ -87,6 +87,28 @@ class Vault(context: Context) {
 
     fun loadRequests(): ByteArray? = odczytaj(KLUCZ_PROSBY)
 
+    /**
+     * Lista zablokowanych nazw użytkowników — szyfrowana jak reszta.
+     *
+     * Kto kogo blokuje, to fragment mapy społecznej, której serwer nie zna
+     * i znać nie ma prawa; blokada jest decyzją TEGO urządzenia, egzekwowaną
+     * lokalnie (patrz `Blokady.kt`).
+     */
+    fun saveBlocked(bytes: ByteArray) = zapisz(KLUCZ_BLOKADY, bytes)
+
+    fun loadBlocked(): ByteArray? = odczytaj(KLUCZ_BLOKADY)
+
+    /**
+     * Ustawienia znikania wiadomości per rozmowa — szyfrowane jak reszta.
+     *
+     * Retencja LOKALNA: po ilu sekundach wiadomości danej rozmowy mają zniknąć
+     * z tego urządzenia. Nie uzgadniane z rozmówcą, bo historia i tak żyje tylko
+     * tutaj (patrz `Znikanie.kt`).
+     */
+    fun saveEphemeral(bytes: ByteArray) = zapisz(KLUCZ_ZNIKANIE, bytes)
+
+    fun loadEphemeral(): ByteArray? = odczytaj(KLUCZ_ZNIKANIE)
+
     fun saveAccount(account: Account) {
         prefs.edit()
             .putString(KLUCZ_UZYTKOWNIK, account.username)
@@ -187,6 +209,8 @@ class Vault(context: Context) {
         const val KLUCZ_REFRESH = "token-odswiezajacy"
         const val KLUCZ_NAZWY = "nazwy"
         const val KLUCZ_PROSBY = "prosby"
+        const val KLUCZ_BLOKADY = "zablokowani"
+        const val KLUCZ_ZNIKANIE = "znikanie"
     }
 }
 

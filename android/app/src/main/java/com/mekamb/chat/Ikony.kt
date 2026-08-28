@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
  * Poprawka wpisana tutaj zniknie przy najbliższym generowaniu, a test
  * `web/src/lib/ikony.test.ts` wywali się, zanim zdąży komukolwiek pomóc.
  *
- * Zestaw: 48 ikon, płótno 24×24, kontur 1,8.
+ * Zestaw: 50 ikon, płótno 24×24, kontur 1,8.
  * Rysowane wprost, bo projekt zakłada Phosphor, którego na Androida nie ma bez
  * pliku z krojem, a `material-icons-extended` waży kilka megabajtów przy APK
  * ważącym 5,4 MB.
@@ -230,6 +230,16 @@ object Ikony {
     val Blokada = ikona(
         "blokada",
         "M6.5 10.5 H17.5 V20 H6.5 Z M8.5 10.5 V7.5 A3.5 3.5 0 0 1 15.5 7.5 V10.5 M12 14 V16.5",
+    )
+
+    /** Zablokowanie osoby — jej wiadomości i zaproszenia nie docierają do Ciebie. */
+    val Blokuj = ikona("blokuj", "M12 4 A8 8 0 1 0 12 20 A8 8 0 1 0 12 4 Z M6.35 6.35 L17.65 17.65")
+
+    /** Wyjście z grupy — przestajesz być jej członkiem, u wszystkich. */
+    val Opusc = ikona(
+        "opusc",
+        "M11 5 H5.5 A1.5 1.5 0 0 0 4 6.5 V17.5 A1.5 1.5 0 0 0 5.5 19 H11 M12.5 12 H20.5" +
+        " M17.5 9 L20.5 12 L17.5 15",
     )
 
     /** Parowanie urządzenia i sekret TOTP — dane, których nie przepisuje się ręcznie. */

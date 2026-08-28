@@ -511,6 +511,44 @@ export async function usunRozmowe(groupId: Uint8Array): Promise<void> {
   });
 }
 
+/**
+ * Usuwa wiadomości starsze niż granica podana dla ich rozmowy — znikanie.
+ *
+ * `granice` to `klucz rozmowy → najstarsza chwila do zachowania`: wiadomość
+ * z czasem OSTRO starszym przepada. Ślady po rozmowach A/V znikają tak samo jak
+ * zwykłe wiadomości — to też część historii, której użytkownik nie chce trzymać
+ * dłużej niż ustawił. Rozmowy spoza mapy zostają nietknięte.
+ *
+ * Zwraca `true`, jeśli cokolwiek usunięto — wtedy wywołujący odświeża listę
+ * i, dla rozmowy otwartej na ekranie, jej wątek.
+ */
+export async function przytnijZnikajace(granice: Record<string, number>): Promise<boolean> {
+  return zSerializacja(async () => {
+    const klucze = Object.keys(granice);
+    if (klucze.length === 0) return false;
+
+    const zapis = await wczytajWszystko();
+    let zmieniono = false;
+
+    for (const klucz of klucze) {
+      const rozmowa = zapis.rozmowy[klucz];
+      const granica = granice[klucz];
+      if (!rozmowa || granica === undefined) continue;
+
+      const zostaja = rozmowa.wiadomosci.filter((w) => (w as Wiadomosc).czas >= granica);
+      if (zostaja.length === rozmowa.wiadomosci.length) continue;
+
+      rozmowa.wiadomosci = zostaja;
+      zmieniono = true;
+    }
+
+    if (zmieniono) {
+      await saveHistory(new TextEncoder().encode(JSON.stringify(zapis)));
+    }
+    return zmieniono;
+  });
+}
+
 /** Ile wiadomości czeka nieprzeczytanych we wszystkich rozmowach. */
 export async function ileNieprzeczytanych(): Promise<number> {
   return (await listaRozmow()).reduce((suma, p) => suma + p.nieprzeczytane, 0);

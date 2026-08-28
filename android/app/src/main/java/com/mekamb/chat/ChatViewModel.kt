@@ -62,6 +62,15 @@ data class StanCzatu(
      */
     val zaakceptowane: Set<String> = emptySet(),
     /**
+     * Zablokowane nazwy użytkowników i ustawienia znikania per rozmowa.
+     *
+     * Oba lokalne i zaszyfrowane (patrz `Blokady.kt`, `Znikanie.kt`). Blokada
+     * ukrywa DM z tą osobą i odsiewa jej wiadomości; znikanie tnie historię
+     * rozmowy po zadanym czasie. `znikanie`: `groupId` (hex) → sekundy życia.
+     */
+    val zablokowani: Set<String> = emptySet(),
+    val znikanie: Map<String, Long> = emptyMap(),
+    /**
      * Wiadomości w locie — pokazane od razu, jeszcze przed potwierdzeniem.
      *
      * Osobno od historii, a nie polem stanu w niej: wiadomość, której wysyłka
@@ -223,6 +232,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val historia = Historia(vault)
     private val nazwy = Nazwy(vault)
     private val prosby = Prosby(vault)
+    private val blokady = Blokady(vault)
+    private val znikanieStore = Znikanie(vault)
     private val api = Api(BuildConfig.API_URL)
 
     /**
@@ -422,7 +433,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             nazwyGrup = stanN.grupy,
             mojNick = stanN.mojNick,
             zaakceptowane = stanP.zaakceptowane,
+            zablokowani = blokady.wczytaj(),
+            znikanie = znikanieStore.wczytaj(),
         )
+        // Zamiatanie znikających od razu przy wejściu; dalej pilnuje go zegar.
+        przytnijZnikajace()
+        uruchomZegarZnikania()
+    }
+
+    /**
+     * Zegar zamiatania znikających wiadomości — jeden na cały cykl życia modelu.
+     *
+     * Minuta wystarcza: znikanie jest o retencji, nie o sekundach. Przy zmianie
+     * ustawienia tniemy od razu ([zmienZnikanie]), więc świeżo skrócony czas
+     * działa natychmiast, a nie dopiero na kolejnym tiku.
+     */
+    private var zegarZnikania: kotlinx.coroutines.Job? = null
+
+    private fun uruchomZegarZnikania() {
+        if (zegarZnikania?.isActive == true) return
+        zegarZnikania = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60_000)
+                przytnijZnikajace()
+            }
+        }
+    }
+
+    /**
+     * Usuwa wiadomości, które przeżyły swój czas znikania.
+     *
+     * Dla rozmowy otwartej na ekranie odejmuje przycięte też ze stanu — inaczej
+     * zniknęłyby z dysku, ale zostały na oczach do następnego wejścia.
+     */
+    private fun przytnijZnikajace() {
+        val granice = Znikanie.graniceOdciecia(stan.znikanie, System.currentTimeMillis())
+        val zmieniono = historia.przytnijZnikajace(granice)
+        if (zmieniono) stan = stan.copy(rozmowy = historia.lista())
+
+        val otwarta = stan.groupId ?: return
+        val granica = granice[Historia.klucz(otwarta)] ?: return
+        val zostaja = stan.wiadomosci.filter { it.czas >= granica }
+        if (zostaja.size != stan.wiadomosci.size) stan = stan.copy(wiadomosci = zostaja)
     }
 
     /**
@@ -445,6 +497,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun nick(username: String): String =
         stan.nicki[username]?.trim()?.takeIf { it.isNotEmpty() } ?: username
+
+    /** Nasza nazwa użytkownika — do rozpoznania „to Ty" i pominięcia blokady siebie. */
+    val mojeId: String? get() = messenger?.account?.userId
+
+    /**
+     * Czy rozmowa jest w całości z osobami zablokowanymi — wtedy ją ukrywamy.
+     *
+     * Ukrywamy DM z zablokowanym i grupę złożoną z samych zablokowanych, ale nie
+     * grupę, w której zablokowany jest JEDNYM z uczestników: chcesz w niej zostać,
+     * po prostu nie chcesz widzieć jego wiadomości (odsiewa je [obsluzZdarzenie]).
+     */
+    fun czyCalaZablokowana(groupId: ByteArray): Boolean {
+        if (stan.zablokowani.isEmpty()) return false
+        val klient = messenger ?: return false
+        val ja = klient.account.userId
+        val inni = runCatching { klient.uczestnicy(groupId) }.getOrDefault(emptyList())
+            .filter { it != ja }
+        return inni.isNotEmpty() && inni.all { it in stan.zablokowani }
+    }
 
     /**
      * Etykieta rozmowy: nazwa grupy, a gdy jej nie ma — sklejone nicki.
@@ -627,6 +698,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         blad = blad.message ?: "nie udało się dodać osoby",
                     )
                 }
+        }
+    }
+
+    /** Blokuje osobę po nazwie. Filtrowanie robią listy i [obsluzZdarzenie]. */
+    fun zablokuj(username: String) {
+        stan = stan.copy(zablokowani = blokady.zablokuj(username))
+    }
+
+    /** Zdejmuje blokadę — rozmowy i wiadomości tej osoby wracają. */
+    fun odblokuj(username: String) {
+        stan = stan.copy(zablokowani = blokady.odblokuj(username))
+    }
+
+    /**
+     * Ustawia (albo wyłącza, przez `null`) znikanie dla rozmowy i tnie od razu.
+     *
+     * Przycięcie po zmianie ustawienia, a nie dopiero na kolejnym tiku zegara,
+     * żeby świeżo skrócony czas zadziałał natychmiast.
+     */
+    fun zmienZnikanie(groupId: ByteArray, sekundy: Long?) {
+        stan = stan.copy(znikanie = znikanieStore.ustaw(groupId, sekundy))
+        przytnijZnikajace()
+    }
+
+    /**
+     * Opuszcza grupę — wychodzi z MLS i kasuje ją lokalnie.
+     *
+     * Ta sama droga co odrzucenie prośby ([Messenger.opuscGrupe] wysyła
+     * propozycję SelfRemove, pozostający ją domknie), plus sprzątanie lokalne.
+     * Best-effort: gdyby rozesłanie nie przeszło (offline), i tak chowamy rozmowę.
+     */
+    fun opuscGrupe(groupId: ByteArray) {
+        val klient = messenger
+        viewModelScope.launch {
+            if (klient != null) runCatching { klient.opuscGrupe(groupId) }
+            ustawZaakceptowane(prosby.zapomnij(groupId).zaakceptowane)
+            usunRozmowe(groupId)
         }
     }
 
@@ -1116,6 +1224,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun obsluzZdarzenie(zdarzenie: IncomingEvent, tryb: DeliveryMode) {
+        /*
+         * Zablokowanego nadawcę pomijamy tuż po rozpoznaniu, kto pisze.
+         *
+         * Kopertę odszyfrowaliśmy — inaczej nie poznalibyśmy nadawcy z credentiala
+         * MLS, a tylko on jest wiarygodny. Ale wiadomość ani załącznik dalej nie
+         * idą: nie dopisują się nigdzie, nie podbijają licznika, nie wysyłamy za
+         * nie potwierdzenia. W grupie blokujemy po nadawcy, nie po całej rozmowie.
+         */
+        val nadawca = when (zdarzenie) {
+            is IncomingEvent.Message -> zdarzenie.senderUserId
+            is IncomingEvent.Attachment -> zdarzenie.senderUserId
+            else -> null
+        }
+        if (nadawca != null && !czyOdNas(nadawca) && nadawca in stan.zablokowani) return
+
         stan = when (zdarzenie) {
             /*
              * Wiadomość trafia do SWOJEJ rozmowy, nie do tej otwartej na ekranie.
@@ -1304,6 +1427,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val czlonkowie = runCatching { klient?.uczestnicy(groupId) ?: emptyList() }
             .getOrDefault(emptyList())
         val inni = czlonkowie.filter { it != ja }
+
+        // Zaproszenie od samych zablokowanych nie zakłada nawet prośby — dołączyć
+        // do grupy MLS musimy (Welcome już przetworzony), ale nie pokazujemy jej.
+        if (inni.isNotEmpty() && inni.all { it in stan.zablokowani }) return stan
 
         // Zbiór osób, z którymi mamy już zaakceptowaną rozmowę.
         val kontaktoweId = mutableSetOf<String>()
@@ -1856,11 +1983,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // założeniu ta sama grupa nie została z „duchem" akceptacji.
             val zbior = prosby.zapomnij(groupId).zaakceptowane
             Rdzen.zaakceptowane = zbior
+            val znikanieMapa = znikanieStore.zapomnij(groupId)
 
             val byla = stan.groupId?.contentEquals(groupId) == true
             stan = stan.copy(
                 rozmowy = historia.lista(),
                 zaakceptowane = zbior,
+                znikanie = znikanieMapa,
                 groupId = if (byla) null else stan.groupId,
                 wiadomosci = if (byla) emptyList() else stan.wiadomosci,
             )

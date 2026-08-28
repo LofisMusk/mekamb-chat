@@ -6,6 +6,7 @@ import {
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
+  przytnijZnikajace,
   scalHistorie,
   scalWiadomosci,
   usunRozmowe,
@@ -536,5 +537,46 @@ describe("scalanie historii z drugiego urządzenia", () => {
     await scalHistorie(new TextEncoder().encode("śmieci"));
 
     await expect(wczytajRozmowe(GRUPA_A)).resolves.toHaveLength(1);
+  });
+});
+
+describe("znikanie wiadomości", () => {
+  beforeEach(() => {
+    dysk = null;
+    opoznienie = 0;
+  });
+
+  // Sedno: wiadomość starsza niż granica przepada, młodsza zostaje. Granica to
+  // „najstarsza chwila do zachowania", więc porównanie jest po czasie wiadomości.
+  it("usuwa tylko wiadomości starsze niż granica", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [
+      wiadomosc("stara", 100),
+      wiadomosc("swieza", 5000),
+    ]);
+
+    const zmieniono = await przytnijZnikajace({ [kluczRozmowy(GRUPA_A)]: 1000 });
+
+    expect(zmieniono).toBe(true);
+    const zostaly = await wczytajRozmowe(GRUPA_A);
+    expect(zostaly.map((w) => w.id)).toEqual(["swieza"]);
+  });
+
+  // Rozmowa spoza mapy granic jest nietknięta — znikanie jest per rozmowa,
+  // a domyślnie wyłączone.
+  it("nie rusza rozmów spoza mapy granic", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("a", 100)]);
+    await zapiszRozmowe(GRUPA_B, "ola", [wiadomosc("b", 100)]);
+
+    await przytnijZnikajace({ [kluczRozmowy(GRUPA_A)]: 1000 });
+
+    await expect(wczytajRozmowe(GRUPA_B)).resolves.toHaveLength(1);
+  });
+
+  // Gdy nic nie wypada, zwracamy false i nie piszemy na dysk — inaczej co
+  // minutę przepisywalibyśmy całą historię bez powodu.
+  it("bez zmian zwraca false", async () => {
+    await zapiszRozmowe(GRUPA_A, "ala", [wiadomosc("swieza", 5000)]);
+
+    await expect(przytnijZnikajace({ [kluczRozmowy(GRUPA_A)]: 1000 })).resolves.toBe(false);
   });
 });

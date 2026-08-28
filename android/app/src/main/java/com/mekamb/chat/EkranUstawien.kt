@@ -3,6 +3,7 @@ package com.mekamb.chat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -161,6 +163,54 @@ fun EkranUstawien(
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
+            }
+
+            /*
+              Zablokowani — jedyne miejsce, z którego da się ich odblokować.
+
+              Blokada ukrywa rozmowę z tą osobą, więc panelu uczestników już się
+              nie otworzy: gdyby odblokowanie było tylko tam, blokada byłaby
+              pułapką bez wyjścia. Karta pojawia się dopiero, gdy jest kogo pokazać.
+            */
+            if (stan.zablokowani.isNotEmpty()) {
+                Karta {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                    ) {
+                        Icon(
+                            Ikony.Blokuj,
+                            contentDescription = null,
+                            tint = Nocturne.kolory.akcent,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text("Zablokowani", style = MaterialTheme.typography.labelLarge)
+                    }
+
+                    Text(
+                        "Nie dostajesz od nich wiadomości ani zaproszeń. Odblokowanie " +
+                            "przywraca rozmowy i wszystko, co przyszło w międzyczasie.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Nocturne.kolory.tekstDrugi,
+                    )
+
+                    stan.zablokowani.sorted().forEach { osoba ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = Dotyk.kontrolka),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                        ) {
+                            Text(
+                                model.nick(osoba),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { model.odblokuj(osoba) }) { Text("Odblokuj") }
+                        }
+                    }
+                }
             }
 
             Karta {

@@ -340,3 +340,42 @@ export async function webauthnLoginVerify(
   await zapamietajTrwalaSesje(wynik);
   return wynik;
 }
+
+// ---------------------------------------------------------------------------
+// Zmiana authenticatora (drugiego składnika)
+//
+// Trzy kroki, wszystkie z tokenem dostępowym: opcje passkeya do ponownego
+// uwierzytelnienia, `start` (re-auth passkeyem ALBO starym kodem → nowy sekret
+// oczekujący) i `confirm` (pierwszy kod z nowej aplikacji przełącza konto).
+
+/** Wyzwanie assertion do ponownego uwierzytelnienia passkeyem przy zmianie TOTP. */
+export async function totpChangeOptions(token: string): Promise<PasskeyAuthenticationOptions> {
+  return api.post<PasskeyAuthenticationOptions>("/auth/totp/change/options", {}, token);
+}
+
+/** Nowy authenticator wydany przez serwer — do pokazania jako QR i sekret. */
+export interface NowyAuthenticator {
+  totpSecret: string;
+  otpauthUri: string;
+}
+
+/** Re-auth aktualnym kodem ze starego authenticatora → nowy sekret oczekujący. */
+export async function totpChangeStartKodem(
+  token: string,
+  oldCode: string,
+): Promise<NowyAuthenticator> {
+  return api.post<NowyAuthenticator>("/auth/totp/change/start", { oldCode }, token);
+}
+
+/** Re-auth passkeyem → nowy sekret oczekujący. */
+export async function totpChangeStartPasskeyem(
+  token: string,
+  response: PasskeyAuthenticationResponse,
+): Promise<NowyAuthenticator> {
+  return api.post<NowyAuthenticator>("/auth/totp/change/start", { response }, token);
+}
+
+/** Pierwszy kod z NOWEJ aplikacji — przełącza konto na nowy sekret. */
+export async function totpChangeConfirm(token: string, code: string): Promise<void> {
+  await api.post("/auth/totp/change/confirm", { code }, token);
+}

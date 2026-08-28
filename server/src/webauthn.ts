@@ -59,7 +59,10 @@ async function withinRateLimit(env: Env, key: string): Promise<boolean> {
   return result.allowed;
 }
 
-function allowedOrigins(env: Env): string[] {
+// Eksportowane, bo ponowne uwierzytelnienie passkeyem przy zmianie
+// authenticatora (`auth.ts`) weryfikuje assertion tą samą drogą — jedno źródło
+// prawdy o dozwolonych originach i sposobie odczytu challenge, nie dwa.
+export function allowedOrigins(env: Env): string[] {
   return (env.ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((o) => o.trim())
@@ -67,7 +70,7 @@ function allowedOrigins(env: Env): string[] {
 }
 
 /** Wyciąga `challenge` z `clientDataJSON`, żeby odnaleźć pasujący wiersz w bazie. */
-function decodeClientDataChallenge(clientDataJSON: string): string {
+export function decodeClientDataChallenge(clientDataJSON: string): string {
   const json = new TextDecoder().decode(base64UrlToBytes(clientDataJSON));
   const parsed = JSON.parse(json) as { challenge: string };
   if (typeof parsed.challenge !== "string") throw new Error("brak challenge");

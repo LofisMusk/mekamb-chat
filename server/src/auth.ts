@@ -1,3 +1,8 @@
+import {
+  type AuthenticationResponseJSON,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from "@simplewebauthn/server";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 
@@ -5,9 +10,10 @@ import * as opaque from "./opaque-wasm/index.js";
 
 import { base64ToBytes, bytesToBase64, decryptSecret, encryptSecret, hashRefreshToken, issueToken } from "./crypto";
 import type { Env } from "./env";
+import { requireAuth } from "./middleware";
 import { clearRefreshCookie, issueRefreshToken, REFRESH_COOKIE_NAME } from "./session";
 import { generateSecret, isReplay, provisioningUri, verifyCode } from "./totp";
-import webauthn from "./webauthn";
+import webauthn, { allowedOrigins, decodeClientDataChallenge } from "./webauthn";
 
 /**
  * Rejestracja i logowanie.
@@ -519,6 +525,197 @@ auth.post("/logout", async (c) => {
   }
 
   clearRefreshCookie(c);
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Zmiana authenticatora (drugiego składnika)
+//
+// # Dlaczego to wymaga PONOWNEGO uwierzytelnienia
+//
+// Wszystkie trzy endpointy są `requireAuth` — czyli ktoś już ma ważny token,
+// więc już kiedyś podał hasło i kod. Ale token żyje długo, a wymiana drugiego
+// składnika to najcięższa rzecz, jaką można zrobić na koncie: kto podmieni
+// authenticator, ten przejmuje logowanie na zawsze. Sama otwarta sesja to za
+// mało — przejęte, odblokowane urządzenie ma otwartą sesję. Dlatego `start`
+// żąda świeżego dowodu tożsamości: **passkeya albo aktualnego kodu ze starego
+// authenticatora**. Jedno z dwóch, nigdy nic.
+//
+// # Dlaczego dwa etapy (start → confirm)
+//
+// Jak przy rejestracji: `start` wydaje nowy sekret jako OCZEKUJĄCY
+// (`totp_secret_pending_enc`), użytkownik skanuje QR w nowej aplikacji, a
+// dopiero `confirm` — pierwszym kodem z NOWEJ aplikacji — przełącza konto.
+// Gdyby `start` od razu nadpisywał aktywny sekret, użytkownik, który zeskanuje
+// QR z błędem albo zamknie kartę, zostałby zablokowany: stary authenticator
+// już nie działa, nowego jeszcze nie potwierdził.
+
+/** Wyzwanie webauthn żyje krótko — ma starczyć na dotknięcie klucza, nie na atak. */
+const REAUTH_CHALLENGE_TTL_MS = 3 * 60 * 1000;
+
+/**
+ * Passkeyowa droga re-auth: wydaje wyzwanie assertion związane z ZALOGOWANYM
+ * użytkownikiem. Typ 'reauth-totp', żeby nie dało się podstawić wyzwania
+ * logowania (tamto ma `user_id NULL`).
+ */
+auth.post("/totp/change/options", requireAuth, async (c) => {
+  const userId = c.get("userId");
+
+  const options = await generateAuthenticationOptions({
+    rpID: c.env.WEBAUTHN_RP_ID,
+    userVerification: "required",
+  });
+
+  await c.env.DB.prepare(
+    `INSERT INTO webauthn_challenges (id, user_id, challenge, typ, expires_at)
+     VALUES (?, ?, ?, 'reauth-totp', ?)`,
+  )
+    .bind(crypto.randomUUID(), userId, options.challenge, Date.now() + REAUTH_CHALLENGE_TTL_MS)
+    .run();
+
+  return c.json(options);
+});
+
+/**
+ * Po ponownym uwierzytelnieniu wydaje NOWY sekret jako oczekujący. Re-auth
+ * przechodzi jedną z dwóch dróg — nigdy obiema, nigdy żadną.
+ */
+auth.post("/totp/change/start", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json<{ oldCode?: string; response?: AuthenticationResponseJSON }>();
+
+  const user = await c.env.DB.prepare(
+    "SELECT username, totp_secret_enc, totp_last_counter FROM users WHERE id = ? AND status = 'active'",
+  )
+    .bind(userId)
+    .first<{ username: string; totp_secret_enc: string; totp_last_counter: number | null }>();
+
+  if (user === null) {
+    return c.json({ error: "konto nie istnieje" }, 404);
+  }
+
+  // Droga 1: aktualny kod ze starego authenticatora (z ochroną przed powtórką).
+  if (body.oldCode) {
+    const secret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_enc);
+    const wynik = verifyCode(secret, body.oldCode);
+    if (!wynik.valid || wynik.counter === null || isReplay(wynik.counter, user.totp_last_counter)) {
+      return c.json({ error: "nieprawidłowy kod" }, 401);
+    }
+    await c.env.DB.prepare("UPDATE users SET totp_last_counter = ? WHERE id = ?")
+      .bind(wynik.counter, userId)
+      .run();
+  } else if (body.response) {
+    // Droga 2: passkey. Wyzwanie konsumujemy niepodzielnie i TYLKO to wydane
+    // temu użytkownikowi (typ 'reauth-totp', user_id = ten zalogowany).
+    let challengeValue: string;
+    try {
+      challengeValue = decodeClientDataChallenge(body.response.response.clientDataJSON);
+    } catch {
+      return c.json({ error: "nieprawidłowa odpowiedź" }, 400);
+    }
+
+    const challenge = await c.env.DB.prepare(
+      `DELETE FROM webauthn_challenges
+        WHERE challenge = ? AND typ = 'reauth-totp' AND user_id = ? AND expires_at > ?
+        RETURNING id`,
+    )
+      .bind(challengeValue, userId, Date.now())
+      .first<{ id: string }>();
+
+    if (challenge === null) {
+      return c.json({ error: "sesja potwierdzenia jest nieważna" }, 401);
+    }
+
+    // Credential MUSI należeć do zalogowanego użytkownika — inaczej cudzy
+    // passkey autoryzowałby zmianę na tym koncie.
+    const credential = await c.env.DB.prepare(
+      `SELECT public_key AS publicKey, sign_count AS signCount
+         FROM webauthn_credentials WHERE id = ? AND user_id = ?`,
+    )
+      .bind(body.response.id, userId)
+      .first<{ publicKey: ArrayBuffer; signCount: number }>();
+
+    if (credential === null) {
+      return c.json({ error: "nieznany passkey" }, 401);
+    }
+
+    let weryfikacja;
+    try {
+      weryfikacja = await verifyAuthenticationResponse({
+        response: body.response,
+        expectedChallenge: challengeValue,
+        expectedOrigin: allowedOrigins(c.env),
+        expectedRPID: c.env.WEBAUTHN_RP_ID,
+        credential: {
+          id: body.response.id,
+          publicKey: new Uint8Array(credential.publicKey),
+          counter: credential.signCount,
+        },
+        requireUserVerification: true,
+      });
+    } catch {
+      return c.json({ error: "weryfikacja nie powiodła się" }, 401);
+    }
+
+    if (!weryfikacja.verified) {
+      return c.json({ error: "weryfikacja nie powiodła się" }, 401);
+    }
+
+    await c.env.DB.prepare(
+      "UPDATE webauthn_credentials SET sign_count = ?, last_used_at = ? WHERE id = ?",
+    )
+      .bind(weryfikacja.authenticationInfo.newCounter, Date.now(), body.response.id)
+      .run();
+  } else {
+    return c.json({ error: "wymagany passkey albo aktualny kod" }, 400);
+  }
+
+  // Re-auth przeszedł — wydajemy nowy sekret jako oczekujący. Aktywnego NIE
+  // ruszamy, dopóki nowy nie zostanie potwierdzony.
+  const nowySekret = generateSecret();
+  await c.env.DB.prepare("UPDATE users SET totp_secret_pending_enc = ? WHERE id = ?")
+    .bind(await encryptSecret(c.env.TOTP_ENCRYPTION_KEY, nowySekret), userId)
+    .run();
+
+  return c.json({
+    totpSecret: nowySekret,
+    otpauthUri: provisioningUri(nowySekret, user.username),
+  });
+});
+
+/**
+ * Przełącza konto na nowy authenticator pierwszym kodem z NOWEJ aplikacji.
+ * Weryfikuje przeciw sekretowi oczekującemu; dopiero to nadpisuje aktywny.
+ */
+auth.post("/totp/change/confirm", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json<{ code: string }>();
+
+  const user = await c.env.DB.prepare(
+    "SELECT totp_secret_pending_enc FROM users WHERE id = ?",
+  )
+    .bind(userId)
+    .first<{ totp_secret_pending_enc: string | null }>();
+
+  if (user === null || user.totp_secret_pending_enc === null) {
+    return c.json({ error: "nie ma czego potwierdzać" }, 400);
+  }
+
+  const nowySekret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_pending_enc);
+  const wynik = verifyCode(nowySekret, body.code);
+
+  if (!wynik.valid || wynik.counter === null) {
+    return c.json({ error: "nieprawidłowy kod" }, 401);
+  }
+
+  // Nowy sekret staje się aktywny; licznik startuje od okna, którym go
+  // potwierdzono, żeby ten sam kod nie przeszedł drugi raz przy logowaniu.
+  await c.env.DB.prepare(
+    "UPDATE users SET totp_secret_enc = ?, totp_secret_pending_enc = NULL, totp_last_counter = ? WHERE id = ?",
+  )
+    .bind(user.totp_secret_pending_enc, wynik.counter, userId)
+    .run();
+
   return c.json({ ok: true });
 });
 

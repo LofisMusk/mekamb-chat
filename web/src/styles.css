@@ -1684,10 +1684,6 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 .lista-osob .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.dodaj-osobe { display: flex; gap: var(--odstep-2); }
-.dodaj-osobe input { flex: 1; min-width: 0; font-size: .875rem; min-height: var(--dotyk-ikona); }
-.dodaj-osobe button { flex: none; width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }
-
 .safety-kod {
   display: block;
   background: var(--wglebienie);
@@ -2377,14 +2373,13 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
  * cudzym kosztem. Gęstość przy myszy zostaje: warunek dotyczy wyłącznie
  * wskaźnika zgrubnego.
  *
- * Blok stoi na KOŃCU arkusza celowo. Pola z własnym rozmiarem (`.szukanie
- * input`, `.dodaj-osobe input`) mają wyższą specyficzność niż sam `input`,
- * więc reguła postawiona wyżej przegrywałaby z nimi — i akurat te dwa pola
- * dalej powiększałyby ekran.
+ * Blok stoi na KOŃCU arkusza celowo. Pole z własnym rozmiarem (`.szukanie
+ * input`) ma wyższą specyficzność niż sam `input`, więc reguła postawiona
+ * wyżej przegrywałaby z nim — i to pole dalej powiększałoby ekran.
  */
 @media (pointer: coarse) {
   input, textarea, select,
-  .szukanie input, .dodaj-osobe input, .pisanie textarea {
+  .szukanie input, .pisanie textarea {
     font-size: 1rem;
   }
 }

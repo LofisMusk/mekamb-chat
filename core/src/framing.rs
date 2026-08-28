@@ -478,11 +478,11 @@ mod tests {
     #[test]
     fn metadane_oba_pola_robia_pelne_kolo() {
         let oryginal =
-            ChatMessage::metadata(Some("Ekipa z Bydgoszczy".into()), Some("Żółć".into()), 1);
+            ChatMessage::metadata(Some("Nazwa grupy".into()), Some("Żółć".into()), 1);
         let odtworzony = ChatMessage::decode(&oryginal.encode_to_vec()).unwrap();
 
         let metadane = odtworzony.as_metadata().unwrap();
-        assert_eq!(metadane.group_name.as_deref(), Some("Ekipa z Bydgoszczy"));
+        assert_eq!(metadane.group_name.as_deref(), Some("Nazwa grupy"));
         assert_eq!(metadane.display_name.as_deref(), Some("Żółć"));
     }
 

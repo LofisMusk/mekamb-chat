@@ -2399,7 +2399,7 @@ function NowaGrupa({
           <input
             value={nazwaGrupy}
             onChange={(e) => setNazwaGrupy(e.target.value)}
-            placeholder="np. Ekipa z Bydgoszczy"
+            placeholder="Nazwa grupy"
           />
         </label>
 

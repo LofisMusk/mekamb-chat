@@ -185,7 +185,7 @@ export async function loadHistory(): Promise<Uint8Array | null> {
  *
  * # Dlaczego to leży zaszyfrowane, a nie w localStorage
  *
- * Nazwa grupy „Ekipa z Bydgoszczy" i mapa `nazwa użytkownika → nick` to mapa
+ * Nazwa grupy i mapa `nazwa użytkownika → nick` to mapa
  * społeczna: kto jest w jakiej grupie i jak się nazywa. Serwer jej nie widzi
  * (metadane jadą wewnątrz MLS), więc nie ma powodu, żeby leżała jawnie na
  * dysku, skoro reszta stanu rozmów i tak jest tu zaszyfrowana.

@@ -56,6 +56,20 @@ Do not modify frontend implementation unless required for API integration.
 
 ⸻
 
+3. Android app Agent
+
+Scope: @android/
+
+Responsible for:
+* frontend changes for the android app
+* general app changes
+* android app security
+* android app testing and emulating
+
+Modify the app's frontend according to the webui so they look similar, only dont do it when the user says for example: only on the website do ...; it needs to be specified.
+
+⸻
+
 3. QA / DEBUG Agent
 
 Scope: @tests/

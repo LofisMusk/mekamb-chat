@@ -472,7 +472,19 @@ export function Rozmowa({
   // startu stoją w nagłówku wątku, tam gdzie w projekcie.
   if (!call) return null;
 
-  const uczestnicy = stan?.uczestnicy ?? [];
+  /*
+   * Po jednym kafelku na OSOBĘ, nie na urządzenie ani na sygnał.
+   *
+   * Warstwa niżej (`calls.ts`) trzyma połączenia w mapie po nazwie użytkownika,
+   * a `memberUserIds` już usuwa duplikaty — więc w normalnym biegu ta lista jest
+   * unikalna. Dedup po nazwie jest tu zabezpieczeniem brzegowym: gdyby ta sama
+   * osoba trafiła na listę dwa razy (np. dwa urządzenia albo powtórzony sygnał),
+   * bez tego widać by ją było jako dwa kafelki, a React ostrzegałby o
+   * zdublowanym `key`. Zostawiamy ostatni wpis, bo niesie najświeższy stan fazy.
+   */
+  const uczestnicy = [
+    ...new Map((stan?.uczestnicy ?? []).map((u) => [u.username, u])).values(),
+  ];
   const zerwane = uczestnicy.filter((u) => u.odrzuconyOdcisk).length;
 
   /*

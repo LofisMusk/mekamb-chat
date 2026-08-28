@@ -24,6 +24,18 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!--
+      Rozmowa A/V używa mikrofonu (i aparatu przy wideo) także wtedy, gdy trwa
+      po zablokowaniu ekranu — a wtedy widocznej aktywności nie ma i to usługa
+      pierwszoplanowa jest jedynym pierwszoplanowym komponentem. Od Androida 14
+      dostęp do mikrofonu/aparatu z usługi wymaga typu `microphone`/`camera`
+      ORAZ tych uprawnień; bez nich system rzuca `SecurityException` w chwili
+      startu przechwytywania i rozmowa zabiera ze sobą aplikację. Usługa startuje
+      normalnie jako `dataSync` i awansuje do tych typów tylko na czas rozmowy.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+
+    <!--
       Baner dzwoniącej rozmowy na zablokowanym ekranie. Bez tego przychodzące
       połączenie byłoby zwykłym wierszem na liście powiadomień, czyli czymś,
       co się zauważa po fakcie.
@@ -77,6 +89,6 @@
         <service
             android:name=".UslugaNasluchu"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|microphone|camera" />
     </application>
 </manifest>

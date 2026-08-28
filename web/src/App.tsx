@@ -269,7 +269,7 @@ export function App() {
           totpSecret={ekran.totpSecret}
           otpauthUri={ekran.otpauthUri}
           onBlad={zglosBlad}
-          onGotowe={() => setEkran({ nazwa: "logowanie" })}
+          onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
         />
       )}
 
@@ -457,7 +457,7 @@ function PotwierdzenieTotp({
   username: string;
   totpSecret: string;
   otpauthUri: string;
-  onGotowe: () => void;
+  onGotowe: (m: Messenger) => void;
   onBlad: (e: unknown) => void;
 }) {
   const [kod, setKod] = useState("");
@@ -468,8 +468,13 @@ function PotwierdzenieTotp({
       onSubmit={async (e) => {
         e.preventDefault();
         try {
-          await confirmRegistration(username, kod);
-          onGotowe();
+          // Potwierdzenie kodem to ten sam drugi składnik co logowanie, więc
+          // confirm zwraca token dostępowy — wchodzimy prosto na czat, dokładnie
+          // ścieżką passkey: nowe urządzenie, konto z samej nazwy + deviceId.
+          const deviceId = `web-${crypto.randomUUID().slice(0, 8)}`;
+          const { token } = await confirmRegistration(username, kod, deviceId);
+          const konto = kontoZLogowania(username, deviceId);
+          onGotowe(await zakonczLogowanie(konto, token));
         } catch (err) {
           onBlad(err);
         }

@@ -151,6 +151,24 @@ export class Messenger {
     private token: string,
   ) {}
 
+  /**
+   * Łańcuch serializujący przetwarzanie kopert.
+   *
+   * Koperty przychodzą seriami — sygnały rozmowy A/V, kolejne koperty przy
+   * wysyłce zdjęcia — i każda przesuwa ten sam ratchet MLS, po czym zapisuje
+   * stan. `handleEnvelope` ma po drodze `await` (odsianie własnego echa, zapis
+   * do IndexedDB), a wołający puszcza je BEZ czekania (`void obsluzKoperte(…)`
+   * w `Czat.tsx`). Bez łańcucha druga koperta wchodziła więc w środek pierwszej:
+   * dwa `receive` przeplatały się z `exportState`/zapisem i utrwalały stan
+   * STARSZY niż już wykonana — i już potwierdzona — operacja. Klient cofał się
+   * o epokę, a że kopertę zdążyliśmy potwierdzić, znikała ze skrzynki; kolejne
+   * wiadomości tej rozmowy nie odszyfrowywały się już nigdy, bez śladu błędu.
+   * To dokładnie ten sam objaw, który po serii (po rozmowie, po zdjęciu)
+   * wyglądał jak „DM z Androida nie dochodzi". Android trzyma tę regułę
+   * mutexem (`przetworzKoperte`); tutaj robi to ten łańcuch obietnic.
+   */
+  private lancuchKopert: Promise<void> = Promise.resolve();
+
   /** Token dostępowy — potrzebny warstwie rozmów do pobrania adresów TURN. */
   get accessToken(): string {
     return this.token;
@@ -732,7 +750,31 @@ export class Messenger {
    * Zwraca `null`, gdy koperta nie była wiadomością do wyświetlenia — na
    * przykład niosła commit albo zaproszenie do grupy.
    */
+  /**
+   * Przetwarza kopertę ze skrzynki, szeregując ją względem pozostałych.
+   *
+   * Samo przetwarzanie jest w [`przetworzKoperte`]; ta warstwa tylko ustawia
+   * koperty w kolejce (patrz [`lancuchKopert`]), żeby ratchet MLS nie był
+   * dotykany przez dwie naraz. Kolejka nie może się zablokować jednym błędem:
+   * `finally` zwalnia następną nawet wtedy, gdy ta koperta rzuci — a rzuca
+   * w normalnym biegu (powtórka, nieaktualna epoka).
+   */
   async handleEnvelope(bytes: Uint8Array): Promise<ReceivedMessage | null> {
+    const poprzednia = this.lancuchKopert;
+    let zwolnij!: () => void;
+    this.lancuchKopert = new Promise<void>((res) => {
+      zwolnij = res;
+    });
+
+    await poprzednia;
+    try {
+      return await this.przetworzKoperte(bytes);
+    } finally {
+      zwolnij();
+    }
+  }
+
+  private async przetworzKoperte(bytes: Uint8Array): Promise<ReceivedMessage | null> {
     /*
      * Własne echo odsiewamy PRZED czymkolwiek innym.
      *

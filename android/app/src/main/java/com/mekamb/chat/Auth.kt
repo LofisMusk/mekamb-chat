@@ -48,10 +48,19 @@ object Auth {
         api.registerFinish(username, finish.upload)
     }
 
-    /** Aktywuje konto pierwszym kodem z authenticatora. */
-    suspend fun confirmRegistration(api: Api, username: String, code: String) {
-        api.registerConfirm(username, code)
-    }
+    /**
+     * Aktywuje konto pierwszym kodem z authenticatora i zwraca token dostępowy.
+     *
+     * Ten sam kod TOTP dowodzi tożsamości nie słabiej niż przy logowaniu, więc
+     * serwer wydaje token od razu — konto wchodzi prosto do rozmów zamiast
+     * przechodzić drugi raz przez ekran logowania.
+     */
+    suspend fun confirmRegistration(
+        api: Api,
+        username: String,
+        code: String,
+        deviceId: String,
+    ): Api.LoginResult = api.registerConfirm(username, code, deviceId)
 
     /**
      * Loguje i zwraca token dostępowy.

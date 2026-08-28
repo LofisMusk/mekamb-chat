@@ -176,9 +176,32 @@ auth.post("/register/finish", async (c) => {
  * To nie jest błąd: RFC 6238 §5.2 wprost zabrania przyjęcia drugiego kodu
  * o tej samej wartości w tym samym oknie. Interfejs powinien to wytłumaczyć
  * („poczekaj na nowy kod"), a nie obchodzić.
+ *
+ * # Dlaczego confirm od razu wydaje sesję
+ *
+ * Wcześniej confirm zwracał tylko `{ ok: true }`, więc po założeniu konta
+ * i wpisaniu kodu użytkownik lądował na ekranie logowania — musiał przejść
+ * OPAQUE + TOTP jeszcze raz, w dodatku czekając na następne okno kodu (to samo
+ * spalił przed chwilą przy aktywacji). To był zbędny, wręcz mylący krok:
+ * w tym momencie użytkownik **udowodnił oba składniki** — hasło ustawił
+ * w `register/finish`, a znajomość sekretu TOTP właśnie potwierdził kodem.
+ * Wydajemy więc pełną sesję dokładnie tak samo, jak `login/totp`: ten sam
+ * token dostępowy, ten sam token odświeżający i ten sam warunek na `deviceId`
+ * oraz `sesjaWTresci`. Kształt odpowiedzi jest identyczny, żeby klient miał
+ * jedną ścieżkę „mam sesję" niezależnie od tego, czy wszedł przez logowanie,
+ * czy przez świeżą rejestrację.
+ *
+ * Tożsamości to nie zaburza: token niesie `userId` (UUID z bazy) i `deviceId`,
+ * a skrzynka i tak jest adresowana nazwą użytkownika — klient wyprowadza ją
+ * z loginu, nie z tokenu.
  */
 auth.post("/register/confirm", async (c) => {
-  const body = await c.req.json<{ username: string; code: string }>();
+  const body = await c.req.json<{
+    username: string;
+    code: string;
+    deviceId?: string;
+    sesjaWTresci?: boolean;
+  }>();
 
   const user = await c.env.DB.prepare(
     "SELECT id, totp_secret_enc, status FROM users WHERE username = ?",
@@ -201,7 +224,25 @@ auth.post("/register/confirm", async (c) => {
     .bind(result.counter, user.id)
     .run();
 
-  return c.json({ ok: true });
+  // Konto aktywne — użytkownik spełnił oba składniki, więc od razu dostaje
+  // sesję w tym samym kształcie co `login/totp`.
+  const expiresAt = Date.now() + TOKEN_TTL_MS;
+  const token = await issueToken(c.env.TOKEN_SIGNING_KEY, {
+    userId: user.id,
+    deviceId: body.deviceId ?? null,
+    expiresAt,
+  });
+
+  // Bez `deviceId` nie ma czego użyć jako klucza rotacji — trwała sesja się
+  // nie włącza, tak samo jak w `login/totp`.
+  if (!body.deviceId) {
+    return c.json({ token, expiresAt });
+  }
+
+  const refreshToken = await issueRefreshToken(c, user.id, body.deviceId);
+
+  // Token w treści tylko na życzenie — patrz `session.ts`.
+  return c.json(body.sesjaWTresci ? { token, expiresAt, refreshToken } : { token, expiresAt });
 });
 
 // ---------------------------------------------------------------------------

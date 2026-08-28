@@ -1711,13 +1711,27 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   flex: 1;
   min-height: 0;
 }
-.siatka-kafelkow[data-ilu="3"], .siatka-kafelkow[data-ilu="4"] {
-  grid-template-columns: 1fr 1fr;
-}
-
-/* Dwie osoby: obok siebie dopiero wtedy, gdy okno jest szersze niż wysokie. */
+/*
+ * Dwie kolumny dopiero wtedy, gdy okno jest szersze niż wysokie.
+ *
+ * Wcześniej trójka i czwórka dostawały `1fr 1fr` na każdej szerokości. Przy
+ * trzech kafelkach dawało to układ 2×2 z jedną pustą komórką: dwa kafelki
+ * jeden pod drugim w lewej kolumnie i jeden rozciągnięty na całą wysokość po
+ * prawej — dokładnie ten rozjazd, który widać na wąskim ekranie. Wąsko więc
+ * jedna kolumna w pionie (reguła bazowa), a dwie kolumny dopiero od `34rem`.
+ */
 @media (min-width: 34rem) {
-  .siatka-kafelkow[data-ilu="2"] { grid-template-columns: 1fr 1fr; }
+  .siatka-kafelkow[data-ilu="2"],
+  .siatka-kafelkow[data-ilu="3"],
+  .siatka-kafelkow[data-ilu="4"] {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Trójka: dwa u góry, trzeci na całą szerokość pod nimi. Symetrycznie i bez
+     pustej komórki, którą zostawiał układ 2×2. */
+  .siatka-kafelkow[data-ilu="3"] > :last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .kafelek {

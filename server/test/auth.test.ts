@@ -316,6 +316,74 @@ describe("logowanie", () => {
   });
 });
 
+describe("potwierdzenie rejestracji wydaje sesję", () => {
+  /**
+   * Sedno: po wpisaniu kodu TOTP użytkownik jest ZALOGOWANY, nie odesłany na
+   * ekran logowania. W tej chwili udowodnił oba składniki — hasło ustawił przy
+   * `register/finish`, a znajomość sekretu TOTP właśnie potwierdził — więc
+   * confirm zwraca dokładnie ten sam kształt co `login/totp`.
+   */
+  it("poprawny kod zwraca token, którym można wejść na własną skrzynkę", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-po-rejestracji-od-razu");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: aktualnyKod(konto.totpSecret),
+      deviceId: "telefon",
+      sesjaWTresci: true,
+    });
+
+    expect(res.status).toBe(200);
+    const dane = await res.json<{ token: string; expiresAt: number; refreshToken?: string }>();
+
+    // Ten sam kształt co logowanie: token dostępowy, znacznik wygaśnięcia i —
+    // bo poprosiliśmy `sesjaWTresci` — token odświeżający w treści.
+    expect(dane.token).toContain(".");
+    expect(dane.expiresAt).toBeGreaterThan(Date.now());
+    expect(typeof dane.refreshToken).toBe("string");
+
+    // Token musi od razu wpuszczać na uwierzytelniony endpoint — bez ponownego
+    // logowania. Skrzynka adresowana jest NAZWĄ użytkownika, a token niesie
+    // wewnętrzny UUID: serwer przelicza jedno na drugie i wpuszcza właściciela.
+    const polaczenie = await SELF.fetch(`https://mekamb/inbox/${konto.username}/connect`, {
+      headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": dane.token },
+    });
+    expect(polaczenie.status).toBe(101);
+  });
+
+  it("bez deviceId sesja wychodzi bez tokenu odświeżającego", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-bez-urzadzenia");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: aktualnyKod(konto.totpSecret),
+    });
+
+    expect(res.status).toBe(200);
+    const dane = await res.json<{ token: string; expiresAt: number; refreshToken?: string }>();
+    expect(dane.token).toContain(".");
+    expect(dane.refreshToken).toBeUndefined();
+  });
+
+  it("zły kod nie aktywuje konta i nie wydaje tokenu", async () => {
+    const konto = await zarejestruj(nazwa(), "haslo-ze-zlym-kodem");
+
+    const res = await post("/auth/register/confirm", {
+      username: konto.username,
+      code: "000000",
+      deviceId: "telefon",
+    });
+
+    expect(res.status).toBe(401);
+    const dane = await res.json<{ token?: string; error?: string }>();
+    expect(dane.token).toBeUndefined();
+
+    // Konto zostało `pending` — logowanie wciąż niemożliwe.
+    const loginRes = await zalogujDoTotp(konto.username, konto.password);
+    expect(loginRes.status).toBe(401);
+  });
+});
+
 describe("sekret TOTP w spoczynku", () => {
   it("nie jest przechowywany jawnie", async () => {
     const konto = await zarejestruj(nazwa(), "haslo-uzytkownika");

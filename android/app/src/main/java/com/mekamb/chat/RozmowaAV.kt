@@ -158,8 +158,14 @@ class RozmowaAV private constructor(
             // bez TURN-a nie doda go sobie później, a użytkownik za
             // restrykcyjnym NAT-em nie usłyszałby nikogo bez śladu przyczyny.
             zakres.launch {
-                rozmowa.pobierzSerweryIce()
-                rozmowcy.take(LIMIT_UCZESTNIKOW - 1).forEach { rozmowa.zaproponuj(it) }
+                // Cała negocjacja pod `runCatching`: to korutyna oderwana od
+                // `zadzwon`, więc wyjątek z niej NIE wraca do `runCatching`
+                // wołającego — poszedłby wprost do nieobsłużonego handlera
+                // wątku i zabił aplikację już po tym, jak rozmowa „ruszyła".
+                runCatching {
+                    rozmowa.pobierzSerweryIce()
+                    rozmowcy.take(LIMIT_UCZESTNIKOW - 1).forEach { rozmowa.zaproponuj(it) }
+                }
             }
 
             return rozmowa
@@ -193,8 +199,13 @@ class RozmowaAV private constructor(
             rozmowa.przygotujMedia(zWideo)
 
             zakres.launch {
-                rozmowa.pobierzSerweryIce()
-                rozmowa.przyjmij(od, CallSignalKind.OFFER, oferta, odcisk)
+                // Jak w `zadzwon`: oderwana korutyna, więc wyjątek stąd nie ma
+                // gdzie wrócić poza handlerem wątku — a to on wywracał apkę przy
+                // odbieraniu rozmowy z innej platformy.
+                runCatching {
+                    rozmowa.pobierzSerweryIce()
+                    rozmowa.przyjmij(od, CallSignalKind.OFFER, oferta, odcisk)
+                }
             }
 
             return rozmowa
@@ -365,14 +376,24 @@ class RozmowaAV private constructor(
      * zapasowy serwer zamiast przerywać rozmowę.
      */
     internal suspend fun pobierzSerweryIce() {
-        serweryIce = messenger.serweryIce().map { serwer ->
-            PeerConnection.IceServer.builder(serwer.urls)
-                .apply {
-                    serwer.username?.let { setUsername(it) }
-                    serwer.credential?.let { setPassword(it) }
-                }
-                .createIceServer()
-        }
+        // Niepowodzenie NIE przerywa rozmowy: zostaje zapasowy STUN, którym pole
+        // zostało zainicjowane. Wcześniej wyjątek stąd — brak sieci, wygasły
+        // token na `iceServers`, timeout — leciał z korutyny `zadzwon`/`odbierz`
+        // prosto do nieobsłużonego handlera wątku i wywracał aplikację. To
+        // tłumaczy „dzwonienie crashuje apkę" po OBU stronach: obie drogi
+        // wejścia (dzwonienie i odbieranie) przechodzą właśnie tędy. Komentarz
+        // obok od początku obiecywał zapasowy serwer zamiast przerwania — brakowało
+        // tylko przechwycenia, które by tę obietnicę spełniło.
+        runCatching {
+            messenger.serweryIce().map { serwer ->
+                PeerConnection.IceServer.builder(serwer.urls)
+                    .apply {
+                        serwer.username?.let { setUsername(it) }
+                        serwer.credential?.let { setPassword(it) }
+                    }
+                    .createIceServer()
+            }
+        }.onSuccess { serweryIce = it }
     }
 
     private fun wyslij(doKogo: String, rodzaj: CallSignalKind, tresc: String) {

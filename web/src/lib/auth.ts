@@ -75,9 +75,41 @@ export async function register(
   });
 }
 
-/** Aktywuje konto pierwszym kodem z authenticatora. */
-export async function confirmRegistration(username: string, code: string): Promise<void> {
-  await api.post("/auth/register/confirm", { username, code });
+/**
+ * Aktywuje konto pierwszym kodem z authenticatora i od razu odbiera token
+ * dostępowy.
+ *
+ * # Dlaczego confirm zwraca token, tak jak logowanie
+ *
+ * Kod TOTP wpisany przy zakładaniu konta jest tym samym drugim składnikiem, co
+ * przy logowaniu — potwierdzenie go dowodzi tożsamości nie słabiej niż
+ * `loginWithTotp`. Zmuszanie świeżo założonego konta do przejścia jeszcze raz
+ * przez ekran logowania (hasło + kolejny, już inny kod) było wyłącznie tarciem:
+ * serwer i tak właśnie zweryfikował właściciela. Confirm zwraca więc token
+ * dostępowy w tym samym kształcie co `/auth/login/totp`, a klient wchodzi
+ * prosto na czat.
+ *
+ * `credentials: "include"` z tego samego powodu co w [`loginWithTotp`] — bez
+ * niego przeglądarka odrzuciłaby `Set-Cookie` trwałej sesji.
+ */
+export async function confirmRegistration(
+  username: string,
+  code: string,
+  deviceId: string,
+): Promise<AccessToken> {
+  // `deviceId` i `sesjaWTresci` jak w [`loginWithTotp`]: bez `deviceId` serwer
+  // nie zna urządzenia, do którego ma przypiąć trwałą sesję, a bez
+  // `sesjaWTresci` token odświeżający wróciłby tylko cookie'em trzeciej strony
+  // — czyli na iOS wcale (patrz [`ZAWSZE_W_TRESCI`]).
+  const wynik = await api.post<AccessToken>(
+    "/auth/register/confirm",
+    { username, code, deviceId, sesjaWTresci: ZAWSZE_W_TRESCI },
+    undefined,
+    { credentials: "include" },
+  );
+
+  await zapamietajTrwalaSesje(wynik);
+  return wynik;
 }
 
 export interface LoginSession {

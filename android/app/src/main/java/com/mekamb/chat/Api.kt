@@ -70,15 +70,30 @@ class Api(private val baseUrl: String) {
         )
     }
 
-    /** Aktywuje konto kodem z authenticatora. */
-    suspend fun registerConfirm(username: String, code: String) {
-        postJson(
+    /**
+     * Aktywuje konto kodem z authenticatora i od razu odbiera token dostępowy.
+     *
+     * Kod TOTP przy zakładaniu konta jest tym samym drugim składnikiem, co przy
+     * logowaniu — serwer po jego weryfikacji wydaje token dostępowy i trwałą
+     * sesję dokładnie jak `/auth/login/totp`. Confirm zwraca więc [LoginResult],
+     * a klient wchodzi prosto do listy rozmów zamiast wracać na ekran logowania.
+     */
+    suspend fun registerConfirm(username: String, code: String, deviceId: String): LoginResult {
+        val (odpowiedz, cookies) = postJsonRaw(
             "/auth/register/confirm",
             buildJsonObject {
                 put("username", username)
                 put("code", code)
+                // `deviceId` jak przy `loginTotp`: bez niego serwer nie wie, do
+                // którego urządzenia przypiąć trwałą sesję, i token odświeżający
+                // (httpOnly cookie) nie wraca.
+                put("deviceId", deviceId)
             },
             null,
+        )
+        return LoginResult(
+            token = odpowiedz["token"]!!.jsonPrimitive.content,
+            refreshToken = refreshTokenZNaglowkow(cookies),
         )
     }
 

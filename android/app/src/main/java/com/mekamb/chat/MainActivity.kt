@@ -3,7 +3,9 @@ package com.mekamb.chat
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -33,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -175,6 +178,30 @@ private fun Zawartosc(
         val zObrazem = rozmowaZWideo && (wynik[Manifest.permission.CAMERA] ?: false)
         if (odbieramy) model.odbierzRozmowe(kontekst, zObrazem)
         else model.zadzwon(kontekst, zObrazem)
+    }
+
+    /*
+     * Zgoda na powiadomienia (Android 13+).
+     *
+     * Prosimy PO zalogowaniu, a nie przy pierwszym ekranie: dopiero wtedy usługa
+     * nasłuchu ma o czym powiadamiać, więc prośba daje się z czymś powiązać.
+     * Bez tej zgody `NotificationManagerCompat.notify` rzuca `SecurityException`,
+     * który `Powiadomienia.powiadom` po cichu połyka — czyli powiadomienia
+     * „nie przychodzą" mimo działającej usługi. Odmowa jest prawem użytkownika:
+     * nie ponawiamy i niczego nie blokujemy.
+     */
+    val zgodaNaPowiadomienia = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* wynik nieistotny — brak zgody znaczy po prostu brak powiadomień */ }
+
+    LaunchedEffect(stan.zalogowany) {
+        if (stan.zalogowany && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val maZgode = ContextCompat.checkSelfPermission(
+                kontekst,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!maZgode) zgodaNaPowiadomienia.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     fun zacznijRozmowe(zWideo: Boolean, odbior: Boolean) {

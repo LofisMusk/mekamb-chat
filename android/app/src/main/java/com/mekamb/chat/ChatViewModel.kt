@@ -601,17 +601,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             stan = stan.copy(pracuje = true, blad = null)
 
-            runCatching { Auth.confirmRegistration(api, username, kod) }
+            runCatching {
+                // Potwierdzenie kodem to ten sam drugi składnik co logowanie,
+                // więc serwer wydaje token od razu — wchodzimy prosto do rozmów,
+                // dokładnie tą samą sekwencją co logowanie kodem. Świeże konto
+                // nie ma jeszcze nic w skarbcu, więc składamy je z samej nazwy
+                // i nowego identyfikatora urządzenia (userId == username, patrz
+                // `Vault.kt`).
+                val konto = vault.loadAccount()
+                    ?: Account(username, "android-${UUID.randomUUID().toString().take(8)}")
+
+                val wynik = Auth.confirmRegistration(api, username, kod, konto.deviceId)
+                uruchomKlienta(konto, wynik.token, wynik.refreshToken)
+            }
                 .onSuccess {
                     stan = stan.copy(
-                        ekran = Ekran.LOGOWANIE,
+                        zalogowany = true,
                         pracuje = false,
                         sekretTotp = null,
                         otpauthUri = null,
-                        // Ten kod jest już zużyty — serwer odrzuca powtórzenia,
-                        // więc do logowania trzeba poczekać na następny.
-                        informacja = "Konto gotowe. Poczekaj na kolejny kod " +
-                            "z authenticatora — ten został już zużyty.",
+                        rozmowy = historia.lista(),
                     )
                 }
                 .onFailure { blad ->
@@ -651,6 +660,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Uruchamia klienta po zdobyciu tokenu i podpina go do [Rdzen].
+     *
+     * Jedno miejsce dla wszystkich dróg wejścia z tokenem — logowania kodem
+     * i aktywacji świeżego konta kodem. Osobne kopie tej sekwencji rozjechałyby
+     * się po jednej stronie: kolejność `registerDevice`/`publishKeyPackages`
+     * (key packages mają klucz obcy do urządzenia, więc katalog musi je poznać
+     * najpierw), otwarcie rozmów z dysku (bez tego rdzeń po odtworzeniu ma pełny
+     * stan MLS, ale pustą listę otwartych rozmów, a koperta bez dopasowania
+     * przepada) i podpięcie rdzenia bronią tych samych inwariantów w obu drogach.
+     *
+     * Konto dostaje gotowe, bo logowanie potrzebuje jego `deviceId` już przy
+     * pytaniu o token, a aktywacja składa je z samej nazwy.
+     */
+    private suspend fun uruchomKlienta(konto: Account, token: String, refreshToken: String?) {
+        vault.saveAccount(konto)
+        refreshToken?.let(vault::saveRefreshToken)
+
+        val klient = Messenger.open(vault, api, konto, token)
+        klient.registerDevice()
+        klient.publishKeyPackages()
+        klient.otworzZnaneRozmowy(historia.lista().map { it.groupId })
+        klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
+        runCatching { klient.uzupelnijTokeny() }
+        Rdzen.podepnij(getApplication(), klient)
+    }
+
     /** Drugi krok logowania. */
     fun zalogujKodem(kod: String) {
         val sesja = sesjaLogowania ?: return
@@ -664,27 +700,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // to urządzenie od stanu MLS zapisanego pod starym identyfikatorem.
                 val konto = vault.loadAccount()
                     ?: Account(sesja.username, "android-${UUID.randomUUID().toString().take(8)}")
-                vault.saveAccount(konto)
 
                 val wynik = Auth.loginCode(api, sesja, kod, konto.deviceId)
-                wynik.refreshToken?.let(vault::saveRefreshToken)
-
-                val klient = Messenger.open(vault, api, konto, wynik.token)
-
-                // Kolejność jest istotna: key packages mają klucz obcy do
-                // urządzenia, więc katalog musi je poznać najpierw.
-                klient.registerDevice()
-                klient.publishKeyPackages()
-
-                // Rozmowy z dysku MUSZĄ zostać otwarte, zanim cokolwiek
-                // przyjdzie: rdzeń po odtworzeniu ma pełny stan, ale pustą listę
-                // otwartych rozmów, a koperta bez dopasowania przepada.
-                klient.otworzZnaneRozmowy(historia.lista().map { it.groupId })
-                klient.ustawPortfel(PortfelTokenow(MagazynWPreferencjach(getApplication())))
-                runCatching { klient.uzupelnijTokeny() }
-
-                Rdzen.podepnij(getApplication(), klient)
-                klient
+                uruchomKlienta(konto, wynik.token, wynik.refreshToken)
             }.onSuccess { _ ->
                 sesjaLogowania = null
                 stan = stan.copy(
@@ -1060,6 +1078,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
         }.onSuccess { nowa ->
             rozmowa = nowa
+            // Usługa nasłuchu awansuje do typu mikrofon (+aparat), żeby rozmowa
+            // przetrwała zablokowanie ekranu bez `SecurityException` na
+            // Androidzie 14+. Uprawnienia są już przyznane — o nie prosi
+            // `MainActivity` przed wejściem w rozmowę.
+            UslugaNasluchu.wejdzWTrybRozmowy(getApplication(), zWideo)
             stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
         }.onFailure { blad ->
             rozmowa = null
@@ -1125,6 +1148,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         rozmowa = nowa
+        // Awans usługi na czas rozmowy — jak w `zadzwon`, żeby odebrana rozmowa
+        // przetrwała zablokowanie ekranu bez `SecurityException`.
+        UslugaNasluchu.wejdzWTrybRozmowy(getApplication(), zWideo)
 
         /*
          * Kandydaci uzbierani w czasie dzwonienia — teraz jest komu ich podać.
@@ -1180,6 +1206,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         rozmowa?.zakoncz()
         rozmowa = null
+
+        // Zdejmujemy typ mikrofon/aparat z usługi — wraca do zwykłego `dataSync`,
+        // żeby nie trzymać mikrofonu dłużej niż rozmowa.
+        UslugaNasluchu.wyjdzZTrybuRozmowy(getApplication())
     }
 
     fun przelaczMikrofon() = rozmowa?.przelaczMikrofon()

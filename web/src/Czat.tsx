@@ -8,7 +8,16 @@ import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import { Urzadzenia } from "./Parowanie";
 import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
-import { logout, webauthnRegisterOptions, webauthnRegisterVerify } from "./lib/auth";
+import {
+  logout,
+  totpChangeConfirm,
+  totpChangeOptions,
+  totpChangeStartKodem,
+  totpChangeStartPasskeyem,
+  webauthnRegisterOptions,
+  webauthnRegisterVerify,
+} from "./lib/auth";
+import { KodQr } from "./KodQr";
 import {
   type PozycjaListy,
   type Wiadomosc,
@@ -34,7 +43,7 @@ import {
 } from "./lib/potwierdzenia";
 import { odczytWlaczony, ustawOdczyt } from "./lib/ustawienia";
 import { useWstecz } from "./lib/nawigacja";
-import { createPasskey, isPasskeySupported } from "./lib/passkey";
+import { createPasskey, getPasskey, isPasskeySupported } from "./lib/passkey";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
 import { isPersistent, wipe } from "./lib/vault";
@@ -987,6 +996,12 @@ function PanelListy({
 }) {
   const kluczOtwartej = otwarta ? kluczRozmowy(otwarta) : null;
 
+  // Rozmowa czekająca na potwierdzenie usunięcia — jedno pytanie dla wszystkich
+  // dróg (gest, przycisk spod wiersza, kebab). Usuwamy dopiero po „Usuń".
+  const [doUsuniecia, setDoUsuniecia] = useState<PozycjaListy | null>(null);
+  // Który wiersz ma otwarte menu kebaba (po kluczu). Naraz najwyżej jeden.
+  const [menuKlucz, setMenuKlucz] = useState<string | null>(null);
+
   return (
     <aside className="panel-listy" aria-label="Lista rozmów">
       <div className="panel-listy-naglowek">
@@ -1027,12 +1042,30 @@ function PanelListy({
                 pozycja={pozycja}
                 nazwa={nazwaPozycji(pozycja)}
                 otwarta={klucz === kluczOtwartej}
+                menuOtwarte={klucz === menuKlucz}
+                onMenu={() => setMenuKlucz((biezacy) => (biezacy === klucz ? null : klucz))}
                 onOtworz={() => onOtworz(pozycja)}
-                onUsun={() => onUsun(pozycja)}
+                // Każda droga usuwania prowadzi przez potwierdzenie, nie kasuje wprost.
+                onUsun={() => {
+                  setMenuKlucz(null);
+                  setDoUsuniecia(pozycja);
+                }}
               />
             );
           })}
         </ul>
+      )}
+
+      {doUsuniecia && (
+        <PotwierdzenieUsuniecia
+          nazwa={nazwaPozycji(doUsuniecia)}
+          onAnuluj={() => setDoUsuniecia(null)}
+          onUsun={() => {
+            const cel = doUsuniecia;
+            setDoUsuniecia(null);
+            onUsun(cel);
+          }}
+        />
       )}
 
     </aside>
@@ -1056,12 +1089,16 @@ function WierszRozmowy({
   pozycja,
   nazwa,
   otwarta,
+  menuOtwarte,
+  onMenu,
   onOtworz,
   onUsun,
 }: {
   pozycja: PozycjaListy;
   nazwa: string;
   otwarta: boolean;
+  menuOtwarte: boolean;
+  onMenu: () => void;
   onOtworz: () => void;
   onUsun: () => void;
 }) {
@@ -1091,8 +1128,10 @@ function WierszRozmowy({
     kierunek.current = "nieznany";
   };
 
+  const odslania = przesuniecie !== 0 || odsloniete;
+
   return (
-    <li className="pozycja-rozmowy">
+    <li className={odslania ? "pozycja-rozmowy odslania" : "pozycja-rozmowy"}>
       <button
         type="button"
         className="wiersz-usun"
@@ -1168,7 +1207,93 @@ function WierszRozmowy({
 
         {pozycja.nieprzeczytane > 0 && <span className="znacznik">{pozycja.nieprzeczytane}</span>}
       </button>
+
+      {/*
+        Kebab i jego menu — droga do usunięcia na desktopie, gdzie gestu nie ma.
+        Kebab jest rodzeństwem wiersza (a nie dzieckiem), bo przycisk w przycisku
+        jest niepoprawny. Menu zamyka klik obok (`zaslona-menu`) albo wybór akcji.
+      */}
+      <button
+        type="button"
+        className={menuOtwarte ? "wiersz-kebab aktywny" : "wiersz-kebab"}
+        aria-label={`Więcej — rozmowa z ${nazwa}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOtwarte}
+        onClick={onMenu}
+      >
+        <Ikona nazwa="wiecej" rozmiar={18} />
+      </button>
+
+      {menuOtwarte && (
+        <>
+          <button
+            type="button"
+            className="zaslona-menu"
+            aria-label="Zamknij menu"
+            onClick={onMenu}
+          />
+          <div className="menu-rozmowy" role="menu">
+            <button type="button" role="menuitem" onClick={onUsun}>
+              <Ikona nazwa="kosz" rozmiar={16} />
+              Usuń rozmowę
+            </button>
+          </div>
+        </>
+      )}
     </li>
+  );
+}
+
+/**
+ * Modal potwierdzający usunięcie rozmowy.
+ *
+ * Kasowanie jest nieodwracalne — historia żyje wyłącznie na tym urządzeniu —
+ * więc żadna droga (gest, przycisk, kebab) nie usuwa wprost; wszystkie kończą
+ * tutaj. `Escape` i klik w tło znaczą „anuluj", bo bezpieczniejsza odpowiedź
+ * ma być tą łatwą.
+ */
+function PotwierdzenieUsuniecia({
+  nazwa,
+  onAnuluj,
+  onUsun,
+}: {
+  nazwa: string;
+  onAnuluj: () => void;
+  onUsun: () => void;
+}) {
+  useEffect(() => {
+    const naKlawisz = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onAnuluj();
+    };
+    window.addEventListener("keydown", naKlawisz);
+    return () => window.removeEventListener("keydown", naKlawisz);
+  }, [onAnuluj]);
+
+  return (
+    <div
+      className="nakladka-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Usunąć rozmowę z ${nazwa}`}
+      onClick={onAnuluj}
+    >
+      <div className="modal-karta" onClick={(e) => e.stopPropagation()}>
+        <h3>Usunąć rozmowę z {nazwa}?</h3>
+        <p>
+          Historia tej rozmowy jest tylko na tym urządzeniu — serwer jej nie ma,
+          więc po usunięciu nikt jej nie odtworzy.
+        </p>
+        <div className="modal-przyciski">
+          <button type="button" onClick={onAnuluj}>
+            Anuluj
+          </button>
+          <button type="button" className="niszczacy" onClick={onUsun} autoFocus>
+            <Ikona nazwa="kosz" rozmiar={16} />
+            Usuń
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1820,6 +1945,8 @@ function Konto({
 
         <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
 
+        <ZmianaAuthenticatora messenger={messenger} onBlad={onBlad} />
+
         <ZglosBlad token={messenger.accessToken} />
 
         {/*
@@ -1872,6 +1999,182 @@ function Konto({
 }
 
 /** Dodawanie passkeya do konta — punkt wejścia do rejestracji, nie logowania. */
+/**
+ * Zmiana aplikacji authenticator (drugiego składnika).
+ *
+ * # Dlaczego najpierw ponowne uwierzytelnienie
+ *
+ * Podmiana authenticatora przejmuje logowanie na stałe, więc nie może wystarczyć
+ * otwarta sesja — przejęte, odblokowane urządzenie ma otwartą sesję. Zanim
+ * serwer wyda nowy sekret, żąda świeżego dowodu: passkeya albo aktualnego kodu
+ * ze starego authenticatora.
+ *
+ * # Dlaczego stary działa aż do potwierdzenia
+ *
+ * Nowy sekret jest OCZEKUJĄCY, dopóki użytkownik nie wpisze pierwszego kodu
+ * z nowej aplikacji. Gdyby aktywował się od razu po pokazaniu QR, zamknięcie
+ * karty w pół drogi zostawiłoby konto bez żadnego działającego authenticatora.
+ */
+function ZmianaAuthenticatora({
+  messenger,
+  onBlad,
+}: {
+  messenger: Messenger;
+  onBlad: (e: unknown) => void;
+}) {
+  type Etap =
+    | { nazwa: "spoczynek" }
+    | { nazwa: "reauth" }
+    | { nazwa: "nowy"; totpSecret: string; otpauthUri: string };
+
+  const [etap, setEtap] = useState<Etap>({ nazwa: "spoczynek" });
+  const [staryKod, setStaryKod] = useState("");
+  const [nowyKod, setNowyKod] = useState("");
+  const [pracuje, setPracuje] = useState(false);
+  const [gotowe, setGotowe] = useState(false);
+
+  const token = messenger.accessToken;
+
+  const zaczniPasskeyem = async () => {
+    setPracuje(true);
+    try {
+      const opcje = await totpChangeOptions(token);
+      const odpowiedz = await getPasskey(opcje);
+      const nowy = await totpChangeStartPasskeyem(token, odpowiedz);
+      setEtap({ nazwa: "nowy", ...nowy });
+    } catch (err) {
+      onBlad(err);
+    } finally {
+      setPracuje(false);
+    }
+  };
+
+  const zaczniKodem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPracuje(true);
+    try {
+      const nowy = await totpChangeStartKodem(token, staryKod.trim());
+      setStaryKod("");
+      setEtap({ nazwa: "nowy", ...nowy });
+    } catch (err) {
+      onBlad(err);
+    } finally {
+      setPracuje(false);
+    }
+  };
+
+  const potwierdz = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPracuje(true);
+    try {
+      await totpChangeConfirm(token, nowyKod.trim());
+      setNowyKod("");
+      setEtap({ nazwa: "spoczynek" });
+      setGotowe(true);
+    } catch (err) {
+      onBlad(err);
+    } finally {
+      setPracuje(false);
+    }
+  };
+
+  return (
+    <div className="karta">
+      <strong>Aplikacja authenticator</strong>
+
+      {etap.nazwa === "spoczynek" && (
+        <>
+          <p className="wskazowka">
+            Zmieniasz telefon albo aplikację? Podłącz nowy authenticator — najpierw
+            potwierdzisz, że to Ty.
+          </p>
+          {gotowe && (
+            <p className="wskazowka-ikona">
+              <Ikona nazwa="wyslane" rozmiar={14} />
+              Authenticator zmieniony. Od teraz loguj się kodami z nowej aplikacji.
+            </p>
+          )}
+          <button
+            onClick={() => {
+              setGotowe(false);
+              setEtap({ nazwa: "reauth" });
+            }}
+          >
+            Zmień authenticator
+          </button>
+        </>
+      )}
+
+      {etap.nazwa === "reauth" && (
+        <>
+          <p className="wskazowka">
+            Potwierdź, że to Ty — passkeyem albo aktualnym kodem ze starego authenticatora.
+          </p>
+
+          {isPasskeySupported() && (
+            <button disabled={pracuje} onClick={zaczniPasskeyem}>
+              <Ikona nazwa="blokada" rozmiar={16} />
+              {pracuje ? "Czekam…" : "Potwierdź passkeyem"}
+            </button>
+          )}
+
+          <form onSubmit={zaczniKodem}>
+            <label>
+              Kod ze starego authenticatora
+              <input
+                value={staryKod}
+                onChange={(e) => setStaryKod(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+              />
+            </label>
+            <button className="glowny" disabled={pracuje}>
+              Dalej
+            </button>
+          </form>
+
+          <button onClick={() => setEtap({ nazwa: "spoczynek" })}>Anuluj</button>
+        </>
+      )}
+
+      {etap.nazwa === "nowy" && (
+        <>
+          <p className="wskazowka">
+            Zeskanuj w <strong>nowej</strong> aplikacji authenticator, potem wpisz jej pierwszy
+            kod. Stary authenticator działa aż do potwierdzenia.
+          </p>
+
+          <KodQr tresc={etap.otpauthUri} opis="Kod QR nowego authenticatora" />
+
+          <details className="sekret-recznie">
+            <summary>Albo wpisz sekret ręcznie</summary>
+            <code className="sekret">{etap.totpSecret}</code>
+          </details>
+
+          <form onSubmit={potwierdz}>
+            <label>
+              Kod z nowej aplikacji
+              <input
+                value={nowyKod}
+                onChange={(e) => setNowyKod(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+              />
+            </label>
+            <button className="glowny" disabled={pracuje}>
+              {pracuje ? "Potwierdzam…" : "Potwierdź zmianę"}
+            </button>
+          </form>
+
+          <button onClick={() => setEtap({ nazwa: "spoczynek" })}>Anuluj</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PasskeyZarzadzanie({
   messenger,
   onBlad,

@@ -1046,6 +1046,15 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
  * `overflow: hidden` na pozycji obcina to, co wyjechało poza krawędź. Kolor
  * kosza to `--alarm-tlo`, nie nasycona czerwień — Nocturne trzyma akcent i alarm
  * jako linię, a nie plamę.
+ *
+ * # Dlaczego kosz jest niewidoczny w spoczynku
+ *
+ * Wiersz ma zaokrąglone rogi (`--promien-l`), więc jego nieprzezroczyste tło NIE
+ * dochodzi do samych narożników — a pod spodem, aż do prostych krawędzi pozycji,
+ * leżał `--alarm-tlo`. Efekt: alarmowa czerwień prześwitywała w czterech rogach
+ * każdego wiersza, najmocniej na ciemnym motywie. Kosz odsłaniamy więc dopiero,
+ * gdy wiersz faktycznie się przesuwa (`.odslania`); w spoczynku rogi pokazują
+ * czyste tło listy, nie alarm.
  */
 .pozycja-rozmowy {
   position: relative;
@@ -1075,8 +1084,113 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   background: var(--alarm-tlo);
   color: var(--alarm);
   font-size: .6875rem;
+  /* W spoczynku niewidoczny i nieklikalny — patrz komentarz wyżej. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
 }
+.pozycja-rozmowy.odslania .wiersz-usun { opacity: 1; pointer-events: auto; }
 .wiersz-usun:hover { background: color-mix(in srgb, var(--alarm) 20%, var(--alarm-tlo)); }
+
+/*
+ * Kebab „więcej" na wierszu — droga do usunięcia na desktopie.
+ *
+ * Gest przeciągnięcia jest dotykowy; na myszy nie istnieje, więc bez tego
+ * przycisku desktop nie miał JAK usunąć rozmowy. Pokazujemy go tylko tam, gdzie
+ * jest realny wskaźnik (`hover: hover`), i dopiero na najechanie wiersza albo
+ * gdy jego menu jest otwarte — żeby lista w spoczynku była czysta.
+ */
+.wiersz-kebab { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .wiersz-kebab {
+    position: absolute;
+    top: .5rem;
+    right: .5rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--promien-s);
+    background: transparent;
+    color: var(--tekst-drugi);
+    opacity: 0;
+    transition: opacity .12s ease, background .12s ease;
+  }
+  .pozycja-rozmowy:hover .wiersz-kebab,
+  .wiersz-kebab.aktywny { opacity: 1; }
+  .wiersz-kebab:hover { background: var(--karta-hover); color: var(--tekst); }
+}
+
+/* Małe menu pod kebabem. Jedna akcja dziś, ale to jego naturalne miejsce. */
+.menu-rozmowy {
+  position: absolute;
+  top: 2.4rem;
+  right: .5rem;
+  z-index: 3;
+  min-width: 11rem;
+  padding: var(--odstep-2);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .38);
+}
+.menu-rozmowy button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  padding: var(--odstep-3);
+  border: none;
+  border-radius: var(--promien-s);
+  background: transparent;
+  color: var(--alarm);
+  text-align: left;
+  font-size: .875rem;
+}
+.menu-rozmowy button:hover { background: var(--alarm-tlo); }
+/* Niewidoczne tło zamykające menu kliknięciem obok. */
+.zaslona-menu { position: fixed; inset: 0; z-index: 2; background: transparent; border: none; }
+
+/*
+ * Potwierdzenie usunięcia rozmowy.
+ *
+ * Kasowanie jest nieodwracalne (historia jest tylko na tym urządzeniu), więc
+ * każda droga do niego — gest, przycisk spod wiersza, kebab — przechodzi przez
+ * to samo pytanie. „Usuń" niesie alarm jako linię, nie plamę; domyślnie
+ * podświetlony jest „Anuluj", bo bezpieczniejsza odpowiedź ma być tą łatwą.
+ */
+.nakladka-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--odstep-5);
+  background: rgb(0 0 0 / .55);
+}
+.modal-karta {
+  width: 100%;
+  max-width: 22rem;
+  padding: var(--odstep-5);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  box-shadow: 0 20px 60px rgb(0 0 0 / .5);
+}
+.modal-karta h3 { margin: 0 0 var(--odstep-3); font-size: 1.0625rem; }
+.modal-karta p { margin: 0 0 var(--odstep-5); color: var(--tekst-drugi); font-size: .875rem; line-height: 1.45; }
+.modal-przyciski { display: flex; gap: var(--odstep-3); justify-content: flex-end; }
+.modal-przyciski button { flex: none; }
+.modal-przyciski .niszczacy {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+.modal-przyciski .niszczacy:hover { background: var(--alarm-tlo); }
 
 /* Znacznik stoi w linii nazwy, a nie na środku dwuwierszowego wiersza. */
 .wiersz-rozmowy > .znacznik { margin-top: .35rem; }

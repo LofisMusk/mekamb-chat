@@ -1143,7 +1143,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         onWyslane()
 
         viewModelScope.launch {
-            runCatching { klient.sendText(groupId, tresc, rozmowca) }
+            runCatching { klient.sendText(groupId, tresc) }
                 .onSuccess { wyslana ->
                     // Identyfikator Z RDZENIA, nie własny UUID: potwierdzenia
                     // drugiej strony wskazują wiadomości właśnie po nim, więc
@@ -1583,6 +1583,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // Baner gaśnie razem z dzwonkiem, zanim cokolwiek innego się wydarzy.
         Powiadomienia.schowajRozmowe(getApplication())
 
+        /*
+         * Kandydaci uzbierani w czasie dzwonienia jadą RAZEM z ofertą do
+         * `RozmowaAV.odbierz`, która odtworzy je PO ofercie — dopiero wtedy
+         * istnieje połączenie z nadawcą, do którego kolejki trafiają.
+         *
+         * Wcześniej odtwarzaliśmy je tutaj, synchronicznie po powrocie z
+         * `odbierz` — ale `odbierz` tworzy połączenie w oderwanej korutynie, po
+         * sieciowym `pobierzSerweryIce`, więc w tej chwili go jeszcze nie było i
+         * `przyjmij(ICE_CANDIDATE)` wyrzucał każdego kandydata na
+         * `polaczenia[od] ?: return`. Dzwoniący nadaje kandydatów tylko raz, tuż
+         * po ofercie, więc gubiliśmy wszystkie — i przychodzące calle nie łączyły
+         * się nigdy, choć wychodzące działały.
+         */
+        val zalegle = oczekujaceSygnaly.map { sygnal ->
+            SygnalPrzychodzacy(
+                od = sygnal.senderUserId,
+                rodzaj = sygnal.kind,
+                tresc = sygnal.payload,
+                odcisk = sygnal.dtlsFingerprint,
+            )
+        }
+        oczekujaceSygnaly.clear()
+
         // Oferta idzie razem z odebraniem: `RozmowaAV` przetworzy ją dopiero
         // po pobraniu poświadczeń ICE — patrz komentarz przy `odbierz`.
         // Odbieranie może się nie udać z tych samych powodów co dzwonienie —
@@ -1598,11 +1621,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 od = przychodzaca.od,
                 oferta = przychodzaca.oferta,
                 odcisk = przychodzaca.odcisk,
+                zalegleSygnaly = zalegle,
                 zakres = viewModelScope,
                 onZmiana = ::przyjmijStanRozmowy,
             )
         }.getOrElse { blad ->
-            oczekujaceSygnaly.clear()
             stan = stan.copy(
                 przychodzacaRozmowa = null,
                 rozmowaAV = emptyList(),
@@ -1614,28 +1637,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // Awans usługi na czas rozmowy — jak w `zadzwon`, żeby odebrana rozmowa
         // przetrwała zablokowanie ekranu bez `SecurityException`.
         UslugaNasluchu.wejdzWTrybRozmowy(getApplication(), zWideo)
-
-        /*
-         * Kandydaci uzbierani w czasie dzwonienia — teraz jest komu ich podać.
-         *
-         * Kolejność wobec oferty załatwia sama `RozmowaAV`: kandydat, który
-         * przyjdzie przed opisem zdalnym, czeka w jej własnej kolejce. Tutaj
-         * chodzi wyłącznie o to, żeby w ogóle do niej trafiły — bez tego
-         * przepadały i połączenie nie miało się z czym zestawić.
-         */
-        val zalegle = oczekujaceSygnaly.toList()
-        oczekujaceSygnaly.clear()
-
-        for (sygnal in zalegle) {
-            runCatching {
-                nowa.przyjmij(
-                    sygnal.senderUserId,
-                    sygnal.kind,
-                    sygnal.payload,
-                    sygnal.dtlsFingerprint,
-                )
-            }
-        }
 
         stan = stan.copy(rozmowaZWideo = zWideo, przychodzacaRozmowa = null)
     }
@@ -1837,7 +1838,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun wyslijZalacznik(uri: Uri) {
         val klient = messenger ?: return
         val groupId = stan.groupId ?: return
-        val rozmowca = stan.rozmowca ?: return
+        // Sam warunek gotowości rozmowy — nazwa nie jest już adresatem, bo
+        // `sendAttachment` rozsyła do całego składu (patrz `Messenger.rozeslij`).
+        stan.rozmowca ?: return
 
         viewModelScope.launch {
             stan = stan.copy(pracuje = true, blad = null)
@@ -1848,7 +1851,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     ?: error("nie udało się odczytać pliku")
                 val mimeType = resolver.getType(uri) ?: "application/octet-stream"
 
-                klient.sendAttachment(groupId, bajty, mimeType, nazwaPliku(uri), rozmowca)
+                klient.sendAttachment(groupId, bajty, mimeType, nazwaPliku(uri))
             }
 
             stan = wynik.fold(

@@ -460,7 +460,6 @@ class Messenger private constructor(
     suspend fun sendText(
         groupId: ByteArray,
         text: String,
-        recipient: String,
     ): WyslanaWiadomosc = withContext(Dispatchers.IO) {
         val zapakowana = client.sealText(groupId, text, System.currentTimeMillis().toULong())
 
@@ -468,10 +467,9 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(groupId, recipient)
-        val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
+        val sposob = rozeslij(groupId, zapakowana.koperta)
 
-        // Dopiero po rozmówcy: gdyby echo szło pierwsze, nieudana wysyłka
+        // Dopiero po rozmówcach: gdyby echo szło pierwsze, nieudana wysyłka
         // pokazałaby wiadomość jako błędną tutaj, a jako wysłaną na laptopie.
         echoDoSiebie(zapakowana.koperta)
 
@@ -642,7 +640,6 @@ class Messenger private constructor(
         bajty: ByteArray,
         mimeType: String,
         nazwaPliku: String?,
-        recipient: String,
     ): WyslanyZalacznik = withContext(Dispatchers.IO) {
         // UniFFI zwraca `u64` jako `ULong` — porównanie z rozmiarem tablicy
         // wymaga wspólnego typu, a limit i tak mieści się w `Long`.
@@ -676,8 +673,7 @@ class Messenger private constructor(
         // nawet wtedy, gdy wysyłka po nim zawiedzie.
         vault.saveState(client.exportState())
 
-        val urzadzenie = drogaBezposrednia(groupId, recipient)
-        val sposob = wyslij(recipient, urzadzenie, zapakowana.koperta)
+        val sposob = rozeslij(groupId, zapakowana.koperta)
 
         // Szyfrogram leży w R2, a klucz jedzie w tej kopercie — drugie własne
         // urządzenie otworzy załącznik dokładnie tą samą drogą co rozmówca.
@@ -793,6 +789,41 @@ class Messenger private constructor(
     suspend fun openAttachment(zalacznik: Zalacznik): ByteArray = withContext(Dispatchers.IO) {
         val szyfrogram = api.downloadAttachment(token, zalacznik.blobId)
         openAttachment(szyfrogram, zalacznik.klucz, zalacznik.nonce, zalacznik.mimeType)
+    }
+
+    /**
+     * Rozsyła gotową kopertę do WSZYSTKICH uczestników rozmowy poza nami.
+     *
+     * # Dlaczego treść rozmowy potrzebowała tego, a nie wystarczał [wyslij]
+     *
+     * Koperta MLS `application` to ten sam szyfrogram dla całej grupy — ale
+     * *dostarczyć* trzeba go do skrzynki KAŻDEGO członka z osobna. [sendText]
+     * i [sendAttachment] wołały wcześniej [wyslij] do jednego `recipient`, więc
+     * w rozmowie dwuosobowej działały, a w grupie wiadomość trafiała wyłącznie
+     * do jednej wskazanej osoby — pozostali nie dostawali nic i to bez żadnego
+     * błędu po stronie nadawcy. Potwierdzenia i metadane rozsyłały się do całego
+     * składu od początku ([sendReceipt], [sendMetadata]), więc sama TREŚĆ była
+     * jedyną rzeczą, która w grupie ginęła — u jednej osoby wiadomości
+     * dochodziły, u drugiej od nikogo. Web robił to dobrze od początku
+     * (`rozeslij` w `messenger.ts`); to jest jego odpowiednik.
+     *
+     * Zwraca łączną drogę: „bezpośrednio" tylko wtedy, gdy do każdego trafiło
+     * wprost. Gdy choć jeden hop poszedł skrzynką, mówimy „przez serwer" — bo
+     * dla tej wiadomości serwer był w torze, a ekran ma nie obiecywać więcej,
+     * niż było.
+     */
+    private suspend fun rozeslij(groupId: ByteArray, koperta: ByteArray): DeliveryMode {
+        var wszystkoWprost = true
+        var bylKtokolwiek = false
+
+        for (osoba in uczestnicy(groupId)) {
+            if (osoba == account.userId) continue
+            bylKtokolwiek = true
+            val sposob = wyslij(osoba, drogaBezposrednia(groupId, osoba), koperta)
+            if (sposob != DeliveryMode.DIRECT) wszystkoWprost = false
+        }
+
+        return if (bylKtokolwiek && wszystkoWprost) DeliveryMode.DIRECT else DeliveryMode.MAILBOX
     }
 
     /**

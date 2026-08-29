@@ -330,6 +330,23 @@ pub fn can_strip_metadata(mime_type: String) -> bool {
     mekamb_core::can_strip(&mime_type)
 }
 
+/// Eksportuje historię do gotowego pliku `.zip` chronionego hasłem.
+///
+/// Ten sam kod i ten sam format co w kliencie webowym: plik zapisany na jednej
+/// platformie musi dać się otworzyć na drugiej.
+#[uniffi::export]
+pub fn export_backup(passphrase: String, plaintext: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+    Ok(mekamb_core::export_backup(&passphrase, &plaintext)?)
+}
+
+/// Otwiera plik `.zip` kopii pod hasłem i zwraca jawną historię — do importu.
+///
+/// Złe hasło albo uszkodzony plik dają błąd, nie zniekształconą historię.
+#[uniffi::export]
+pub fn import_backup(passphrase: String, zip: Vec<u8>) -> Result<Vec<u8>, MekambError> {
+    Ok(mekamb_core::import_backup(&passphrase, &zip)?)
+}
+
 /// Sprawdza, czy SDP niesie DOKŁADNIE ten odcisk, który przyszedł kanałem MLS.
 ///
 /// To jest miejsce, w którym rozmowa A/V przestaje ufać sygnalizacji. SDP

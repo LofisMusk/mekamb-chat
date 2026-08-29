@@ -192,6 +192,7 @@ class RozmowaAV private constructor(
             od: String,
             oferta: String,
             odcisk: String,
+            zalegleSygnaly: List<SygnalPrzychodzacy>,
             zakres: CoroutineScope,
             onZmiana: (StanRozmowyAV) -> Unit,
         ): RozmowaAV {
@@ -205,6 +206,32 @@ class RozmowaAV private constructor(
                 runCatching {
                     rozmowa.pobierzSerweryIce()
                     rozmowa.przyjmij(od, CallSignalKind.OFFER, oferta, odcisk)
+
+                    /*
+                     * Zaległe sygnały ODTWARZAMY TUTAJ — po ofercie, w tej samej
+                     * korutynie, a nie u wołającego zaraz po powrocie z `odbierz`.
+                     *
+                     * # Dlaczego wcześniej gubiliśmy kandydatów
+                     *
+                     * Oferta tworzy `Polaczenie[od]` (patrz `przyjmij`), ale robi to
+                     * dopiero po `pobierzSerweryIce`, czyli po sieciowym oczekiwaniu.
+                     * Wołający odtwarzał zaległe kandydaty ICE SYNCHRONICZNIE zaraz
+                     * po `odbierz` — a wtedy `Polaczenie[od]` jeszcze nie istniało,
+                     * więc `przyjmij(ICE_CANDIDATE)` trafiał na `polaczenia[od] ?:
+                     * return` i wyrzucał kandydata zamiast go zakolejkować.
+                     *
+                     * Dzwoniący nadaje kandydatów NATYCHMIAST po ofercie i nie
+                     * powtarza ich po odebraniu, więc gubione były wszystkie — i
+                     * połączenie znało adresy tylko jednej strony, czyli nie
+                     * zestawiało się nigdy. To jest „przychodzące calle nie łączą
+                     * się". Ten sam błąd i ta sama naprawa co w kliencie webowym
+                     * (`web/src/Rozmowa.tsx`, `odbierz`): najpierw oferta, dopiero
+                     * potem kolejka. Kolejność wobec opisu zdalnego dogrywa już
+                     * własna kolejka `Polaczenie` (`kolejkaIce`).
+                     */
+                    for (sygnal in zalegleSygnaly) {
+                        rozmowa.przyjmij(sygnal.od, sygnal.rodzaj, sygnal.tresc, sygnal.odcisk)
+                    }
                 }
             }
 
@@ -658,6 +685,22 @@ data class UczestnikRozmowy(
 )
 
 enum class FazaPolaczenia { LACZENIE, POLACZONA, ZAKONCZONA, ODRZUCONA }
+
+/**
+ * Sygnał rozmowy, który dotarł, zanim rozmowa w ogóle istniała.
+ *
+ * W czasie dzwonienia (zanim odbiorca naciśnie „Odbierz") przychodzą już
+ * kandydaci ICE dzwoniącego — nie ma ich jednak czym karmić, bo `RozmowaAV`
+ * powstaje dopiero przy odbieraniu. Odkłada je ViewModel i przekazuje do
+ * [RozmowaAV.odbierz], która odtwarza je PO ofercie, gdy połączenie z nadawcą
+ * już istnieje. Bez tego kandydaci przepadali i połączenie się nie zestawiało.
+ */
+data class SygnalPrzychodzacy(
+    val od: String,
+    val rodzaj: CallSignalKind,
+    val tresc: String,
+    val odcisk: String,
+)
 
 /**
  * Kandydat ICE jako JSON — tym samym kształtem, którego używa klient webowy

@@ -1,5 +1,8 @@
 package com.mekamb.chat
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -18,10 +22,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.mekamb_ffi.DeliveryMode
 
 /**
@@ -213,6 +222,8 @@ fun EkranUstawien(
                 }
             }
 
+            KopiaZapasowa(model)
+
             Karta {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -290,4 +301,203 @@ fun EkranUstawien(
             )
         }
     }
+}
+
+private enum class TrybKopii { EKSPORT, IMPORT }
+
+/**
+ * Eksport i import rozmów do zaszyfrowanego pliku ZIP.
+ *
+ * # Dlaczego hasło, a nie zwykły plik
+ *
+ * Historia w telefonie jest zaszyfrowana kluczem z Keystore, który nie opuszcza
+ * urządzenia. Plik ma dać się otworzyć gdzie indziej, więc chroni go jedyny
+ * sekret, który zna człowiek: hasło. Zrzucenie jawnej historii do pliku oddałoby
+ * treść rozmów każdemu, kto go przeczyta — cała ochrona pliku to Argon2id
+ * i AES-256-GCM w rdzeniu (`core/src/kopia.rs`).
+ *
+ * # Dlaczego hasło pytamy w innej chwili przy eksporcie i imporcie
+ *
+ * Eksport: najpierw hasło, potem wybór, gdzie zapisać — hasło szyfruje to, co
+ * zaraz powstanie. Import: najpierw plik, bo trzeba go mieć, żeby było co
+ * odszyfrować, a dopiero potem hasło do niego. Kolejność idzie za tym, co jest
+ * po co.
+ */
+@Composable
+private fun KopiaZapasowa(model: ChatViewModel) {
+    val kontekst = LocalContext.current
+    val zakres = rememberCoroutineScope()
+
+    var dialog by remember { mutableStateOf<TrybKopii?>(null) }
+    var haslo by remember { mutableStateOf("") }
+    var zipDoImportu by remember { mutableStateOf<Uri?>(null) }
+    var komunikat by remember { mutableStateOf<String?>(null) }
+    var pracuje by remember { mutableStateOf(false) }
+
+    // Zapis do wybranego pliku — SAF sam pyta, gdzie i pod jaką nazwą. Hasło
+    // jest już w stanie z dialogu, który poprzedził ten wybór.
+    val zapisz = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val cel = uri ?: run { haslo = ""; return@rememberLauncherForActivityResult }
+        val h = haslo
+        haslo = ""
+        zakres.launch {
+            pracuje = true
+            komunikat = null
+            val zip = model.eksportujRozmowy(h)
+            if (zip != null) {
+                val zapisano = runCatching {
+                    withContext(Dispatchers.IO) {
+                        kontekst.contentResolver.openOutputStream(cel)?.use { it.write(zip) }
+                            ?: error("brak dostępu do pliku")
+                    }
+                }.isSuccess
+                komunikat =
+                    if (zapisano) "Wyeksportowano rozmowy do pliku." else "Nie udało się zapisać pliku."
+            }
+            pracuje = false
+        }
+    }
+
+    // Wybór pliku do wczytania — najpierw plik, potem (w dialogu) hasło do niego.
+    val wczytaj = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            zipDoImportu = uri
+            dialog = TrybKopii.IMPORT
+        }
+    }
+
+    Karta {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+        ) {
+            Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+            Text("Kopia rozmów", style = MaterialTheme.typography.labelLarge)
+        }
+
+        Text(
+            "Wyeksportuj rozmowy do pliku ZIP chronionego hasłem albo wczytaj je z takiego " +
+                "pliku. Import dokłada rozmowy do istniejących, nie kasuje ich.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Nocturne.kolory.tekstDrugi,
+        )
+
+        PrzyciskDrugi("Eksportuj rozmowy · Export", wlaczony = !pracuje) {
+            komunikat = null
+            dialog = TrybKopii.EKSPORT
+        }
+        PrzyciskDrugi("Importuj rozmowy · Import", wlaczony = !pracuje) {
+            komunikat = null
+            wczytaj.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+        }
+
+        komunikat?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = Nocturne.kolory.tekstDrugi)
+        }
+
+        Wskazowka(
+            "Plik chroni wyłącznie hasło. Zapomnianego hasła nie da się obejść — kopia " +
+                "zostaje wtedy nie do otwarcia.",
+            Ikony.Klucz,
+        )
+    }
+
+    dialog?.let { tryb ->
+        DialogHaslaKopii(
+            tryb = tryb,
+            haslo = haslo,
+            onHaslo = { haslo = it },
+            onAnuluj = {
+                dialog = null
+                haslo = ""
+                zipDoImportu = null
+            },
+            onZatwierdz = {
+                dialog = null
+                when (tryb) {
+                    TrybKopii.EKSPORT -> zapisz.launch("rozmowy-mekamb.zip")
+                    TrybKopii.IMPORT -> {
+                        val zrodlo = zipDoImportu
+                        val h = haslo
+                        haslo = ""
+                        zipDoImportu = null
+                        if (zrodlo != null) {
+                            zakres.launch {
+                                pracuje = true
+                                komunikat = null
+                                val bajty = runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        kontekst.contentResolver.openInputStream(zrodlo)
+                                            ?.use { it.readBytes() }
+                                    }
+                                }.getOrNull()
+
+                                if (bajty == null) {
+                                    komunikat = "Nie udało się odczytać pliku."
+                                } else {
+                                    val wynik = model.importujRozmowy(h, bajty)
+                                    if (wynik != null) {
+                                        komunikat = "Zaimportowano: ${wynik.rozmow} rozmów, " +
+                                            "${wynik.wiadomosci} nowych wiadomości."
+                                    }
+                                    // Gdy `wynik` jest null, model ustawił już błąd w stanie.
+                                }
+                                pracuje = false
+                            }
+                        }
+                    }
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Pytanie o hasło do kopii — osobne dla eksportu i importu.
+ *
+ * Eksport pyta o hasło do NADANIA plikowi, import o hasło, którym plik już
+ * zaszyfrowano. Przycisk jest nieaktywny przy pustym haśle: pusta kopia to nie
+ * kopia, tylko jawny zrzut, a rdzeń i tak by go odrzucił.
+ */
+@Composable
+private fun DialogHaslaKopii(
+    tryb: TrybKopii,
+    haslo: String,
+    onHaslo: (String) -> Unit,
+    onAnuluj: () -> Unit,
+    onZatwierdz: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onAnuluj,
+        title = {
+            Text(if (tryb == TrybKopii.EKSPORT) "Hasło do kopii" else "Hasło pliku")
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
+                Text(
+                    if (tryb == TrybKopii.EKSPORT) {
+                        "Ustaw hasło, którym zaszyfrujemy plik. Bez niego kopii nikt nie otworzy — " +
+                            "łącznie z Tobą, jeśli je zapomnisz."
+                    } else {
+                        "Podaj hasło, którym ten plik zaszyfrowano przy eksporcie."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                Pole("Hasło · Password", haslo, onHaslo, haslo = true)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onZatwierdz, enabled = haslo.isNotEmpty()) {
+                Text(if (tryb == TrybKopii.EKSPORT) "Eksportuj" else "Importuj")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onAnuluj) { Text("Anuluj") }
+        },
+    )
 }

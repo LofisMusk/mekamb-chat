@@ -48,6 +48,13 @@ hex = "0.4"
 # przez którą odpadł iroh, i dodatkowo psułoby budowanie pod WASM.
 miniz_oxide = "0.8"
 
+# KDF hasłowy do kopii zapasowej historii (patrz `core/src/kopia.rs`).
+# Argon2id, bo jest memory-hard: eksport chroni tylko hasło użytkownika, więc
+# zwykły HKDF/PBKDF2 padłby pod atakiem słownikowym na GPU. `default-features
+# = false` + `alloc` — bez warstwy `password-hash` i bez zależności od `std`,
+# żeby moduł kompilował się tak samo pod WASM i na Androidzie.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+
 # OpenMLS używa `debug_assert!(false, "Ciphertext decryption failed")` w ścieżce
 # deszyfrowania. To założenie ma sens w bibliotece testowanej na poprawnych
 # wektorach, ale nie w komunikatorze: u nas nieudane deszyfrowanie to normalny

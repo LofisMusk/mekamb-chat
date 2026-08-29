@@ -21,12 +21,14 @@ import { KodQr } from "./KodQr";
 import {
   type PozycjaListy,
   type Wiadomosc,
+  type WynikScalania,
   type ZapisRozmowy,
   dopiszWiadomosc,
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
   przytnijZnikajace,
+  scalHistorie,
   usunRozmowe,
   wczytajRozmowe,
   zapewnijRozmowe,
@@ -72,8 +74,9 @@ import { useWstecz } from "./lib/nawigacja";
 import { createPasskey, getPasskey, isPasskeySupported } from "./lib/passkey";
 import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
-import { isPersistent, wipe } from "./lib/vault";
+import { isPersistent, loadHistory, wipe } from "./lib/vault";
 import { ulozWatek } from "./lib/watek";
+import { exportBackup, importBackup } from "./wasm/mekamb_wasm";
 
 /**
  * Godzina wiadomości — bez daty.
@@ -2742,6 +2745,149 @@ function NowaGrupa({
   );
 }
 
+/**
+ * Eksport i import rozmów do zaszyfrowanego pliku ZIP.
+ *
+ * # Dlaczego hasło, a nie zwykły plik
+ *
+ * Historia leży w skarbcu zaszyfrowana kluczem, który nie opuszcza urządzenia.
+ * Plik ma dać się otworzyć gdzie indziej, więc chroni go jedyny sekret, który
+ * zna człowiek: hasło. Cała ochrona to Argon2id i AES-256-GCM w rdzeniu
+ * (`core/src/kopia.rs`) — ten sam kod i ten sam format co na Androidzie, więc
+ * plik z telefonu otworzy się w przeglądarce i odwrotnie.
+ *
+ * # Dlaczego oddajemy klatkę przed liczeniem
+ *
+ * Argon2id liczy się **synchronicznie** w WASM i na chwilę zamraża wątek. Bez
+ * `setTimeout(0)` napis „Pracuję…" nigdy by się nie narysował — przeskoczylibyśmy
+ * od kliknięcia wprost do wyniku, a przy sekundzie ciszy wyglądałoby to na
+ * zawieszenie.
+ */
+function KopiaRozmow({ onBlad }: { onBlad: (e: unknown) => void }) {
+  const [hasloEksport, setHasloEksport] = useState("");
+  const [hasloImport, setHasloImport] = useState("");
+  const [plik, setPlik] = useState<File | null>(null);
+  const [komunikat, setKomunikat] = useState<string | null>(null);
+  const [pracuje, setPracuje] = useState(false);
+
+  const eksportuj = async () => {
+    if (!hasloEksport || pracuje) return;
+    setPracuje(true);
+    setKomunikat(null);
+    try {
+      await new Promise((r) => setTimeout(r, 0));
+      const jawne = (await loadHistory()) ?? new Uint8Array(0);
+      const zip = exportBackup(hasloEksport, jawne);
+
+      // Pobranie pliku: obiektowy URL na Blobie i klik w ukryty link. Anchor
+      // z `download` to jedyna droga, którą przeglądarka odda plik bez serwera.
+      const url = URL.createObjectURL(new Blob([zip as BlobPart], { type: "application/zip" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rozmowy-mekamb.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setHasloEksport("");
+      setKomunikat("Wyeksportowano rozmowy do pliku.");
+    } catch (e) {
+      onBlad(e);
+    } finally {
+      setPracuje(false);
+    }
+  };
+
+  const importuj = async () => {
+    if (!plik || !hasloImport || pracuje) return;
+    setPracuje(true);
+    setKomunikat(null);
+    try {
+      await new Promise((r) => setTimeout(r, 0));
+      const bajty = new Uint8Array(await plik.arrayBuffer());
+
+      let jawne: Uint8Array;
+      try {
+        jawne = importBackup(hasloImport, bajty);
+      } catch {
+        // Złe hasło i uszkodzony plik dają ten sam komunikat: obie odpowiedzi
+        // znaczą „tego pliku nie otworzysz tym hasłem".
+        setKomunikat("Nie udało się zaimportować: złe hasło albo uszkodzony plik.");
+        return;
+      }
+
+      const wynik: WynikScalania | null = await scalHistorie(jawne);
+      if (wynik) {
+        setKomunikat(
+          `Zaimportowano: ${wynik.rozmow} rozmów, ${wynik.wiadomosci} nowych wiadomości.`,
+        );
+        setHasloImport("");
+        setPlik(null);
+      } else {
+        setKomunikat("Plik nie zawiera czytelnej historii.");
+      }
+    } catch (e) {
+      onBlad(e);
+    } finally {
+      setPracuje(false);
+    }
+  };
+
+  return (
+    <div className="karta">
+      <strong>Kopia rozmów</strong>
+      <p className="wskazowka">
+        Wyeksportuj rozmowy do pliku ZIP chronionego hasłem albo wczytaj je z
+        takiego pliku. Import dokłada rozmowy do istniejących, nie kasuje ich.
+        Plik chroni wyłącznie hasło — zapomnianego nie da się obejść.
+      </p>
+
+      <label className="pole-nicku">
+        Hasło do eksportu
+        <input
+          type="password"
+          value={hasloEksport}
+          onChange={(e) => setHasloEksport(e.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        className="glowny"
+        disabled={!hasloEksport || pracuje}
+        onClick={eksportuj}
+      >
+        {pracuje ? "Pracuję…" : "Eksportuj rozmowy"}
+      </button>
+
+      <label className="pole-nicku">
+        Plik kopii
+        <input
+          type="file"
+          accept=".zip,application/zip"
+          onChange={(e) => setPlik(e.target.files?.[0] ?? null)}
+        />
+      </label>
+      <label className="pole-nicku">
+        Hasło pliku
+        <input
+          type="password"
+          value={hasloImport}
+          onChange={(e) => setHasloImport(e.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        className="glowny"
+        disabled={!plik || !hasloImport || pracuje}
+        onClick={importuj}
+      >
+        {pracuje ? "Pracuję…" : "Importuj rozmowy"}
+      </button>
+
+      {komunikat && <p className="wskazowka">{komunikat}</p>}
+    </div>
+  );
+}
+
 function Konto({
   messenger,
   stanSieci,
@@ -2927,6 +3073,8 @@ function Konto({
           <strong>Wygląd</strong>
           <WyborMotywuUI />
         </div>
+
+        <KopiaRozmow onBlad={onBlad} />
 
         <Urzadzenia messenger={messenger} onBlad={onBlad} />
 

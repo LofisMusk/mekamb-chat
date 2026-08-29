@@ -36,6 +36,7 @@ pub mod error;
 pub mod framing;
 pub mod group;
 pub mod identity;
+pub mod kopia;
 pub mod media;
 pub mod media_video;
 pub mod optyka;
@@ -43,6 +44,7 @@ pub mod parowanie;
 pub mod qr;
 pub mod safety;
 pub mod storage;
+pub mod zip;
 
 pub use adres::{podpisz_adres, sprawdz_adres};
 pub use attachments::{MAX_ATTACHMENT_BYTES, SealedAttachment, open_attachment, seal_attachment};
@@ -52,10 +54,12 @@ pub use error::{Error, Result};
 pub use framing::ChatMessage;
 pub use group::{CIPHERSUITE, Conversation, Incoming, PendingCommit, Provider};
 pub use identity::{DeviceIdentity, DeviceSeed};
+pub use kopia::{export_backup, import_backup, open_backup, seal_backup};
 pub use media::{can_strip, strip_image_metadata};
 pub use media_video::strip_video_metadata;
 pub use safety::{Participant, device_fingerprint, safety_number};
 pub use storage::MekambProvider;
+pub use zip::{rozpakuj_zip, zapakuj_zip};
 
 /// Wersja protokołu obsługiwana przez tę wersję rdzenia.
 pub const PROTOCOL_VERSION: u32 = framing::PAYLOAD_VERSION;

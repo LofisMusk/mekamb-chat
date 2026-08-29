@@ -9,11 +9,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.mekamb_ffi.CallSignalKind
 import uniffi.mekamb_ffi.DeliveryMode
 import uniffi.mekamb_ffi.IncomingEvent
 import uniffi.mekamb_ffi.ReceiptKind
+import uniffi.mekamb_ffi.exportBackup
+import uniffi.mekamb_ffi.importBackup
 import java.util.UUID
 
 /**
@@ -672,6 +676,49 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             uczestnicy = klient.uczestnicy(groupId),
             kodBezpieczenstwa = klient.kodBezpieczenstwa(groupId),
         )
+    }
+
+    /**
+     * Eksportuje całą historię rozmów do zaszyfrowanego pliku ZIP.
+     *
+     * Plik chroni **wyłącznie** hasło — patrz `core/src/kopia.rs`. Argon2id jest
+     * kosztowny, więc liczymy go poza wątkiem głównym. Zwraca bajty gotowego
+     * archiwum albo `null`, gdy coś zawiedzie (stan dostaje komunikat).
+     */
+    suspend fun eksportujRozmowy(haslo: String): ByteArray? {
+        val jawne = vault.loadHistory() ?: ByteArray(0)
+        return runCatching {
+            withContext(Dispatchers.Default) { exportBackup(haslo, jawne) }
+        }.getOrElse { blad ->
+            stan = stan.copy(blad = "Nie udało się wyeksportować rozmów: ${blad.message ?: "błąd"}")
+            null
+        }
+    }
+
+    /**
+     * Wczytuje rozmowy z zaszyfrowanego pliku ZIP i scala je z historią.
+     *
+     * Import **dokłada** rozmowy do istniejących, nie zastępuje ich — scalanie
+     * jest tą samą operacją co przy transferze optycznym (`Historia.scal`), więc
+     * powtórny import tego samego pliku nie dubluje wiadomości. Złe hasło i
+     * uszkodzony plik dają jeden komunikat: obie odpowiedzi znaczą „tego pliku
+     * nie otworzysz tym hasłem".
+     */
+    suspend fun importujRozmowy(haslo: String, zip: ByteArray): WynikScalania? {
+        val jawne = runCatching {
+            withContext(Dispatchers.Default) { importBackup(haslo, zip) }
+        }.getOrElse {
+            stan = stan.copy(blad = "Nie udało się zaimportować: złe hasło albo uszkodzony plik")
+            return null
+        }
+
+        val wynik = historia.scal(jawne)
+        stan = if (wynik != null) {
+            stan.copy(rozmowy = historia.lista())
+        } else {
+            stan.copy(blad = "Plik nie zawiera czytelnej historii")
+        }
+        return wynik
     }
 
     /** Dodaje osobę do bieżącej rozmowy. */

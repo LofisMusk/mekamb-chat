@@ -1029,6 +1029,23 @@ pub fn can_strip_metadata(mime_type: &str) -> bool {
     mekamb_core::can_strip(mime_type)
 }
 
+/// Eksportuje historię do gotowego pliku `.zip` chronionego hasłem.
+///
+/// Ten sam kod i ten sam format co na Androidzie: plik zapisany w jednym
+/// kliencie musi dać się otworzyć w drugim.
+#[wasm_bindgen(js_name = exportBackup)]
+pub fn export_backup(passphrase: &str, plaintext: &[u8]) -> Result<Vec<u8>, JsError> {
+    mekamb_core::export_backup(passphrase, plaintext).map_err(to_js)
+}
+
+/// Otwiera plik `.zip` kopii pod hasłem i zwraca jawną historię — do importu.
+///
+/// Złe hasło albo uszkodzony plik dają błąd, nie zniekształconą historię.
+#[wasm_bindgen(js_name = importBackup)]
+pub fn import_backup(passphrase: &str, zip: &[u8]) -> Result<Vec<u8>, JsError> {
+    mekamb_core::import_backup(passphrase, zip).map_err(to_js)
+}
+
 // ---------------------------------------------------------------------------
 // OPAQUE — strona klienta
 //

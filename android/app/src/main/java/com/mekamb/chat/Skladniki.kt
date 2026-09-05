@@ -38,6 +38,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
@@ -145,7 +148,20 @@ fun PrzyciskNiszczacy(
     }
 }
 
-/** Pole tekstowe z etykietą nad ramką. */
+/**
+ * Pole tekstowe z etykietą nad ramką.
+ *
+ * # Dlaczego pole hasła to nie „pole tekstowe z gwiazdkami"
+ *
+ * Samo [PasswordVisualTransformation] zasłania znaki, ale nie mówi systemowi, że
+ * to hasło — a wtedy klawiatura stoi w trybie `Text` z autokorektą (uczy się
+ * hasła do słownika i podpowiada je nad klawiaturą), a menedżer haseł nie wie,
+ * że ma tu proponować zapis i wstawia login zamiast hasła. Dwie rzeczy muszą się
+ * zgadzać naraz: [KeyboardType.Password] z wyłączoną autokorektą (klawiatura) i
+ * [ContentType] w semantyce (autofill). Dlatego pola logowania podają
+ * [typAutofill] — `Username`/`Password` przy logowaniu, `NewUsername`/`NewPassword`
+ * przy rejestracji, żeby telefon zaproponował zapisanie nowego hasła.
+ */
 @Composable
 fun Pole(
     etykieta: String,
@@ -155,6 +171,7 @@ fun Pole(
     haslo: Boolean = false,
     cyfry: Boolean = false,
     podpowiedz: String? = null,
+    typAutofill: ContentType? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Odstep.s)) {
         Text(etykieta, style = MaterialTheme.typography.labelMedium, color = Nocturne.kolory.tekstDrugi)
@@ -163,13 +180,26 @@ fun Pole(
             value = wartosc,
             onValueChange = onZmiana,
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = Dotyk.kontrolka)
+                .then(
+                    if (typAutofill != null) Modifier.semantics { contentType = typAutofill }
+                    else Modifier,
+                ),
             shape = MaterialTheme.shapes.medium,
             visualTransformation =
                 if (haslo) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions =
-                if (cyfry) KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
-                else KeyboardOptions.Default,
+            keyboardOptions = when {
+                cyfry -> KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+                // Hasło: klawiatura hasłowa BEZ autokorekty — inaczej IME uczy
+                // się hasła i pokazuje je w pasku podpowiedzi.
+                haslo -> KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    autoCorrectEnabled = false,
+                )
+                else -> KeyboardOptions.Default
+            },
             placeholder = podpowiedz?.let { { Text(it, color = Nocturne.kolory.tekstTrzeci) } },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Nocturne.kolory.akcent,

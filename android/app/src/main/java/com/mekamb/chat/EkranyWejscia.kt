@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.imePadding
@@ -103,8 +104,14 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(horizontal = Odstep.xl),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Pole("Nazwa użytkownika · Username", username, { username = it })
-            Pole("Hasło · Password", haslo, { haslo = it }, haslo = true)
+            Pole(
+                "Nazwa użytkownika · Username", username, { username = it },
+                typAutofill = ContentType.NewUsername,
+            )
+            Pole(
+                "Hasło · Password", haslo, { haslo = it }, haslo = true,
+                typAutofill = ContentType.NewPassword,
+            )
             SilaHasla(haslo)
         }
 
@@ -201,8 +208,14 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.size(Odstep.xl))
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
-            Pole("Nazwa użytkownika · Username", username, { username = it })
-            Pole("Hasło · Password", haslo, { haslo = it }, haslo = true)
+            Pole(
+                "Nazwa użytkownika · Username", username, { username = it },
+                typAutofill = ContentType.Username,
+            )
+            Pole(
+                "Hasło · Password", haslo, { haslo = it }, haslo = true,
+                typAutofill = ContentType.Password,
+            )
         }
 
         Spacer(Modifier.size(Odstep.xl))

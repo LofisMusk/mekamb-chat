@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import attachments, { cleanupOrphanedAttachments } from "./attachments";
 import auth from "./auth";
 import calls from "./calls";
+import dev from "./dev";
 import {
   availableKeyPackages,
   consumeKeyPackage,
@@ -60,6 +61,9 @@ app.route("/auth", auth);
 app.route("/attachments", attachments);
 app.route("/calls", calls);
 app.route("/zgloszenia", zgloszenia);
+// Endpointy testowe. Poza trybem deweloperskim każdy z nich zwraca 404 (patrz
+// strażnik w src/dev.ts), więc zamontowanie ich tu jest bezpieczne wszędzie.
+app.route("/dev", dev);
 
 app.get("/health", (c) => c.json({ ok: true }));
 

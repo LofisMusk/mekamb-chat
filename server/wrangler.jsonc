@@ -62,5 +62,58 @@
   "triggers": {
     // Sprzątanie wygasłych kopert i osieroconych załączników.
     "crons": ["0 4 * * *"]
+  },
+
+  // Środowisko testowe. Wdrażane osobno: `wrangler deploy --env dev` stawia
+  // Workera `mekamb-dev` z WŁASNĄ bazą D1 i własnymi Durable Objects, więc konta
+  // testowe nie mieszają się z produkcyjnymi. `TRYB_DEWELOPERSKI=true` odblokowuje
+  // obejścia z src/dev.ts (pominięcie 2FA, brak limitów prób, aktywacja kont od
+  // razu, endpoint /dev/seed). Produkcja tego bloku nie używa — jej flaga pozostaje
+  // nieustawiona, więc te furtki są tam martwe.
+  //
+  // Zanim zadziała, jednorazowo:
+  //   wrangler d1 create mekamb-dev              # i wklej zwrócone id poniżej
+  //   wrangler d1 migrations apply mekamb-dev --remote --env dev
+  //   wrangler secret put OPAQUE_SERVER_KEY   --env dev
+  //   wrangler secret put TOKEN_SIGNING_KEY   --env dev
+  //   wrangler secret put TOTP_ENCRYPTION_KEY --env dev
+  // Lokalnie (`wrangler dev --env dev`) sekrety idą do pliku `.dev.vars`.
+  "env": {
+    "dev": {
+      "vars": {
+        "TRYB_DEWELOPERSKI": "true",
+        "ALLOWED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175",
+        "WEBAUTHN_RP_ID": "localhost",
+        "WEBAUTHN_RP_NAME": "mekamb-chat (dev)"
+      },
+
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "mekamb-dev",
+          // PLACEHOLDER — wynik `wrangler d1 create mekamb-dev`.
+          "database_id": "URUCHOM-wrangler-d1-create-mekamb-dev-I-WKLEJ-ID",
+          "migrations_dir": "migrations"
+        }
+      ],
+
+      // Bindingi nie dziedziczą się do środowiska nazwanego — trzeba je powtórzyć.
+      // Klasy te same co produkcyjne, ale namespace DO jest per-Worker, więc
+      // `mekamb-dev` i tak dostaje własne, odrębne instancje.
+      "durable_objects": {
+        "bindings": [
+          { "name": "USER_INBOX", "class_name": "UserInbox" },
+          { "name": "GROUP_RELAY", "class_name": "GroupRelay" },
+          { "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+        ]
+      },
+
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["UserInbox", "GroupRelay", "RateLimiter"]
+        }
+      ]
+    }
   }
 }

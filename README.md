@@ -2,6 +2,23 @@
 
 Otwartoźródłowy komunikator z szyfrowaniem end-to-end i architekturą **P2P-first**.
 
+> # ⚠️ To jest gałąź testowa `dev` — NIE do użytku osobistego
+>
+> Ta gałąź **celowo osłabia zabezpieczenia** dla wygody testów (flaga serwera
+> `TRYB_DEWELOPERSKI`, patrz [`server/src/dev.ts`](server/src/dev.ts)):
+>
+> - **pomija 2FA** — logowanie przyjmuje dowolny kod TOTP,
+> - **wyłącza limity prób** logowania,
+> - **aktywuje konta bez potwierdzenia**,
+> - udostępnia endpoint `/dev/seed` z gotowymi kontami o **jawnych hasłach**
+>   (`test1` / `test2`, hasło `test1234`).
+>
+> Uruchamiaj ją **wyłącznie** na osobnym, testowym wdrożeniu
+> (`wrangler deploy --env dev`, osobna baza D1) i **nigdy nie prowadź na niej
+> prywatnych rozmów**. Aplikacja z tej gałęzi pokazuje o tym ostrzeżenie i
+> wymaga potwierdzenia przed założeniem konta. Do realnego użytku służy gałąź
+> **`main`**, gdzie te furtki nie istnieją.
+
 > **Status: w budowie, bez audytu.** Nie używaj tam, gdzie ujawnienie treści
 > miałoby poważne konsekwencje. Patrz [`SECURITY.md`](SECURITY.md).
 

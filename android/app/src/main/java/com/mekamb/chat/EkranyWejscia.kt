@@ -72,6 +72,11 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
             Text("mekamb", style = MaterialTheme.typography.titleLarge)
         }
 
+        if (WERSJA_TESTOWA) {
+            Spacer(Modifier.size(Odstep.xl))
+            BannerTestowy()
+        }
+
         Spacer(Modifier.size(Odstep.xxl))
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
             PrzyciskGlowny("Załóż konto · Create account") { model.pokaz(Ekran.REJESTRACJA) }
@@ -90,6 +95,8 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
 fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
     var username by remember { mutableStateOf("") }
     var haslo by remember { mutableStateOf("") }
+    // Zgoda na wersję testową; na produkcji WERSJA_TESTOWA jest false i brama znika.
+    var zgodaTestowa by remember { mutableStateOf(false) }
     val stan = model.stan
 
     Column(
@@ -104,6 +111,9 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(horizontal = Odstep.xl),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
+            if (WERSJA_TESTOWA) {
+                BannerTestowy()
+            }
             Pole(
                 "Nazwa użytkownika · Username", username, { username = it },
                 typAutofill = ContentType.NewUsername,
@@ -123,10 +133,16 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
             Ikony.Klucz,
         )
 
+        if (WERSJA_TESTOWA) {
+            Spacer(Modifier.size(Odstep.m))
+            ZgodaTestowa(zgodaTestowa, { zgodaTestowa = it })
+        }
+
         Spacer(Modifier.size(Odstep.l))
         PrzyciskGlowny(
             if (stan.pracuje) "Zakładam…" else "Załóż konto · Create account",
-            wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= MINIMUM_HASLA,
+            wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= MINIMUM_HASLA &&
+                (!WERSJA_TESTOWA || zgodaTestowa),
         ) {
             model.zarejestruj(username.trim(), haslo)
         }
@@ -205,6 +221,11 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         OdznakaMarki()
         Spacer(Modifier.size(Odstep.m))
         NaglowekEkranu("Logowanie", "Sign in to mekamb")
+
+        if (WERSJA_TESTOWA) {
+            Spacer(Modifier.size(Odstep.l))
+            BannerTestowy()
+        }
 
         Spacer(Modifier.size(Odstep.xl))
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {

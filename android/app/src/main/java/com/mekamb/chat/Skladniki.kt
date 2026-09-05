@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -207,6 +209,87 @@ fun Pole(
                 focusedContainerColor = Nocturne.kolory.karta,
                 unfocusedContainerColor = Nocturne.kolory.karta,
             ),
+        )
+    }
+}
+
+/**
+ * Znacznik gałęzi testowej `dev`.
+ *
+ * Na produkcji (`main`) tego kodu nie ma. Gdy `true`, ekrany wejścia pokazują
+ * [BannerTestowy] i wymagają [ZgodaTestowa] przed założeniem konta — bo ta
+ * wersja CELOWO osłabia zabezpieczenia (pomija 2FA, przyjmuje dowolny kod,
+ * wyłącza limity prób). Patrz README i `server/src/dev.ts`.
+ */
+const val WERSJA_TESTOWA = true
+
+/**
+ * Ostrzeżenie o wersji testowej.
+ *
+ * Kolor `alarmTlo` + `alarm` — ten sam stłumiony alarm, którym Nocturne oznacza
+ * rzeczy nieodwracalne (patrz tło usuwania na liście). Ma być nie do przeoczenia
+ * na ekranie wejścia, ale nie krzyczeć nasyconą czerwienią.
+ */
+@Composable
+fun BannerTestowy(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Nocturne.kolory.alarmTlo, MaterialTheme.shapes.medium)
+            .border(1.dp, Nocturne.kolory.alarm.copy(alpha = 0.45f), MaterialTheme.shapes.medium)
+            .padding(Odstep.m),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(
+            Ikony.Ostrzezenie,
+            contentDescription = null,
+            tint = Nocturne.kolory.alarm,
+            modifier = Modifier.size(20.dp),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(Odstep.xs)) {
+            Text(
+                "Wersja testowa · Test build",
+                style = MaterialTheme.typography.labelLarge,
+                color = Nocturne.kolory.alarm,
+            )
+            Text(
+                "Ta wersja celowo osłabia zabezpieczenia (m.in. pomija 2FA) na potrzeby " +
+                    "testów. Nie nadaje się do użytku osobistego — nie prowadź na niej " +
+                    "prywatnych rozmów.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Nocturne.kolory.tekst,
+            )
+        }
+    }
+}
+
+/**
+ * Zgoda na korzystanie z wersji testowej — brama przed założeniem konta.
+ *
+ * Cały wiersz jest klikalny (`toggleable`), a `Checkbox` sam nie obsługuje
+ * kliknięcia (`onCheckedChange = null`), żeby stan czytnika ekranu nie dublował
+ * się z wierszem. Bez zaznaczenia ekran rejestracji nie pozwala iść dalej.
+ */
+@Composable
+fun ZgodaTestowa(zaznaczone: Boolean, onZmiana: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .toggleable(value = zaznaczone, role = Role.Checkbox, onValueChange = onZmiana)
+            .padding(vertical = Odstep.xs),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = zaznaczone,
+            onCheckedChange = null,
+            colors = CheckboxDefaults.colors(checkedColor = Nocturne.kolory.alarm),
+        )
+        Text(
+            "Rozumiem, że to wersja testowa i nie nadaje się do prywatnych rozmów.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Nocturne.kolory.tekstDrugi,
         )
     }
 }

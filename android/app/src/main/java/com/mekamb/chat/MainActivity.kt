@@ -67,8 +67,11 @@ class MainActivity : ComponentActivity() {
              * wtedy, gdy użytkownik go najmniej się spodziewa.
              */
             var wybor by remember { mutableStateOf(Motyw.wczytaj(this)) }
+            // Kolor akcentu żyje obok motywu — oba są ustawieniami wyglądu i oba
+            // muszą działać od pierwszego ekranu, jeszcze przed zalogowaniem.
+            var akcent by remember { mutableStateOf(Motyw.wczytajAkcent(this)) }
 
-            MotywNocturne(wybor) {
+            MotywNocturne(wybor, akcent) {
                 PasekSystemowy()
 
                 Scaffold(
@@ -80,6 +83,11 @@ class MainActivity : ComponentActivity() {
                         onMotyw = {
                             wybor = it
                             Motyw.zapisz(this, it)
+                        },
+                        akcent = akcent,
+                        onAkcent = {
+                            akcent = it
+                            Motyw.zapiszAkcent(this, it)
                         },
                         modifier = Modifier
                             .fillMaxSize()
@@ -142,6 +150,8 @@ private fun PasekSystemowy() {
 private fun Zawartosc(
     wyborMotywu: WyborMotywu,
     onMotyw: (WyborMotywu) -> Unit,
+    akcent: Akcent,
+    onAkcent: (Akcent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val model: ChatViewModel = viewModel()
@@ -390,6 +400,8 @@ private fun Zawartosc(
                     model,
                     wyborMotywu = wyborMotywu,
                     onMotyw = onMotyw,
+                    akcent = akcent,
+                    onAkcent = onAkcent,
                     odczyt = odczytPotwierdzen,
                     onOdczyt = {
                         odczytPotwierdzen = it

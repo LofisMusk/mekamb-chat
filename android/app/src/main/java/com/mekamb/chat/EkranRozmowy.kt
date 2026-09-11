@@ -427,11 +427,11 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
      * ścięcie górnego rogu po stronie nadawcy mówi „to dalej ta sama osoba"
      * bez żadnej etykiety.
      */
-    val gora = if (ciag) 4.dp else 14.dp
+    val gora = if (ciag) 4.dp else PROMIEN_BABLA
     val ksztalt = if (wlasna) {
-        RoundedCornerShape(14.dp, gora, 4.dp, 14.dp)
+        RoundedCornerShape(PROMIEN_BABLA, gora, 4.dp, PROMIEN_BABLA)
     } else {
-        RoundedCornerShape(gora, 14.dp, 14.dp, 4.dp)
+        RoundedCornerShape(gora, PROMIEN_BABLA, PROMIEN_BABLA, 4.dp)
     }
 
     Row(
@@ -442,7 +442,7 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .background(
-                    color = if (wlasna) Nocturne.kolory.babelWlasny else Nocturne.kolory.karta,
+                    color = if (wlasna) Nocturne.kolory.babelWlasny else Nocturne.kolory.babel,
                     shape = ksztalt,
                 )
                 .padding(horizontal = Odstep.l, vertical = Odstep.m),
@@ -454,7 +454,7 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
                 Text(
                     wiadomosc.autor,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.kolory.babelWlasnyMeta,
+                    color = Nocturne.kolory.akcentTekst,
                 )
             }
 
@@ -502,8 +502,11 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean) {
                             StanWiadomosci.DOSTARCZONE -> "dostarczono"
                             StanWiadomosci.PRZECZYTANE -> "przeczytano"
                         },
+                        // Na wypełnionym dymku niebieski ptaszek byłby niewidoczny.
+                        // „Przeczytane" to pełna biel, „dostarczone"/„wysłane" —
+                        // przygaszona: różnica, którą się rozumie, nie rozpoznaje.
                         tint = if (stan == StanWiadomosci.PRZECZYTANE) {
-                            Nocturne.kolory.akcentTekst
+                            androidx.compose.ui.graphics.Color.White
                         } else {
                             Nocturne.kolory.babelWlasnyMeta
                         },
@@ -666,13 +669,13 @@ private fun BabelWLocie(w: WLocie) {
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .alpha(if (w.blad) 1f else 0.6f)
-                .background(Nocturne.kolory.babelWlasny, RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                .background(Nocturne.kolory.babelWlasny, RoundedCornerShape(PROMIEN_BABLA, PROMIEN_BABLA, 4.dp, PROMIEN_BABLA))
                 .then(
                     if (w.blad) {
                         Modifier.border(
                             1.dp,
                             MaterialTheme.colorScheme.error,
-                            RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp),
+                            RoundedCornerShape(PROMIEN_BABLA, PROMIEN_BABLA, 4.dp, PROMIEN_BABLA),
                         )
                     } else {
                         Modifier
@@ -712,13 +715,13 @@ internal fun Awatar(
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier.size(rozmiar).background(Nocturne.kolory.babelWlasny, CircleShape),
+        modifier = modifier.size(rozmiar).background(Nocturne.kolory.awatar, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             inicjaly(nazwa),
             style = MaterialTheme.typography.labelMedium,
-            color = Nocturne.kolory.babelWlasnyTekst,
+            color = androidx.compose.ui.graphics.Color.White,
         )
     }
 }
@@ -747,27 +750,41 @@ private fun PoleWysylki(
                 value = tresc,
                 onValueChange = onZmiana,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Napisz wiadomość · Message", color = Nocturne.kolory.tekstTrzeci) },
-                shape = RoundedCornerShape(14.dp),
+                placeholder = { Text("Napisz wiadomość", color = Nocturne.kolory.tekstTrzeci) },
+                shape = RoundedCornerShape(18.dp),
                 maxLines = 4,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Nocturne.kolory.akcent,
                     unfocusedBorderColor = Nocturne.kolory.linia,
-                    focusedContainerColor = Nocturne.kolory.karta,
-                    unfocusedContainerColor = Nocturne.kolory.karta,
+                    focusedContainerColor = Nocturne.kolory.pole,
+                    unfocusedContainerColor = Nocturne.kolory.pole,
                 ),
             )
 
+            // Strzałka wysyłania jest wypełniona — dokładnie w kolorze dymka,
+            // który zaraz stworzy. Wyszarzona, dopóki nie ma czego wysłać.
+            val aktywny = wlaczone && tresc.isNotBlank()
             IconButton(
                 onClick = onWyslij,
-                enabled = wlaczone && tresc.isNotBlank(),
+                enabled = aktywny,
                 modifier = Modifier.size(Dotyk.ikonaWPasku),
             ) {
-                Icon(
-                    Ikony.Wyslij,
-                    contentDescription = "Wyślij",
-                    tint = if (tresc.isNotBlank()) Nocturne.kolory.akcent else Nocturne.kolory.liniaMocna,
-                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(
+                            if (aktywny) Nocturne.kolory.akcent else Nocturne.kolory.karta2,
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Ikony.Wyslij,
+                        contentDescription = "Wyślij",
+                        tint = if (aktywny) androidx.compose.ui.graphics.Color.White else Nocturne.kolory.tekstTrzeci,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }

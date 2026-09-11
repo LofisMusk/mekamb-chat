@@ -13,11 +13,10 @@ import android.content.Context
  * a nie „bądź jasny", więc dokładnie to jest zapisywane, a rozwiązywane dopiero
  * przy składaniu interfejsu (patrz `MotywNocturne`).
  *
- * # Dlaczego domyślnie ciemny, a nie za systemem
+ * # Dlaczego domyślnie jasny
  *
- * Nocturne jest systemem ciemnym z założenia. Wariant jasny dołożyliśmy dla
- * tych, którzy go potrzebują, a nie po to, żeby stał się domyślny na połowie
- * urządzeń. Kto chce iść za systemem, wybiera to jawnie.
+ * Odsłona „Mekamb Mobile" jest systemem jasnym z założenia (iOS) — projekt
+ * startuje na motywie jasnym. Ciemny i „za systemem" są do wyboru jawnego.
  *
  * # Dlaczego osobne `SharedPreferences`, a nie `Vault`
  *
@@ -52,8 +51,8 @@ object Motyw {
             .getString(KLUCZ, null)
 
         // Wartość spoza zbioru bierze się ze starszego wydania albo z ręcznej
-        // edycji pliku. Ciemny jest domyślny, więc to bezpieczny powrót.
-        return WyborMotywu.entries.firstOrNull { it.name == zapisane } ?: WyborMotywu.CIEMNY
+        // edycji pliku. Jasny jest domyślny, więc to bezpieczny powrót.
+        return WyborMotywu.entries.firstOrNull { it.name == zapisane } ?: WyborMotywu.JASNY
     }
 
     fun zapisz(context: Context, wybor: WyborMotywu) {
@@ -61,6 +60,30 @@ object Motyw {
             .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
             .edit()
             .putString(KLUCZ, wybor.name)
+            .apply()
+    }
+
+    /**
+     * Wybrany kolor akcentu.
+     *
+     * Ten sam plik `SharedPreferences` co motyw — oba są ustawieniami wyglądu,
+     * nie tajemnicą, więc nie idą do szyfrowanego `Vault`, który trzeba by
+     * odblokować, zanim cokolwiek się narysuje.
+     */
+    private const val KLUCZ_AKCENT = "akcent"
+
+    fun wczytajAkcent(context: Context): Akcent {
+        val zapisane = context
+            .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
+            .getString(KLUCZ_AKCENT, null)
+        return Akcent.entries.firstOrNull { it.name == zapisane } ?: Akcent.NIEBIESKI
+    }
+
+    fun zapiszAkcent(context: Context, akcent: Akcent) {
+        context
+            .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KLUCZ_AKCENT, akcent.name)
             .apply()
     }
 }

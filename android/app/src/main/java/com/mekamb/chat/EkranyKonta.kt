@@ -57,10 +57,7 @@ fun EkranKonta(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Column {
-                Text("Konto", style = MaterialTheme.typography.titleLarge)
-                Text("Account", style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
-            }
+            Text("Konto", style = MaterialTheme.typography.displaySmall)
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,

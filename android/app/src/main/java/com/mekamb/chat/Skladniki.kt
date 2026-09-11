@@ -1,25 +1,23 @@
 package com.mekamb.chat
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -28,8 +26,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
@@ -42,26 +40,26 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
 /**
- * Składniki interfejsu w systemie Nocturne.
+ * Składniki interfejsu w odsłonie „Mekamb Mobile" (iOS).
  *
  * # Skąd te kształty
  *
- * Z projektu, nie z domyślnych komponentów Material 3. Najważniejsza różnica:
- * **akcja główna jest obrysowana, nie zalana kolorem**. Material domyślnie robi
- * z niej pełną plamę akcentu, a ten system używa akcentu jako linii — plama
- * łamie jego podstawową zasadę i od razu widać, że ekran jest z innej bajki.
+ * Z projektu `Mekamb Mobile.dc.html`, nie z domyślnych komponentów Material 3.
+ * Najważniejsza różnica wobec pierwotnego Nocturne: **akcja główna jest zalana
+ * akcentem, nie obrysowana**. To celowe — mobil ma wyglądać jak natywny
+ * komunikator iOS, gdzie przycisk główny jest pełną plamą, a przełączniki mają
+ * systemową zieleń.
  *
- * # Dwujęzyczność
+ * # Bez dwujęzyczności w etykietach
  *
- * Etykiety mają postać „Polski · English". To decyzja z projektu: polski jest
- * pierwszy i wiodący, angielski towarzyszy głównym akcjom i nagłówkom. Nie
- * dotyczy tekstów pomocniczych — tam byłby szumem.
+ * Etykiety są jednojęzyczne (polski wiodący). Wcześniejsza forma „Polski ·
+ * English" była z pierwotnego Nocturne; projekt mobilny jej nie ma.
  */
 
 /**
- * Akcja główna — obrys akcentu na przezroczystym tle.
+ * Akcja główna — wypełniona akcentem.
  *
- * Wysokość 48 dp z projektu, powyżej minimum Androida.
+ * Wysokość 48 dp z projektu, promień 12, biały tekst.
  */
 @Composable
 fun PrzyciskGlowny(
@@ -70,19 +68,23 @@ fun PrzyciskGlowny(
     wlaczony: Boolean = true,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Button(
         onClick = onClick,
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, if (wlaczony) Nocturne.kolory.akcent else Nocturne.kolory.liniaMocna),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Nocturne.kolory.akcentTekst),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Nocturne.kolory.akcent,
+            contentColor = Color.White,
+            disabledContainerColor = Nocturne.kolory.karta2,
+            disabledContentColor = Nocturne.kolory.tekstTrzeci,
+        ),
     ) {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Akcja drugorzędna — obrys neutralny. */
+/** Akcja drugorzędna — wypełnienie neutralne, tekst akcentu. */
 @Composable
 fun PrzyciskDrugi(
     tekst: String,
@@ -90,19 +92,23 @@ fun PrzyciskDrugi(
     wlaczony: Boolean = true,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Button(
         onClick = onClick,
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, Nocturne.kolory.liniaMocna),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = Nocturne.kolory.tekst),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Nocturne.kolory.karta2,
+            contentColor = Nocturne.kolory.akcentTekst,
+            disabledContainerColor = Nocturne.kolory.karta2,
+            disabledContentColor = Nocturne.kolory.tekstTrzeci,
+        ),
     ) {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
 }
 
-/** Akcja poboczna — bez obrysu. */
+/** Akcja poboczna — bez tła. */
 @Composable
 fun PrzyciskCichy(
     tekst: String,
@@ -120,11 +126,11 @@ fun PrzyciskCichy(
 }
 
 /**
- * Akcja niszcząca — obrys w kolorze błędu.
+ * Akcja niszcząca — stłumione czerwone tło, czerwony tekst.
  *
- * Osobny wariant, bo usunięcie konta i rozłączenie rozmowy muszą wyglądać
- * inaczej niż zwykłe potwierdzenie. Kolor jest jedynym, jaki wolno tu wypełnić
- * — i nadal go nie wypełniamy.
+ * Osobny wariant, bo usunięcie konta i rozłączenie muszą wyglądać inaczej niż
+ * zwykłe potwierdzenie. Wypełnienie jest tu delikatną poświatą alarmu, a nie
+ * pełną czerwienią — ta zostaje na krytyczne potwierdzenia w dialogu.
  */
 @Composable
 fun PrzyciskNiszczacy(
@@ -133,13 +139,17 @@ fun PrzyciskNiszczacy(
     wlaczony: Boolean = true,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Button(
         onClick = onClick,
         enabled = wlaczony,
         modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
         shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Nocturne.kolory.alarmTlo,
+            contentColor = Nocturne.kolory.alarm,
+            disabledContainerColor = Nocturne.kolory.karta2,
+            disabledContentColor = Nocturne.kolory.tekstTrzeci,
+        ),
     ) {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
@@ -164,7 +174,7 @@ fun Pole(
             onValueChange = onZmiana,
             singleLine = true,
             modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
-            shape = MaterialTheme.shapes.medium,
+            shape = RoundedCornerShape(10.dp),
             visualTransformation =
                 if (haslo) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions =
@@ -174,26 +184,26 @@ fun Pole(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Nocturne.kolory.akcent,
                 unfocusedBorderColor = Nocturne.kolory.linia,
-                focusedContainerColor = Nocturne.kolory.karta,
-                unfocusedContainerColor = Nocturne.kolory.karta,
+                focusedContainerColor = Nocturne.kolory.karta2,
+                unfocusedContainerColor = Nocturne.kolory.karta2,
             ),
         )
     }
 }
 
-/** Znak firmowy: obrys akcentu z ikoną tarczy. */
+/** Znak firmowy: wypełnione kółko akcentu z białą tarczą. */
 @Composable
 fun OdznakaMarki(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .size(34.dp)
-            .border(1.dp, Nocturne.kolory.akcent, RoundedCornerShape(8.dp)),
+            .size(38.dp)
+            .background(Nocturne.kolory.akcent, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Ikony.Tarcza,
             contentDescription = null,
-            tint = Nocturne.kolory.akcent,
+            tint = Color.White,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -231,43 +241,41 @@ fun Wskazowka(tekst: String, ikona: ImageVector, modifier: Modifier = Modifier) 
 /**
  * Ostrzeżenie, które musi zostać przeczytane.
  *
- * Wyróżnione linią akcentu z boku, nie plamą koloru — plama w tym systemie jest
- * zarezerwowana i i tak nie zwiększa szansy, że ktoś to przeczyta.
+ * Poświata akcentu jako tło i tekst akcentu — chip w duchu iOS.
  */
 @Composable
 fun Ostrzezenie(tekst: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(Nocturne.kolory.akcentTlo, MaterialTheme.shapes.medium),
-        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+            .background(Nocturne.kolory.akcentTlo, MaterialTheme.shapes.medium)
+            .padding(Odstep.l),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+        verticalAlignment = Alignment.Top,
     ) {
-        // Linia akcentu z boku zamiast plamy koloru. Plama jest w tym systemie
-        // zarezerwowana i tak czy inaczej nie zwiększa szansy na przeczytanie.
-        Box(
-            Modifier
-                .width(2.dp)
-                .fillMaxHeight()
-                .background(Nocturne.kolory.akcent),
+        Icon(
+            Ikony.Info,
+            contentDescription = null,
+            tint = Nocturne.kolory.akcentTekst,
+            modifier = Modifier.size(16.dp),
         )
         Text(
             tekst,
             style = MaterialTheme.typography.bodySmall,
             color = Nocturne.kolory.akcentTekst,
-            modifier = Modifier.padding(vertical = Odstep.l, horizontal = 0.dp).weight(1f),
+            modifier = Modifier.weight(1f),
         )
     }
 }
 
-/** Karta treści — powierzchnia z subtelnym obrysem. */
+/** Karta treści — biała powierzchnia z subtelnym obrysem, promień 14. */
 @Composable
 fun Karta(modifier: Modifier = Modifier, zawartosc: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Nocturne.kolory.karta, MaterialTheme.shapes.medium)
-            .border(1.dp, Nocturne.kolory.linia, MaterialTheme.shapes.medium)
+            .background(Nocturne.kolory.karta, MaterialTheme.shapes.large)
+            .border(1.dp, Nocturne.kolory.linia, MaterialTheme.shapes.large)
             .padding(Odstep.l),
         verticalArrangement = Arrangement.spacedBy(Odstep.m),
         content = zawartosc,
@@ -275,55 +283,50 @@ fun Karta(modifier: Modifier = Modifier, zawartosc: @Composable ColumnScope.() -
 }
 
 /**
- * Wybór motywu — trzy stany w jednym pasku.
+ * Pasek segmentowy iOS — kilka stanów w jednym torze.
  *
- * Nie przełącznik dwustanowy: „jasny / ciemny" bez trzeciej opcji znaczy, że
- * wybór raz podjęty przestaje słuchać systemu, więc telefon przełączony
- * wieczorem na ciemny zostawia aplikację jasną. „Systemowy" musi być osobnym,
- * widocznym stanem, a nie domyślnym zachowaniem, o którym nikt nie wie.
- *
- * Zaznaczenie niesie obrys akcentu, nie wypełnienie — jak każdy inny stan
- * wybrany w tym systemie.
+ * Tor jest szarą wnęką (`karta2`); wybrany segment to biała plama z cieniem
+ * (`segment`), nieaktywne są przezroczyste. Ta sama kontrolka obsługuje wybór
+ * motywu i inne przełączenia „jeden z kilku".
  */
 @Composable
-fun WyborMotywuUI(
-    wybrany: WyborMotywu,
-    onWybor: (WyborMotywu) -> Unit,
+fun <T> KontrolkaSegmentowa(
+    opcje: List<T>,
+    wybrana: T,
+    etykieta: (T) -> String,
+    onWybor: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, Nocturne.kolory.linia, MaterialTheme.shapes.medium)
+            .background(Nocturne.kolory.karta2, RoundedCornerShape(9.dp))
             .padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        for (motyw in WyborMotywu.entries) {
-            val aktywny = motyw == wybrany
-
-            OutlinedButton(
-                onClick = { onWybor(motyw) },
-                modifier = Modifier.weight(1f).height(36.dp),
-                shape = MaterialTheme.shapes.small,
-                contentPadding = PaddingValues(horizontal = Odstep.s),
-                border = BorderStroke(1.dp, if (aktywny) Nocturne.kolory.akcent else Color.Transparent),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = if (aktywny) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
-                ),
+        for (opcja in opcje) {
+            val aktywna = opcja == wybrana
+            val ksztalt = RoundedCornerShape(7.dp)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(32.dp)
+                    .then(
+                        if (aktywna) {
+                            Modifier
+                                .shadow(1.dp, ksztalt)
+                                .background(Nocturne.kolory.segment, ksztalt)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .clickable { onWybor(opcja) },
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = when (motyw) {
-                        WyborMotywu.CIEMNY -> Ikony.Ksiezyc
-                        WyborMotywu.JASNY -> Ikony.Slonce
-                        WyborMotywu.ZA_SYSTEMEM -> Ikony.Ekran
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                )
                 Text(
-                    motyw.etykieta,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(start = Odstep.s),
+                    etykieta(opcja),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (aktywna) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
                 )
             }
         }
@@ -331,11 +334,70 @@ fun WyborMotywuUI(
 }
 
 /**
- * Przełącznik z etykietą.
+ * Wybór motywu — trzy stany w pasku segmentowym.
  *
- * `Switch` Material 3, ale bez wypełnionego toru w kolorze akcentu — w tym
- * systemie akcent jest linią. Włączony stan niesie kolor kciuka i obrys,
- * a nie plama na całej szerokości kontrolki.
+ * „Systemowy" musi być osobnym, widocznym stanem, a nie domyślnym zachowaniem:
+ * bez niego telefon przełączony wieczorem na ciemny zostawiłby aplikację jasną.
+ */
+@Composable
+fun WyborMotywuUI(
+    wybrany: WyborMotywu,
+    onWybor: (WyborMotywu) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    KontrolkaSegmentowa(
+        opcje = WyborMotywu.entries,
+        wybrana = wybrany,
+        etykieta = { it.etykieta },
+        onWybor = onWybor,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Wybór koloru akcentu — rządek kółek.
+ *
+ * Wybrany dostaje pierścień (obwódka w kolorze tła + cienki ring tekstu),
+ * dokładnie jak w projekcie. Osiem próbek mieści się w jednym rzędzie na
+ * szerokości telefonu, więc nie trzeba zawijania.
+ */
+@Composable
+fun WyborAkcentu(
+    wybrany: Akcent,
+    onWybor: (Akcent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+    ) {
+        for (akcent in Akcent.entries) {
+            val wybrane = akcent == wybrany
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .size(30.dp)
+                    .then(
+                        if (wybrane) {
+                            Modifier
+                                .border(2.5.dp, Nocturne.kolory.tekst, CircleShape)
+                                .padding(4.dp)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .background(akcent.probka, CircleShape)
+                    .clickable { onWybor(akcent) },
+            )
+        }
+    }
+}
+
+/**
+ * Przełącznik iOS z etykietą.
+ *
+ * Tor zalewa się systemową zielenią, gdy włączony — inaczej niż w pierwotnym
+ * Nocturne, gdzie akcent był linią. To odsłona mobilna, więc idzie za iOS.
  */
 @Composable
 fun Przelacznik(
@@ -366,11 +428,11 @@ fun Przelacznik(
             // dwa niezależne elementy o tym samym znaczeniu.
             onCheckedChange = null,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Nocturne.kolory.akcent,
-                checkedTrackColor = Nocturne.kolory.akcentTlo,
-                checkedBorderColor = Nocturne.kolory.akcent,
-                uncheckedThumbColor = Nocturne.kolory.tekstDrugi,
-                uncheckedTrackColor = Color.Transparent,
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Nocturne.kolory.przelacznikWl,
+                checkedBorderColor = Color.Transparent,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Nocturne.kolory.karta2,
                 uncheckedBorderColor = Nocturne.kolory.liniaMocna,
             ),
         )

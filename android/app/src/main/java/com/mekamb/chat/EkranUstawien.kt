@@ -55,6 +55,8 @@ fun EkranUstawien(
     model: ChatViewModel,
     wyborMotywu: WyborMotywu,
     onMotyw: (WyborMotywu) -> Unit,
+    akcent: Akcent,
+    onAkcent: (Akcent) -> Unit,
     odczyt: Boolean,
     onOdczyt: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -98,6 +100,13 @@ fun EkranUstawien(
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
+
+                Text(
+                    "Kolor akcentu",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                WyborAkcentu(wybrany = akcent, onWybor = onAkcent)
             }
 
             /*

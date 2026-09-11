@@ -108,14 +108,11 @@ fun EkranListy(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (szukanie == null) {
-                Column(Modifier.weight(1f)) {
-                    Text("Rozmowy", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "Conversations",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Nocturne.kolory.tekstDrugi,
-                    )
-                }
+                Text(
+                    "Rozmowy",
+                    style = MaterialTheme.typography.displaySmall,
+                    modifier = Modifier.weight(1f),
+                )
                 IconButton(
                     onClick = { szukanie = "" },
                     modifier = Modifier.size(Dotyk.ikonaWPasku),
@@ -354,14 +351,19 @@ private fun TloUsuwania() {
  */
 @Composable
 private fun Znacznik(ile: Int) {
-    Text(
-        ile.toString(),
-        style = MaterialTheme.typography.labelSmall,
-        color = Nocturne.kolory.akcentTekst,
+    Box(
         modifier = Modifier
-            .border(1.dp, Nocturne.kolory.akcent, RoundedCornerShape(4.dp))
-            .padding(horizontal = Odstep.s, vertical = 1.dp),
-    )
+            .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+            .background(Nocturne.kolory.znacznik, CircleShape)
+            .padding(horizontal = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            ile.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = Nocturne.kolory.znacznikTekst,
+        )
+    }
 }
 
 /** Godzina ostatniej wiadomości na liście. */

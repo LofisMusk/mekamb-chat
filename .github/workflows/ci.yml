@@ -136,7 +136,14 @@ jobs:
           java-version: 17
           cache: gradle
 
+      # `packages` jawnie, bo domyślne „tools platform-tools" wywraca krok:
+      # pakiet `tools` jest wycofany i zniknął z repozytorium SDK, więc
+      # sdkmanager kończy się błędem „Failed to find package 'tools'" jeszcze
+      # zanim Gradle w ogóle wystartuje. Do zbudowania APK i tak jest zbędny —
+      # build-tools i platformy dociąga sam Gradle.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # Jedno ABI, nie trzy. Wydanie pakuje arm64 i armv7, ale w CI chodzi
       # o to, czy kod się kompiluje i łączy — a to rozstrzyga się na pierwszym.

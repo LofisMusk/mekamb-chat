@@ -86,7 +86,7 @@ fun EkranUstawien(
                     Icon(
                         imageVector = if (Nocturne.kolory.jasny) Ikony.Slonce else Ikony.Ksiezyc,
                         contentDescription = null,
-                        tint = Nocturne.kolory.akcent,
+                        tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
                     Text("Wygląd", style = MaterialTheme.typography.labelLarge)
@@ -123,7 +123,7 @@ fun EkranUstawien(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
-                    Icon(Ikony.Konto, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+                    Icon(Ikony.Konto, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
                     Text("Nazwa wyświetlana", style = MaterialTheme.typography.labelLarge)
                 }
 
@@ -155,7 +155,7 @@ fun EkranUstawien(
                     Icon(
                         Ikony.Dostarczone,
                         contentDescription = null,
-                        tint = Nocturne.kolory.akcent,
+                        tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
                     Text("Potwierdzenia odczytu", style = MaterialTheme.typography.labelLarge)
@@ -199,7 +199,7 @@ fun EkranUstawien(
                         Icon(
                             Ikony.Blokuj,
                             contentDescription = null,
-                            tint = Nocturne.kolory.akcent,
+                            tint = Nocturne.kolory.akcentTekst,
                             modifier = Modifier.size(16.dp),
                         )
                         Text("Zablokowani", style = MaterialTheme.typography.labelLarge)
@@ -270,7 +270,7 @@ fun EkranUstawien(
                             null -> Ikony.BrakSieci
                         },
                         contentDescription = null,
-                        tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcent,
+                        tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
                     Text("Droga dostarczania", style = MaterialTheme.typography.labelLarge)
@@ -384,7 +384,7 @@ private fun KopiaZapasowa(model: ChatViewModel) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+            Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
             Text("Kopia rozmów", style = MaterialTheme.typography.labelLarge)
         }
 

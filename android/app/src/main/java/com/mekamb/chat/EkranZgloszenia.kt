@@ -87,7 +87,7 @@ fun EkranZgloszenia(
                     Icon(
                         Ikony.Ostrzezenie,
                         contentDescription = null,
-                        tint = Nocturne.kolory.akcent,
+                        tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
                     Text("Zgłoszenie jest publiczne", style = MaterialTheme.typography.labelLarge)

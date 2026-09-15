@@ -349,7 +349,7 @@ private fun PrzyciskRozmowy(
 ) {
     val obrys = when {
         alarmowy -> Nocturne.kolory.alarm
-        wlaczony -> Nocturne.kolory.akcent
+        wlaczony -> Nocturne.kolory.akcentTekst
         else -> Nocturne.kolory.liniaMocna
     }
 

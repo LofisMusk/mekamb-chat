@@ -161,7 +161,7 @@ fun EkranNowaGrupa(
                         Icon(
                             imageVector = if (zaznaczony) Ikony.Wyslane else Ikony.Dodaj,
                             contentDescription = if (zaznaczony) "Wybrany" else "Dodaj",
-                            tint = if (zaznaczony) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+                            tint = if (zaznaczony) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -367,7 +367,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                     ) {
-                        Icon(Ikony.Odcisk, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+                        Icon(Ikony.Odcisk, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
                         Text("Kod bezpieczeństwa", style = MaterialTheme.typography.labelLarge)
                     }
 
@@ -454,7 +454,7 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            Icon(Ikony.Zegar, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+            Icon(Ikony.Zegar, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
             Text("Znikające wiadomości", style = MaterialTheme.typography.labelLarge)
         }
 
@@ -514,7 +514,7 @@ private fun Chip(
 ) {
     val kolor = when {
         niszczacy -> MaterialTheme.colorScheme.error
-        aktywny -> Nocturne.kolory.akcent
+        aktywny -> Nocturne.kolory.akcentTekst
         else -> Nocturne.kolory.liniaMocna
     }
     val tekstKolor = when {
@@ -562,7 +562,7 @@ private fun EdytorNazwyGrupy(nazwa: String, onZapisz: (String) -> Unit) {
             Icon(
                 Ikony.Wyslane,
                 contentDescription = "Zapisz nazwę grupy",
-                tint = if (zmienione) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+                tint = if (zmienione) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
                 modifier = Modifier.size(20.dp),
             )
         }

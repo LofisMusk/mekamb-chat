@@ -182,7 +182,7 @@ fun Pole(
                 else KeyboardOptions.Default,
             placeholder = podpowiedz?.let { { Text(it, color = Nocturne.kolory.tekstTrzeci) } },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Nocturne.kolory.akcent,
+                focusedBorderColor = Nocturne.kolory.akcentTekst,
                 unfocusedBorderColor = Nocturne.kolory.linia,
                 focusedContainerColor = Nocturne.kolory.karta2,
                 unfocusedContainerColor = Nocturne.kolory.karta2,

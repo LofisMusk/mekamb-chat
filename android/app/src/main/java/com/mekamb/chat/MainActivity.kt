@@ -352,7 +352,7 @@ private fun Zawartosc(
                         null -> Ikony.BrakSieci
                     },
                     contentDescription = null,
-                    tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcent,
+                    tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcentTekst,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(

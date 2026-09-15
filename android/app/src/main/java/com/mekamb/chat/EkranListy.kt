@@ -398,7 +398,7 @@ private fun SekcjaProsb(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
-            Icon(Ikony.Osoby, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(14.dp))
+            Icon(Ikony.Osoby, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(14.dp))
             Text("Prośby", style = MaterialTheme.typography.labelLarge)
             Text(
                 "Requests · ${prosby.size}",
@@ -450,7 +450,7 @@ private fun SekcjaProsb(
                     Icon(
                         Ikony.Wyslane,
                         contentDescription = "Przyjmij prośbę",
-                        tint = Nocturne.kolory.akcent,
+                        tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(18.dp),
                     )
                 }
@@ -510,7 +510,7 @@ private fun Zakladka(
             Icon(
                 ikona,
                 contentDescription = etykieta,
-                tint = if (aktywna) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+                tint = if (aktywna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
                 modifier = Modifier.size(22.dp),
             )
             if (nieprzeczytane > 0) {
@@ -525,7 +525,7 @@ private fun Zakladka(
         Text(
             etykieta,
             style = MaterialTheme.typography.labelSmall,
-            color = if (aktywna) Nocturne.kolory.akcent else Nocturne.kolory.tekstTrzeci,
+            color = if (aktywna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
         )
     }
 }

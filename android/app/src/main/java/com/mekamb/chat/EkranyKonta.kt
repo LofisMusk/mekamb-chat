@@ -111,7 +111,7 @@ fun EkranKonta(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
-                    Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(16.dp))
+                    Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
                     Text("Gdy stracisz to urządzenie", style = MaterialTheme.typography.labelLarge)
                 }
                 // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
@@ -157,7 +157,7 @@ private fun WierszMenu(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
-        Icon(ikona, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(20.dp))
+        Icon(ikona, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f)) {
             Text(tytul, style = MaterialTheme.typography.bodyLarge)
             Text(opis, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)

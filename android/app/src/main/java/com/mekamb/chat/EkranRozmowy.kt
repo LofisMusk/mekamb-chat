@@ -754,7 +754,7 @@ private fun PoleWysylki(
                 shape = RoundedCornerShape(18.dp),
                 maxLines = 4,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Nocturne.kolory.akcent,
+                    focusedBorderColor = Nocturne.kolory.akcentTekst,
                     unfocusedBorderColor = Nocturne.kolory.linia,
                     focusedContainerColor = Nocturne.kolory.pole,
                     unfocusedContainerColor = Nocturne.kolory.pole,

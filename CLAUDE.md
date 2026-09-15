@@ -475,21 +475,44 @@ the *same eight swatches* on both platforms — `PALETA_AKCENTOW`
 substitutes the accent, the own-message bubble and the unread badge together, so
 the whole interface turns over at once.
 
-The two platforms do **not** agree on what they fill with, and that is a known
-gap, not a subtlety:
+**The vivid swatch is a swatch, never a fill.** Both platforms now split the two,
+and the split is the whole point:
 
-| | swatch in the picker | what gets filled under white text |
-|---|---|---|
-| web | `probka` | `fill` — darkened (green `#34C759` → `#19702F`) |
-| Android | `probka` | `probka` itself |
+| | swatch in the picker | filled under white text | ink on a neutral ground |
+|---|---|---|---|
+| web | `probka` | `fill` — darkened (green `#34C759` → `#19702F`) | `fill` |
+| Android | `probka` | `wypelnienie` — the same values as web's `fill` | `farba(jasny)` |
 
-Web splits the two because green, orange, pink and teal under **white** text land
-under 4.5:1 — the same trap that once forced the brand cyan down to `#0E7490`.
-Android fills with the vivid swatch directly (`babelWlasny = akcent.probka`), so
-those four accents are the low-contrast ones on the phone. Neither side asserts a
-contrast threshold in a test: `akcent.test.ts` only checks that the five roles
-get wired. **The fills are hand-picked and held by discipline** — if you touch
-the palette, check the ratio yourself.
+Green, orange, pink and teal under **white** text land under 4.5:1 — the same
+trap that once forced the brand cyan down to `#0E7490`. Android used to fill with
+the vivid swatch directly (`babelWlasny = akcent.probka`), so on the phone those
+four accents put white text on too light a ground in every primary action and
+every own bubble. `Akcent` now carries `wypelnienie` beside `probka`, copied 1:1
+from web's `fill` so the two clients cannot drift apart on the same conversation.
+
+Android splits one step further than web, because a role that is *ink* has the
+opposite requirement to a role that is *fill*: ink must contrast with the
+**background**, which flips with the theme. `akcent` is now fill-only and
+`akcentTekst` is ink-only, resolved per theme by `Akcent.farba(jasny)` — dark
+shade on light, vivid shade on dark. Icon tints, focused borders and accent
+labels were reading from `akcent` and were moved across; `akcent` survives on
+exactly five call sites, all of them genuine fills.
+
+**The threshold is now a test, not discipline.** `KontrastAkcentuTest.kt` and the
+matching block in `akcent.test.ts` compute the WCAG ratio for all eight fills
+under white and require 4.5:1. Two things they deliberately record rather than
+enforce:
+
+- **`niebieski` is a pinned exception at 4.02:1.** It is the iOS system blue, the
+  default accent on both clients and a hard value in `styles.css`. Darkening it
+  is a design decision taken on both clients at once, so the tests assert its
+  exact ratio — the exception is visible instead of silent, and the assertion
+  fails the day someone changes it.
+- **Secondary surfaces are not covered.** On the dark card `#2C2C2E` indigo ink
+  is 2.47:1, and `PrzyciskDrugi`'s label on the light `#F2F2F7` drops to 4.33:1
+  for orange. Closing that needs a *third* shade per accent (a separate dark-theme
+  ink) on both platforms — a palette decision, not a local fix. The ink test
+  holds a 3:1 floor against each theme's primary background and says so.
 
 **The own bubble now tracks the theme.** `--babel-wlasny` is the accent
 (`#007AFF` light, `#0A84FF` dark), not a fixed shade. The older rule — one shade
@@ -535,10 +558,19 @@ module — widening coverage is its own decision, not a side effect.
 The design of record is a canvas under `design/kanwa/` — artboards as `*.dc.html`
 plus `canvas.json`. Change the design there too when you change the stylesheet,
 or the two drift and the canvas starts describing controls the app does not have.
-**They are drifting right now:** the artboards still show the outlined accent,
-and the `Mekamb Web.dc.html` the web restyle was built from was a handoff that
-never landed in the repo — so nothing in `design/kanwa/` describes the current
-web client.
+All six artboards were repainted to the filled accent; the `Mekamb Web.dc.html`
+the web restyle was built from was a handoff that never landed in the repo, so
+the canvas was brought forward from the stylesheet instead, which is the
+direction that rule points anyway.
+
+**`design/kanwa/STAN.md` says how far the canvas is trusted**, artboard by
+artboard, and lists what it deliberately does *not* show yet. Read it before
+trusting an artboard and extend it when you leave something behind: a
+half-updated canvas is worse than an openly stale one, because nobody can tell
+which half to believe. It also records findings the canvas surfaced but does not
+fix — the white-on-white search field in the light theme, and the stale `opis`
+on the `ksiezyc` icon in `design/ikony.mjs` (still calls dark the default),
+which needs `node design/generuj.mjs` and so is not a by-the-way edit.
 
 **Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`,
 `--babel-wlasny` — never `--neutral-600`. With two themes a ramp step has no

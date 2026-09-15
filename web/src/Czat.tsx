@@ -4,7 +4,7 @@ import { Ikona, type NazwaIkony } from "./Ikony";
 import { Rozmowa, type SygnalRozmowy, type ZadanieRozmowy } from "./Rozmowa";
 import { Uczestnicy } from "./Uczestnicy";
 import { Zalacznik } from "./Zalacznik";
-import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { Pusto, WyborAkcentuUI, WyborJezykaUI, WyborMotywuUI, ZnakMarki } from "./Wspolne";
 import { Urzadzenia } from "./Parowanie";
 import { ZglosBlad } from "./Zgloszenie";
 import { api } from "./lib/api";
@@ -52,6 +52,7 @@ import {
   ustawNick,
   wczytajNazwy,
 } from "./lib/nazwy";
+import { type Slownik, type WyborJezyka, slownik, wczytajJezyk, zapiszJezyk } from "./lib/jezyk";
 import {
   wczytajProsby,
   zaakceptuj as zaakceptujProsbe,
@@ -168,6 +169,17 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [galaz, setGalaz] = useState<Galaz>("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
   const [szukane, setSzukane] = useState("");
+
+  /*
+   * Język chromu aplikacji — nawigacja, lista, wątek, ustawienia wyglądu.
+   * Patrz `lib/jezyk.ts`: reszta interfejsu zostaje po polsku, jak dziś.
+   */
+  const [jezyk, setJezyk] = useState<WyborJezyka>(() => wczytajJezyk());
+  const L = slownik(jezyk);
+  const naJezyk = (j: WyborJezyka) => {
+    zapiszJezyk(j);
+    setJezyk(j);
+  };
 
   /*
    * Współdzielone nazwy: nazwy grup (po kluczu grupy) i nicki (po nazwie
@@ -1368,10 +1380,12 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             onGalaz={setGalaz}
             nieprzeczytane={nieprzeczytane}
             stanSieci={stanSieci}
+            L={L}
           />
 
           {galaz === "rozmowy" && (
         <PanelListy
+          L={L}
           rozmowy={widoczne}
           prosby={prosby}
           wszystkich={zaakceptowaneRozmowy.length}
@@ -1407,15 +1421,12 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
 
       <section className="ekran">
         {galaz === "rozmowy" && !groupId && (
-          <Pusto
-            ikona="rozmowy"
-            tytul="Wybierz rozmowę"
-            wskazowka="Albo zacznij nową — „Nowy czat” wymaga tylko nazwy użytkownika."
-          />
+          <Pusto ikona="rozmowy" tytul={L.wybierzRozmowe} wskazowka={L.wybierzHint} />
         )}
 
         {galaz === "rozmowy" && groupId && (
           <Watek
+            L={L}
             messenger={messenger}
             groupId={groupId}
             rozmowca={etykietaGrupy(groupId) || rozmowca}
@@ -1442,6 +1453,9 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
 
         {galaz === "konto" && (
           <Konto
+            L={L}
+            jezyk={jezyk}
+            onJezyk={naJezyk}
             messenger={messenger}
             stanSieci={stanSieci}
             trwaly={trwaly}
@@ -1504,15 +1518,17 @@ function Nawigacja({
   onGalaz,
   nieprzeczytane,
   stanSieci,
+  L,
 }: {
   galaz: Galaz;
   onGalaz: (g: Galaz) => void;
   nieprzeczytane: number;
   stanSieci: StanPolaczenia;
+  L: Slownik;
 }) {
   const galezie: { klucz: Galaz; ikona: NazwaIkony; etykieta: string }[] = [
-    { klucz: "rozmowy", ikona: "rozmowy", etykieta: "Rozmowy" },
-    { klucz: "konto", ikona: "konto", etykieta: "Konto" },
+    { klucz: "rozmowy", ikona: "rozmowy", etykieta: L.rozmowy },
+    { klucz: "konto", ikona: "konto", etykieta: L.konto },
   ];
 
   const siec = opisSieci(stanSieci);
@@ -1557,6 +1573,7 @@ function Nawigacja({
 }
 
 function PanelListy({
+  L,
   rozmowy,
   prosby,
   wszystkich,
@@ -1573,6 +1590,7 @@ function PanelListy({
   onOtworz,
   onUsun,
 }: {
+  L: Slownik;
   rozmowy: PozycjaListy[];
   prosby: PozycjaListy[];
   wszystkich: number;
@@ -1605,7 +1623,7 @@ function PanelListy({
   return (
     <aside className="panel-listy" aria-label="Lista rozmów">
       <div className="panel-listy-naglowek">
-        <h2>Rozmowy</h2>
+        <h2>{L.rozmowy}</h2>
       </div>
 
       {/*
@@ -1651,7 +1669,7 @@ function PanelListy({
         ) : (
           <button className="glowny" onClick={() => setZaczyn("czat")}>
             <Ikona nazwa="dodaj" rozmiar={16} />
-            Nowy czat
+            {L.nowyCzat}
           </button>
         )}
 
@@ -1688,22 +1706,18 @@ function PanelListy({
             type="search"
             value={szukane}
             onChange={(e) => onSzukane(e.target.value)}
-            placeholder="Szukaj"
-            aria-label="Szukaj rozmowy"
+            placeholder={L.szukaj}
+            aria-label={L.szukajEtykieta}
           />
         </div>
       )}
 
       {wszystkich === 0 ? (
         prosby.length > 0 ? null : (
-          <Pusto
-            ikona="rozmowy"
-            tytul="Nie masz jeszcze żadnej rozmowy"
-            wskazowka="Zacznij od „Nowy czat” — wystarczy nazwa użytkownika."
-          />
+          <Pusto ikona="rozmowy" tytul={L.brakRozmow} wskazowka={L.brakRozmowOpis} />
         )
       ) : rozmowy.length === 0 ? (
-        <Pusto ikona="szukaj" tytul="Nic nie pasuje" wskazowka="Szukamy po nazwie i po ostatniej wiadomości." />
+        <Pusto ikona="szukaj" tytul={L.nicNiePasuje} wskazowka={L.nicNiePasujeOpis} />
       ) : (
         <ul className="lista-rozmow">
           {rozmowy.map((pozycja) => {
@@ -1976,6 +1990,7 @@ function PotwierdzenieUsuniecia({
 
 /** Otwarta rozmowa: nagłówek, wiadomości, pole pisania. */
 function Watek({
+  L,
   messenger,
   groupId,
   rozmowca,
@@ -1992,6 +2007,7 @@ function Watek({
   setInspektorOtwarty,
   onBlad,
 }: {
+  L: Slownik;
   messenger: Messenger;
   groupId: Uint8Array;
   rozmowca: string;
@@ -2161,7 +2177,7 @@ function Watek({
         {/* W `<ol>` wolno stać tylko elementom `<li>` — pusty stan też. */}
         {uklad.length === 0 && (
           <li className="pusto-watku">
-            <Pusto ikona="rozmowy" tytul="Tu jeszcze nic nie ma" wskazowka="Napisz pierwszy." />
+            <Pusto ikona="rozmowy" tytul={L.tuNicNieMa} wskazowka={L.pierwsza} />
           </li>
         )}
 
@@ -2224,7 +2240,7 @@ function Watek({
           rows={1}
           value={tresc}
           onChange={(e) => setTresc(e.target.value)}
-          placeholder="Napisz wiadomość"
+          placeholder={L.napisz}
           aria-label="Treść wiadomości"
           onPaste={(e) => {
             /*
@@ -2889,6 +2905,9 @@ function KopiaRozmow({ onBlad }: { onBlad: (e: unknown) => void }) {
 }
 
 function Konto({
+  L,
+  jezyk,
+  onJezyk,
   messenger,
   stanSieci,
   trwaly,
@@ -2901,6 +2920,9 @@ function Konto({
   onOdczyt,
   onBlad,
 }: {
+  L: Slownik;
+  jezyk: WyborJezyka;
+  onJezyk: (j: WyborJezyka) => void;
   messenger: Messenger;
   stanSieci: StanPolaczenia;
   trwaly: boolean;
@@ -3070,8 +3092,21 @@ function Konto({
         {/* Bez opisu: przełącznik z trzema podpisanymi opcjami mówi wszystko,
             co da się o nim powiedzieć. */}
         <div className="karta">
-          <strong>Wygląd</strong>
+          <strong>{L.wyglad}</strong>
           <WyborMotywuUI />
+
+          <hr className="rozdzielacz-karty" />
+
+          <div className="wiersz-jezyka">
+            <span>{L.jezykEt}</span>
+            <WyborJezykaUI jezyk={jezyk} onZmien={onJezyk} />
+          </div>
+
+          <hr className="rozdzielacz-karty" />
+
+          <span>{L.akcentEt}</span>
+          <p className="wskazowka">{L.akcentOpis}</p>
+          <WyborAkcentuUI />
         </div>
 
         <KopiaRozmow onBlad={onBlad} />

@@ -1,193 +1,175 @@
 /*
- * System wizualny Nocturne.
+ * System wizualny Mekamb — język Nocturne Mobile.
  *
- * Charakter: prawie neutralne tło i JEDEN akcent używany jako linia, nie jako
- * wypełnienie. Kontrast bierze się z rampy tonalnej, nie z nasycenia. Akcja
- * główna jest obrysowana — plama akcentu łamie podstawową zasadę systemu
- * i natychmiast zdradza, że ekran jest z innej bajki.
+ * Charakter: zwykły komunikator, nie panel sterowania. Jasny motyw domyślnie,
+ * jeden zalany akcent (`#007AFF`, niebieski systemowy) na akcjach głównych,
+ * własnych dymkach i znacznikach, karty odcięte od tła linią i cieniem
+ * włosa, a nie odcieniem. To świadoma zmiana względem poprzedniej wersji tego
+ * pliku: tamta trzymała akcent wyłącznie jako obrys („Nocturne" desktopowe).
+ * Zamieniliśmy go na wypełnienie, bo to jest język, w którym telefon
+ * (`android/.../Nocturne.kt`, wariant „Mekamb Mobile") już żyje — a klient
+ * webowy i mobilny mają wyglądać jak ten sam produkt, nie jak dwa.
  *
  * # Tokeny są rolami, nie odcieniami
  *
- * Wcześniej arkusz sięgał wprost po stopnie rampy (`--neutral-600`,
- * `--akcent-800`). Przy jednym motywie to działało; przy dwóch nie ma sensu,
- * bo „600" w ciemnym jest jaśniejsze od tła, a w jasnym musi być ciemniejsze.
- * Dlatego każdy token mówi, DO CZEGO służy — `--tekst-drugi`, `--linia`,
- * `--babel-wlasny` — a motyw podstawia pod niego odcień. Reguła napisana raz
- * działa w obu motywach i nie wymaga ani jednego warunku.
- *
- * Ten sam podział ma Android (`android/.../Nocturne.kt`). Zmiana projektu jest
+ * Arkusz nie sięga wprost po stopnie rampy (`--niebieski-600`) — każdy token
+ * mówi, DO CZEGO służy (`--tekst-drugi`, `--linia`, `--babel-wlasny`), a motyw
+ * podstawia pod niego odcień. Reguła napisana raz działa w obu motywach i nie
+ * wymaga ani jednego warunku. Ten sam podział ma Android; zmiana projektu jest
  * przepisaniem tokenów po obu stronach, a nie dobieraniem odcieni od nowa.
  *
- * # Dlaczego akcent nie jest tym samym odcieniem w obu motywach
+ * # Dlaczego akcent jest jaśniejszy w ciemnym motywie
  *
- * Marką jest cyjan `#06B6D4` i w motywie ciemnym stoi dokładnie taki: na czerni
- * ma kontrast 8,5:1, czyli linia grubości włosa jest wyraźnie widoczna.
- *
- * Na `#F9F7F8` ten sam odcień ma 2,3:1 — poniżej progu 3:1, od którego obrys
- * przestaje być rozpoznawalny. W Nocturne to nie jest kosmetyka: akcent JEST
- * obrysem akcji głównej, więc odcień niewidoczny jako linia znaczy ekran,
- * na którym nie da się odróżnić „Załóż konto" od „Mam już konto". Motyw jasny
- * bierze więc `#0891B2` — ten sam cyjan o stopień ciemniejszy, 3,6:1.
- *
- * Ta sama pułapka złapała poprzednią paletę (fiolet `#9184D9` musiał zejść do
- * `#5B4FA8`) i złapie każdą następną: jasne tło zawsze wymaga ciemniejszego
- * akcentu niż ciemne, bo obrys walczy z tłem, a nie z nim współgra.
+ * `#007AFF` na czerni wypada matowo obok tekstu — telefon (i teraz przeglądarka
+ * w ciemnym motywie) bierze więc `#0A84FF`, o oczko jaśniejszy, tak jak robi to
+ * systemowy niebieski iOS w Dark Mode. W jasnym motywie zostaje węższy
+ * `#007AFF`: na białym tle nie potrzebuje pomocy.
  *
  * # Dlaczego paleta jasna jest wpisana dwa razy
  *
  * Bo polityka bezpieczeństwa treści nie dopuszcza skryptów inline (patrz
  * `index.html`), więc nie ma jak ustawić motywu przed pierwszym malowaniem.
- * Skrypt startuje po sparsowaniu dokumentu — a do tego czasu użytkownik
- * z jasnym systemem zobaczyłby ciemny błysk.
+ * Skrypt startuje po sparsowaniu dokumentu — a do tego czasu ktoś z ciemnym
+ * systemem zobaczyłby jasny błysk, mimo że aplikacja jest jasna z założenia
+ * i tylko system podpowiada inaczej.
  *
- * Dlatego paleta jasna obowiązuje w dwóch sytuacjach: gdy wybrano ją jawnie
- * (`[data-motyw="jasny"]`) i — zanim skrypt cokolwiek ustawi — gdy prosi o nią
+ * Paleta ciemna obowiązuje więc w dwóch sytuacjach: gdy wybrano ją jawnie
+ * (`[data-motyw="ciemny"]`) i — zanim skrypt cokolwiek ustawi — gdy prosi o nią
  * system. Reguły z warunkiem `@media` nie da się scalić z regułą po atrybucie,
  * więc deklaracje są powtórzone. Rozjazdu między kopiami pilnuje test
  * `src/lib/motyw.test.ts`, bo różnicy jednego odcienia nikt nie zauważy okiem.
  */
 
-/* --- Motyw ciemny: domyślny ---------------------------------------------- */
+/* --- Motyw jasny: domyślny ------------------------------------------------ */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /*
-   * Powierzchnie stoją na CZYSTEJ czerni.
-   *
-   * Na OLED-zie `#000` nie jest ciemnym pikselem, tylko pikselem zgaszonym:
-   * kontrast robi się nieskończony, a tło przestaje kosztować prąd. Cena jest
-   * realna i trzeba ją zapłacić świadomie — skoro tła nie da się już
-   * przyciemnić, karta nie może odcinać się od niego różnicą jasności tak, jak
-   * odcinała się od `#161826`. Odcina się LINIĄ, a powierzchnie trzymają się
-   * blisko czerni, żeby nie zrobić z nich szarych prostokątów na czarnym polu.
+   * Karta jest tego samego koloru co tło — odcina ją LINIA i włosowy cień,
+   * nie różnica jasności. Tak wygląda grupowana lista w iOS: strona i wiersz
+   * są bielą, a granicę rysuje obrys.
    */
-  --tlo: #000000;
-  --karta: #0b0f12;
-  --karta-hover: #131a1e;
-  --wglebienie: #05080a;
+  --tlo: #ffffff;
+  --karta: #ffffff;
+  --karta-hover: #f2f2f7;
+  --wglebienie: #f2f2f7;
 
   /* Tekst */
-  --tekst: #e8eff1;
-  --tekst-drugi: #8b9ca3;
-  --tekst-trzeci: #6a7a81;
+  --tekst: #000000;
+  --tekst-drugi: #6c6c70;
+  --tekst-trzeci: #8e8e93;
 
   /* Linie */
-  --linia: color-mix(in srgb, #e8eff1 14%, transparent);
-  --linia-mocna: color-mix(in srgb, #e8eff1 26%, transparent);
+  --linia: rgb(60 60 67 / .16);
+  --linia-mocna: rgb(60 60 67 / .29);
 
-  /* Akcent — zawsze linia albo tekst, nigdy plama pod akcją */
-  --akcent: #06b6d4;
-  --akcent-tekst: #67e8f9;
-  --akcent-tlo: #052b33;
+  /* Akcent — wypełnia akcje główne, własne dymki i znaczniki. */
+  --akcent: #007aff;
+  --akcent-tekst: #007aff;
+  --akcent-tlo: #e8f1ff;
 
-  /*
-   * Dymki rozmowy — JEDYNE wypełnienie akcentem w całym systemie.
-   *
-   * Nocturne trzyma akcent jako linię i to zostaje w mocy dla akcji: przycisk
-   * dalej jest obrysowany. Dymek jest jednak czymś innym niż akcja — jest
-   * wypowiedzią, a jej autorstwo trzeba rozpoznać jednym spojrzeniem na ekran
-   * pełen takich samych prostokątów. Obrys tego nie robi: dwa obrysowane
-   * dymki różnią się tylko stroną, a strona ginie, gdy zdanie jest długie
-   * i oba zajmują całą szerokość.
-   *
-   * Płacimy za to jedną zasadą: skoro dymek jest plamą, żadna akcja obok niego
-   * plamą być nie może — inaczej dymek przestaje być wyróżniony.
-   *
-   * Markowy cyjan `#06B6D4` pod białym tekstem daje 2,4:1, czyli tekst
-   * nieczytelny. Zalany dymek bierze więc ten sam cyjan o dwa stopnie
-   * ciemniejszy — `#0E7490` daje 5,4:1 i jest taki sam w obu motywach:
-   * wypowiedź nie zmienia autora razem z porą dnia.
-   */
-  --babel: #1b1f22;
-  --babel-wlasny: #0e7490;
+  /* Dymki rozmowy. Własny zalany akcentem, cudzy neutralną szarością. */
+  --babel: #e9e9eb;
+  --babel-wlasny: #007aff;
   --babel-wlasny-tekst: #ffffff;
 
   /* Chrom rozmowy: listwa pisania i pole tekstowe w niej. */
-  --pasek: #0e1214;
-  --pole: #16191c;
+  --pasek: #f7f7f8;
+  --pole: #ffffff;
 
-  /* Znacznik nieprzeczytanych — wypełniony, bo liczy się do tej samej rodziny
-     co dymek: „tu ktoś coś powiedział", a nie „tu jest przycisk". */
-  --znacznik-tlo: #06b6d4;
-  --znacznik-tekst: #04252b;
+  /* Awatar — szare kółko wypełnione inicjałem, bez obrysu akcentu. */
+  --awatar-tlo: #b9bac1;
+  --awatar-tekst: #ffffff;
+
+  /* Pigułka wybranego stanu w przełączniku trzystanowym i segmentach. */
+  --segment: #ffffff;
+
+  /* Znacznik nieprzeczytanych — ta sama rodzina co dymek własny. */
+  --znacznik-tlo: #007aff;
+  --znacznik-tekst: #ffffff;
+
+  /* Przełącznik iOS — zielony niezależny od motywu i akcentu. */
+  --przelacznik-wl: #34c759;
 
   /* Stany wymagające reakcji */
-  --alarm: #f2b8b5;
-  --alarm-tekst: #f9dedc;
-  --alarm-tlo: #3b171c;
+  --alarm: #ff3b30;
+  --alarm-tekst: #ff3b30;
+  --alarm-tlo: #ffeceb;
 
-  /*
-   * Cień na czerni nie istnieje — nie ma czego przyciemnić.
-   *
-   * Zostaje jako token, bo motyw jasny go potrzebuje, ale tutaj głębię niesie
-   * wyłącznie linia. Panel wysuwany dostaje zamiast cienia własny obrys.
-   */
-  --cien: none;
-  --cien-panelu: 0 0 0 1px color-mix(in srgb, #e8eff1 12%, transparent);
+  --cien: 0 1px 2px rgb(0 0 0 / .04);
+  --cien-panelu: 0 8px 28px rgb(0 0 0 / .16);
 }
 
 /*
- * Paleta jasna — kopia 1 z 2: zanim skrypt ustawi wybór, idziemy za systemem.
- * Zmieniasz tu cokolwiek — zmień identycznie w `[data-motyw="jasny"]` niżej.
+ * Paleta ciemna — kopia 1 z 2: zanim skrypt ustawi wybór, idziemy za systemem.
+ * Zmieniasz tu cokolwiek — zmień identycznie w `[data-motyw="ciemny"]` niżej.
  */
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root:not([data-motyw]) {
-    color-scheme: light;
-    --tlo: #f9f7f8;
-    --karta: #ffffff;
-    --karta-hover: #f2eef0;
-    --wglebienie: #efeaec;
-    --tekst: #17191a;
-    --tekst-drugi: #575d60;
-    --tekst-trzeci: #787e82;
-    --linia: color-mix(in srgb, #17191a 13%, transparent);
-    --linia-mocna: color-mix(in srgb, #17191a 26%, transparent);
-    --akcent: #0891b2;
-    --akcent-tekst: #0e7490;
-    --akcent-tlo: #e2f6fa;
-    --babel: #eae6e8;
-    --babel-wlasny: #0e7490;
+    color-scheme: dark;
+    --tlo: #000000;
+    --karta: #1c1c1e;
+    --karta-hover: #2c2c2e;
+    --wglebienie: #2c2c2e;
+    --tekst: #ffffff;
+    --tekst-drugi: #a1a1a6;
+    --tekst-trzeci: #8e8e93;
+    --linia: rgb(255 255 255 / .14);
+    --linia-mocna: rgb(255 255 255 / .26);
+    --akcent: #0a84ff;
+    --akcent-tekst: #0a84ff;
+    --akcent-tlo: #12233a;
+    --babel: #26262a;
+    --babel-wlasny: #0a84ff;
     --babel-wlasny-tekst: #ffffff;
-    --pasek: #f1edef;
-    --pole: #ffffff;
-    --znacznik-tlo: #0e7490;
+    --pasek: #101012;
+    --pole: #1c1c1e;
+    --awatar-tlo: #545458;
+    --awatar-tekst: #ffffff;
+    --segment: #5a5a5e;
+    --znacznik-tlo: #0a84ff;
     --znacznik-tekst: #ffffff;
-    --alarm: #b3261e;
-    --alarm-tekst: #601410;
-    --alarm-tlo: #fdecea;
-    --cien: 0 1px 2px rgb(23 25 26 / .08);
-    --cien-panelu: 0 8px 28px rgb(23 25 26 / .16);
+    --przelacznik-wl: #34c759;
+    --alarm: #ff453a;
+    --alarm-tekst: #ff453a;
+    --alarm-tlo: #3a1a18;
+    --cien: none;
+    --cien-panelu: 0 0 0 1px rgb(255 255 255 / .12);
   }
 }
 
-/* Paleta jasna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
-:root[data-motyw="jasny"] {
-  color-scheme: light;
-  --tlo: #f9f7f8;
-  --karta: #ffffff;
-  --karta-hover: #f2eef0;
-  --wglebienie: #efeaec;
-  --tekst: #17191a;
-  --tekst-drugi: #575d60;
-  --tekst-trzeci: #787e82;
-  --linia: color-mix(in srgb, #17191a 13%, transparent);
-  --linia-mocna: color-mix(in srgb, #17191a 26%, transparent);
-  --akcent: #0891b2;
-  --akcent-tekst: #0e7490;
-  --akcent-tlo: #e2f6fa;
-  --babel: #eae6e8;
-  --babel-wlasny: #0e7490;
+/* Paleta ciemna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
+:root[data-motyw="ciemny"] {
+  color-scheme: dark;
+  --tlo: #000000;
+  --karta: #1c1c1e;
+  --karta-hover: #2c2c2e;
+  --wglebienie: #2c2c2e;
+  --tekst: #ffffff;
+  --tekst-drugi: #a1a1a6;
+  --tekst-trzeci: #8e8e93;
+  --linia: rgb(255 255 255 / .14);
+  --linia-mocna: rgb(255 255 255 / .26);
+  --akcent: #0a84ff;
+  --akcent-tekst: #0a84ff;
+  --akcent-tlo: #12233a;
+  --babel: #26262a;
+  --babel-wlasny: #0a84ff;
   --babel-wlasny-tekst: #ffffff;
-  --pasek: #f1edef;
-  --pole: #ffffff;
-  --znacznik-tlo: #0e7490;
+  --pasek: #101012;
+  --pole: #1c1c1e;
+  --awatar-tlo: #545458;
+  --awatar-tekst: #ffffff;
+  --segment: #5a5a5e;
+  --znacznik-tlo: #0a84ff;
   --znacznik-tekst: #ffffff;
-  --alarm: #b3261e;
-  --alarm-tekst: #601410;
-  --alarm-tlo: #fdecea;
-  --cien: 0 1px 2px rgb(23 25 26 / .08);
-  --cien-panelu: 0 8px 28px rgb(23 25 26 / .16);
+  --przelacznik-wl: #34c759;
+  --alarm: #ff453a;
+  --alarm-tekst: #ff453a;
+  --alarm-tlo: #3a1a18;
+  --cien: none;
+  --cien-panelu: 0 0 0 1px rgb(255 255 255 / .12);
 }
 
 /* --- Miary --------------------------------------------------------------- */
@@ -203,6 +185,11 @@
 
   --promien-s: 4px;
   --promien-m: 8px;
+  /* Pole tekstowe i przycisk mają teraz OSOBNE promienie — telefon je
+     rozróżnia (`Ksztalty` w Nocturne.kt) i pigułkowaty przycisk obok pola
+     o łagodniejszym rogu czytał się jako dwa różne systemy na jednym ekranie. */
+  --promien-pole: 10px;
+  --promien-przycisk: 12px;
   --promien-l: 14px;
 
   /*
@@ -319,9 +306,10 @@ body {
   padding: 0;
   background: var(--tlo);
   color: var(--tekst);
-  /* Inter, jeśli system go ma — projekt go zakłada, ale pliku z krojem nie
-     dokładamy: kilkaset kilobajtów na wagę wizualnej różnicy bliskiej zeru. */
-  font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Krój systemowy, nie Inter — zwykły komunikator wygląda jak reszta
+     telefonu, nie jak osobny produkt z własną marką typograficzną. */
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   /* Przewinięcie listy do końca nie ma ruszać niczego pod spodem. */
   overscroll-behavior: none;
@@ -349,8 +337,7 @@ body {
 /* --- Typografia ---------------------------------------------------------- */
 
 h1, h2, h3 {
-  /* Hierarchię niesie rozmiar i odstęp, nie grubość — waga zatrzymuje się na 500. */
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -.01em;
   margin: 0;
 }
@@ -452,9 +439,9 @@ label {
 }
 
 input, textarea {
-  background: var(--karta);
+  background: var(--karta-hover);
   border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
+  border-radius: var(--promien-pole);
   color: var(--tekst);
   padding: .7rem .8rem;
   font: inherit;
@@ -507,46 +494,56 @@ input::placeholder, textarea::placeholder { color: var(--tekst-trzeci); }
 /* --- Przyciski ----------------------------------------------------------- */
 
 /*
- * Przyciski są OBRYSOWANE, nie zalane kolorem.
+ * Przyciski są ZALANE kolorem, nie obrysowane.
  *
- * To najbardziej widoczna zasada tego systemu: akcent jest linią i poświatą,
- * nigdy plamą. Wypełniony przycisk od razu zdradza, że ekran jest z innej bajki.
+ * Odwrotność poprzedniej zasady tego pliku, i to świadomie: telefon
+ * (`Nocturne.kt`, wariant „Mekamb Mobile") maluje akcje wypełnionym akcentem,
+ * jak każdy zwykły komunikator — a klient webowy ma wyglądać jak ten sam
+ * produkt. Domyślny przycisk dostaje więc przyciemnione tło (`--karta-hover`)
+ * i akcent tylko w TEKŚCIE; główny (`.glowny`) zalewa się samym akcentem
+ * z białym tekstem; niszczący dostaje tło alarmu tym samym wzorem. Obrys
+ * zostaje wyłącznie tam, gdzie i tak nic nie jest wypełnione — na przyciskach
+ * cichych i samych ikonach.
  */
 button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--odstep-3);
-  background: transparent;
-  border: 1px solid var(--linia-mocna);
-  border-radius: var(--promien-m);
-  color: var(--tekst);
+  background: var(--karta-hover);
+  border: none;
+  border-radius: var(--promien-przycisk);
+  color: var(--akcent-tekst);
   padding: .6rem 1rem;
   font: inherit;
   font-size: .9375rem;
   font-weight: 500;
   min-height: var(--dotyk);
   cursor: pointer;
-  transition: background-color var(--szybko), border-color var(--szybko), color var(--szybko);
+  transition: background-color var(--szybko), color var(--szybko), opacity var(--szybko);
 }
-button:hover { background: color-mix(in srgb, var(--tekst) 6%, transparent); }
-button:active { background: color-mix(in srgb, var(--akcent) 14%, transparent); }
+button:hover { background: color-mix(in srgb, var(--tekst) 6%, var(--karta-hover)); }
+button:active { background: color-mix(in srgb, var(--tekst) 12%, var(--karta-hover)); }
 
-button.glowny { border-color: var(--akcent); color: var(--akcent-tekst); }
-button.glowny:hover { background: color-mix(in srgb, var(--akcent) 12%, transparent); }
+/* Akcja główna ekranu — jedyne miejsce obok dymka i znacznika, gdzie akcent
+   jest samą plamą, nie tinted pigułką. */
+button.glowny { background: var(--akcent); color: #fff; }
+button.glowny:hover { opacity: .86; }
+button.glowny:active { opacity: .75; }
 
 button.cichy {
-  border-color: transparent;
+  background: transparent;
   color: var(--tekst-drugi);
   min-height: var(--dotyk-ikona);
 }
-button.cichy:hover { color: var(--tekst); }
+button.cichy:hover { color: var(--tekst); background: transparent; }
 
-button.niszczacy { border-color: var(--alarm); color: var(--alarm); }
-button.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 12%, transparent); }
+button.niszczacy { background: var(--alarm-tlo); color: var(--alarm-tekst); }
+button.niszczacy:hover { opacity: .86; }
+button.niszczacy:active { opacity: .75; }
 
-button:disabled { opacity: .45; cursor: default; border-color: var(--linia); }
-button:disabled:hover { background: transparent; }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { opacity: .45; }
 
 /* Przycisk będący samą ikoną — kwadratowe pole dotyku, bez etykiety. */
 button.ikonowy {
@@ -555,11 +552,19 @@ button.ikonowy {
   height: var(--dotyk-ikona);
   min-height: 0;
   padding: 0;
-  border-color: transparent;
+  background: transparent;
+  border-radius: var(--promien-m);
   color: var(--tekst-drugi);
 }
-button.ikonowy:hover { color: var(--tekst); }
-button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst); }
+button.ikonowy:hover { color: var(--tekst); background: var(--karta-hover); }
+/* Stan wciśnięty: pigułka segmentu z lekkim cieniem, jak aktywny wybór
+   motywu na telefonie — nie linia akcentu. */
+button.ikonowy.aktywny {
+  background: var(--segment);
+  color: var(--akcent-tekst);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .18);
+}
+button.ikonowy.aktywny:hover { background: var(--segment); }
 
 .rzad-przyciskow { display: flex; gap: var(--odstep-3); flex-wrap: wrap; }
 .rzad-przyciskow button { flex: 1; min-width: 8rem; }
@@ -569,7 +574,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .karta {
   background: var(--karta);
   border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
+  border-radius: var(--promien-l);
   padding: var(--odstep-6);
   display: flex;
   flex-direction: column;
@@ -578,15 +583,19 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 
 .karta + .karta { margin-top: var(--odstep-4); }
-.karta strong { font-weight: 500; }
+.karta strong { font-weight: 600; }
+
+/* Rozdzielacz wewnątrz karty — dwie sekcje tego samego tematu (np. motyw
+   i akcent w „Wyglądzie"), za blisko siebie na osobne karty. */
+.rozdzielacz-karty { height: 1px; background: var(--linia); border: none; margin: 0; padding: 0; }
 
 .blad {
   display: flex;
   align-items: flex-start;
   gap: var(--odstep-3);
   background: var(--alarm-tlo);
-  border: 1px solid color-mix(in srgb, var(--alarm) 45%, transparent);
-  border-radius: var(--promien-m);
+  border: none;
+  border-radius: var(--promien-przycisk);
   padding: var(--odstep-4) var(--odstep-6);
   color: var(--alarm-tekst);
   font-size: .875rem;
@@ -598,15 +607,15 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .blad button:hover { background: transparent; opacity: .7; }
 
 /*
- * Ostrzeżenie: linia akcentu z boku, nie plama koloru.
+ * Ostrzeżenie: karta tinted akcentem, jak w projekcie — nie pasek z boku.
  *
- * Plama jest w tym systemie zarezerwowana i tak czy inaczej nie zwiększa
- * szansy, że ktoś to przeczyta.
+ * Ten sam tint co przyciski wtórne (`--akcent-tlo`), więc karta czyta się jako
+ * „coś do zrobienia", nie jako osobny, trzeci rodzaj komunikatu.
  */
 .ostrzezenie {
   background: var(--akcent-tlo);
-  border-left: 2px solid var(--akcent);
-  border-radius: 0 var(--promien-m) var(--promien-m) 0;
+  border: none;
+  border-radius: var(--promien-l);
   padding: var(--odstep-6);
   margin: 0 0 var(--odstep-4);
   font-size: .875rem;
@@ -633,11 +642,10 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 /*
  * Znacznik nieprzeczytanych.
  *
- * Wypełniona pastylka, nie obrys — jedyny wyjątek obok dymka.
+ * Ta sama rodzina co dymek własny — pełny akcent, biały tekst.
  *
  * Znacznik odpowiada na to samo pytanie, co dymek („czy ktoś coś do mnie
- * powiedział"), a nie oferuje czynności, więc nie jest przyciskiem i nie musi
- * wyglądać jak przycisk. Obrysowany ginął zresztą wśród obrysowanych akcji.
+ * powiedział"), a nie oferuje czynności, więc nie jest przyciskiem.
  *
  * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
  * zaglądać teraz.
@@ -675,9 +683,9 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 50%;
-  background: var(--akcent-tlo);
-  border: 1px solid color-mix(in srgb, var(--akcent) 40%, transparent);
-  color: var(--akcent-tekst);
+  background: var(--awatar-tlo);
+  border: none;
+  color: var(--awatar-tekst);
   display: grid;
   place-items: center;
   font-size: .875rem;
@@ -750,16 +758,17 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 .naglowek-wejscia .tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
-/* Znak firmowy: obrys akcentu z tarczą w środku. Nigdy wypełniony. */
+/* Znak firmowy: kółko zalane akcentem z tarczą w środku, biała ikona. */
 .marka-znak {
   flex: none;
   width: 2.25rem;
   height: 2.25rem;
   display: grid;
   place-items: center;
-  border: 1px solid var(--akcent);
-  border-radius: var(--promien-m);
-  color: var(--akcent);
+  border: none;
+  border-radius: 50%;
+  background: var(--akcent);
+  color: #fff;
 }
 
 /* Pasek nad ekranem, do którego się wchodzi: strzałka wstecz i tytuł. */
@@ -859,12 +868,17 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .galaz {
   justify-content: flex-start;
   text-align: left;
-  border-color: transparent;
+  background: transparent;
   color: var(--tekst-drugi);
+  font-weight: 500;
   padding-inline: var(--odstep-4);
 }
+.galaz:hover { background: var(--karta-hover); color: var(--tekst); }
 .galaz .znacznik { margin-left: auto; }
-.galaz.aktywna { border-color: var(--akcent); color: var(--akcent-tekst); }
+/* Gałąź aktywna: pigułka tinted akcentem, jak aktywny wiersz rozmowy —
+   ten sam wzorek „to jest tu i teraz" w całej nawigacji. */
+.galaz.aktywna { background: var(--akcent-tlo); color: var(--akcent-tekst); font-weight: 600; }
+.galaz.aktywna:hover { background: var(--akcent-tlo); }
 
 /* Stopka panelu: stan sieci i motyw. Na dole, bo to nie są gałęzie nawigacji. */
 .stopka-sidebara {
@@ -989,16 +1003,20 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   align-items: flex-start;
   gap: var(--odstep-4);
   min-height: 4.25rem;
-  border-color: transparent;
+  background: transparent;
+  color: var(--tekst);
   border-radius: var(--promien-l);
   text-align: left;
   padding: var(--odstep-3);
+  font-weight: 400;
 }
 .wiersz-rozmowy .awatar { width: 3rem; height: 3rem; font-size: 1.0625rem; }
 .wiersz-rozmowy:hover { background: var(--karta-hover); }
+/* Otwarta rozmowa: pigułka tinted akcentem, tekst zwykły — to podświetlenie
+   wiersza, nie link, więc nazwa nie zmienia koloru na akcent. */
 .wiersz-rozmowy.otwarta {
-  background: var(--karta);
-  border-color: var(--linia);
+  background: var(--akcent-tlo);
+  color: var(--tekst);
 }
 
 .wiersz-tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: .1rem; }
@@ -1068,7 +1086,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   /* Poziom obsługujemy sami; pion zostawiamy przewijaniu listy. */
   touch-action: pan-y;
 }
-.pozycja-rozmowy .wiersz-rozmowy.otwarta { background: var(--karta); }
+.pozycja-rozmowy .wiersz-rozmowy.otwarta { background: var(--akcent-tlo); }
 .wiersz-usun {
   position: absolute;
   inset: 0 0 0 auto;
@@ -1202,11 +1220,6 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 .modal-karta p { margin: 0 0 var(--odstep-5); color: var(--tekst-drugi); font-size: .875rem; line-height: 1.45; }
 .modal-przyciski { display: flex; gap: var(--odstep-3); justify-content: flex-end; }
 .modal-przyciski button { flex: none; }
-.modal-przyciski .niszczacy {
-  border-color: var(--alarm);
-  color: var(--alarm);
-}
-.modal-przyciski .niszczacy:hover { background: var(--alarm-tlo); }
 
 /* Znacznik stoi w linii nazwy, a nie na środku dwuwierszowego wiersza. */
 .wiersz-rozmowy > .znacznik { margin-top: .35rem; }
@@ -1772,27 +1785,25 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 
 /*
- * Wybór czasu znikania: „chipy" — obrysowane, akcent jako linia.
- *
- * Wybrany chip zaznaczamy linią akcentu, nie plamą (reguła Nocturne). „Wyłącz"
- * niesie alarm, też jako linię.
+ * Wybór czasu znikania: „chipy" — pigułki tinted akcentem, tak jak reszta
+ * wybranych stanów w tym systemie (gałąź aktywna, otwarty wiersz rozmowy).
  */
 .wybor-znikania { display: flex; flex-wrap: wrap; gap: var(--odstep-2); }
 .chip {
   padding: .3rem .7rem;
   font-size: .8125rem;
-  border: 1px solid var(--linia-mocna);
+  border: none;
   border-radius: 999px;
-  background: transparent;
+  background: var(--karta-hover);
   color: var(--tekst-drugi);
 }
-.chip:hover { background: var(--karta-hover); }
+.chip:hover { background: color-mix(in srgb, var(--tekst) 6%, var(--karta-hover)); }
 .chip.aktywny {
-  border-color: var(--akcent);
+  background: var(--akcent-tlo);
   color: var(--akcent-tekst);
 }
-.chip.niszczacy-chip { border-color: var(--alarm); color: var(--alarm); }
-.chip.niszczacy-chip:hover { background: var(--alarm-tlo); }
+.chip.niszczacy-chip { background: var(--alarm-tlo); color: var(--alarm-tekst); }
+.chip.niszczacy-chip:hover { opacity: .86; }
 
 .wlasny-czas { display: flex; gap: var(--odstep-2); align-items: center; margin-top: var(--odstep-2); }
 .wlasny-czas input { width: 4rem; min-height: var(--dotyk-ikona); padding: 0 .5rem; border: 1px solid var(--linia); background: var(--pole); border-radius: 10px; }
@@ -1903,12 +1914,10 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
   min-height: 0;
   padding: 0;
   border-radius: 50%;
-  border-color: var(--alarm);
-  color: var(--alarm);
+  background: var(--alarm);
+  color: #fff;
 }
-.rozmowa-przyciski button.rozlacz:hover {
-  background: color-mix(in srgb, var(--alarm) 14%, transparent);
-}
+.rozmowa-przyciski button.rozlacz:hover { opacity: .86; }
 
 /*
  * Ekran dzwonienia: karta na środku, tło przygaszone i rozmyte.
@@ -1973,10 +1982,10 @@ button.okragly {
   align-items: center;
   justify-content: center;
 }
-button.okragly.przyjmij { border-color: var(--akcent); color: var(--akcent); }
-button.okragly.przyjmij:hover { background: color-mix(in srgb, var(--akcent) 14%, transparent); }
-button.okragly.niszczacy { border-color: var(--alarm); color: var(--alarm); }
-button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%, transparent); }
+button.okragly.przyjmij { background: var(--akcent); color: #fff; }
+button.okragly.przyjmij:hover { opacity: .86; }
+button.okragly.niszczacy { background: var(--alarm); color: #fff; }
+button.okragly.niszczacy:hover { opacity: .86; }
 
 /*
  * Siatka kafelków: ja i rozmówcy, każdy z nazwą i drogą połączenia.
@@ -2199,11 +2208,14 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
 .strefa-kasowania button { align-self: flex-start; }
 
 /*
- * Przełącznik.
+ * Przełącznik — pigułka iOS, nie kwadratowy checkbox.
  *
- * Pole wyboru systemowe, przemalowane akcentem — nie własny suwak z dwóch
- * `div`-ów. Systemowe niesie za darmo obsługę klawiatury, czytnika ekranu
- * i stan „nieokreślony"; własne trzeba by dorabiać, żeby dorównać.
+ * Zostaje prawdziwym `<input type="checkbox">` (obsługa klawiatury, czytnika
+ * ekranu i stanu „nieokreślony" za darmo); `appearance: none` zdejmuje tylko
+ * WYGLĄD systemowego pola, nie jego zachowanie. Kciuk to pseudoelement — jeden
+ * suwak, nie dwa osobne `div`-y, które trzeba by synchronizować ręcznie.
+ * Zielony jest stały w obu motywach i niezależny od akcentu, tak jak przełącznik
+ * na Androidzie (`Nocturne.kt`, `przelWl`).
  */
 .przelacznik {
   flex-direction: row;
@@ -2215,15 +2227,34 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
   min-height: var(--dotyk-ikona);
 }
 .przelacznik input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
   flex: none;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 51px;
+  height: 31px;
   min-height: 0;
   padding: 0;
   margin: 0;
-  accent-color: var(--akcent);
+  border-radius: 999px;
+  background: var(--karta-hover);
   cursor: pointer;
+  transition: background-color var(--szybko);
 }
+.przelacznik input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .2);
+  transition: transform var(--szybko);
+}
+.przelacznik input:checked { background: var(--przelacznik-wl); }
+.przelacznik input:checked::before { transform: translateX(20px); }
 
 /* --- Wybór motywu -------------------------------------------------------- */
 
@@ -2236,8 +2267,8 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
  */
 .wybor-motywu {
   display: flex;
-  gap: 0;
-  border: 1px solid var(--linia);
+  gap: 2px;
+  background: var(--karta-hover);
   border-radius: var(--promien-m);
   padding: 2px;
 }
@@ -2248,14 +2279,49 @@ button.okragly.niszczacy:hover { background: color-mix(in srgb, var(--alarm) 14%
   min-width: 2.5rem;
   min-height: 2rem;
   padding: 0;
-  border-color: transparent;
+  background: transparent;
   border-radius: var(--promien-s);
   color: var(--tekst-drugi);
 }
+.wybor-motywu button:hover { background: transparent; color: var(--akcent-tekst); }
+/* Aktywny segment: pigułka uniesiona cieniem nad wspólnym torem — jak
+   segmented control na telefonie, nie obrys akcentu. */
 .wybor-motywu button.aktywny {
-  border-color: var(--akcent);
+  background: var(--segment);
   color: var(--akcent-tekst);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .18);
 }
+.wybor-motywu button.aktywny:hover { background: var(--segment); }
+
+/* Etykieta i przełącznik w jednym wierszu — jak „Język" w Koncie. */
+.wiersz-jezyka { display: flex; align-items: center; gap: var(--odstep-4); }
+.wiersz-jezyka span { flex: 1; }
+.wiersz-jezyka .wybor-motywu { flex: none; }
+.wiersz-jezyka .wybor-motywu button { min-width: 3.5rem; }
+
+/* --- Wybór akcentu -------------------------------------------------------- */
+
+/*
+ * Osiem próbek, jedna decyzja. Wybrana dostaje obwódkę koloru tekstu z prześwitem
+ * do tła karty w środku — pierścień, nie ptaszek na plamie, bo ptaszek na
+ * jasnym akcencie (pomarańcz, róż) sam ginie w kontraście.
+ */
+.paleta-akcentow { display: flex; flex-wrap: wrap; gap: var(--odstep-4); }
+.probka-akcentu {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  min-height: 0;
+  cursor: pointer;
+}
+.probka-akcentu:hover { opacity: .8; }
+.probka-akcentu.wybrana {
+  border: 2px solid var(--tekst);
+  box-shadow: 0 0 0 2px var(--karta) inset;
+}
+.probka-akcentu.wybrana:hover { opacity: 1; }
 
 /* --- Kody QR i podgląd aparatu ------------------------------------------- */
 

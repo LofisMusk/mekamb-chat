@@ -452,49 +452,93 @@ channel so commits keep their order.
 
 ## UI system
 
-Both clients implement **Nocturne**, from the design project. Tokens are written
-out explicitly in `web/src/styles.css` and `android/.../Nocturne.kt` — changing
-the design means rewriting tokens on both sides, not re-picking shades.
+Both clients implement **Nocturne**, in its **"Mekamb Mobile"** variant. Tokens
+are written out explicitly in `web/src/styles.css` and `android/.../Nocturne.kt`
+— changing the design means rewriting tokens on both sides, not re-picking
+shades.
 
-Its defining rule: **the accent is a line, never a fill.** Primary actions are
-outlined. A filled accent button immediately reads as belonging to a different
-system.
+Its defining rule: **the accent is a fill, not a line.** Primary actions are
+flooded with colour, switches are iOS-style, badges are filled. This is a
+deliberate reversal of the original Nocturne, where the accent was an outline and
+a filled accent button "immediately read as belonging to a different system". The
+reason is that this is a messenger, not a console: it has to look like the native
+thing people already use. Android moved first (`Nocturne.kt` carries the
+rationale); web followed and now matches it.
 
-**The conversation is the one deliberate exception, and only on web so far.**
-A message bubble is not an action — it is an utterance, and its author has to be
-readable at a glance across a screen full of identical rectangles. An outline
-cannot do that: two outlined bubbles differ only by which side they sit on, and
-the side disappears the moment a sentence is long enough to fill the width. So
-`--babel-wlasny` is a **fill** (`#0E7490`, the brand cyan two steps down —
-`#06B6D4` under white text is 2.4:1, unreadable; this is 5.4:1, and it is the
-same shade in both themes because an utterance should not change author with the
-time of day). The unread badge is filled for the same reason: it answers "did
-someone say something to me", not "here is a button".
+Do not "restore" the outline rule from an old comment or an old artboard. If the
+outline is ever wanted back, that is a design decision taken again on both
+clients at once — not a local fix.
 
-The price is a rule, not a licence: **because the bubble is a fill, nothing
-beside it may be.** Every button in the thread — call, video, participants, the
-sidebar branches — stays an outline. The one exception is the send arrow, and it
-is filled in exactly the colour of the bubble it is about to create.
+**The accent is the user's choice, and it repaints everything.** Eight colours,
+the *same eight swatches* on both platforms — `PALETA_AKCENTOW`
+(`web/src/lib/akcent.ts`) and the `Akcent` enum (`Nocturne.kt`). One pick
+substitutes the accent, the own-message bubble and the unread badge together, so
+the whole interface turns over at once.
 
-Bubble anatomy that follows from this (`web/src/styles.css`, `web/src/lib/watek.ts`):
-the radius is one value (`--promien-babel`, 18px) for every bubble; a run of
-messages from one side is held together by **spacing** (2px inside a run,
-`--odstep-3` between runs) and closed by a **tail on the last bubble only** —
-a tail on each one splits a series into three separate utterances. The clock left
-the bubble: it lives on a centred separator ("Dziś 08:42") that appears on a day
-change and after an hour of silence, with the exact time of a single message in
-its `title`. Delivery state left the bubble too, and became a **word** under the
-last own message — "dostarczono" and "przeczytano" are a difference you have to
-understand, not one you can recognise from two shades of the same tick.
+The two platforms do **not** agree on what they fill with, and that is a known
+gap, not a subtlety:
 
-**Android still runs the older Nocturne bubbles** (outline, cut corner,
-per-bubble clock). The tokens are therefore out of sync on purpose: bringing
-`Nocturne.kt` across is a follow-up, not something that happened here.
+| | swatch in the picker | what gets filled under white text |
+|---|---|---|
+| web | `probka` | `fill` — darkened (green `#34C759` → `#19702F`) |
+| Android | `probka` | `probka` itself |
 
-The design of record is a canvas under `design/kanwa/` — artboards as
-`*.dc.html` plus `canvas.json`. Change the design there too when you change the
-stylesheet, or the two drift and the canvas starts describing controls the app
-does not have.
+Web splits the two because green, orange, pink and teal under **white** text land
+under 4.5:1 — the same trap that once forced the brand cyan down to `#0E7490`.
+Android fills with the vivid swatch directly (`babelWlasny = akcent.probka`), so
+those four accents are the low-contrast ones on the phone. Neither side asserts a
+contrast threshold in a test: `akcent.test.ts` only checks that the five roles
+get wired. **The fills are hand-picked and held by discipline** — if you touch
+the palette, check the ratio yourself.
+
+**The own bubble now tracks the theme.** `--babel-wlasny` is the accent
+(`#007AFF` light, `#0A84FF` dark), not a fixed shade. The older rule — one shade
+in both themes, "because an utterance should not change author with the time of
+day" — went out with the brand cyan, since the bubble follows a colour the user
+picks and both clients render the iOS pair.
+
+**Default theme is light on both clients**, not dark: `wczytajWybor` returns
+`"jasny"` (`web/src/lib/motyw.ts`, `TLO.jasny` is `#ffffff`) and
+`WyborMotywu.JASNY` is the Compose default. A messenger is expected to start
+light; the dark variant is for people who want it, not for half the installs by
+accident.
+
+Bubble anatomy on web (`web/src/styles.css`, `web/src/lib/watek.ts`) survived the
+restyle intact: the bubble radius is still one value (`--promien-babel`, 18px); a
+run of messages from one side is held together by **spacing** (2px inside a run,
+`--odstep-3` between runs) and closed by a **tail on the last bubble only** — a
+tail on each one splits a series into three separate utterances. The clock is not
+in the bubble: it lives on a centred separator ("Dziś 08:42") that appears on a
+day change and after an hour of silence, with the exact time of a single message
+in its `title`. Delivery state is a **word** under the last own message —
+"dostarczono" and "przeczytano" are a difference you have to understand, not one
+you can recognise from two shades of the same tick.
+
+Everything *other* than the bubble got a **new radius scale** on web, and the
+split is the point: `--promien-pole` (10px) and `--promien-przycisk` (12px) are
+separate tokens, because a text field and the button beside it read as the same
+control when they share a radius.
+
+**Android's bubble is filled and tailed like web's, but the clock is still inside
+it** — there is no centred time separator and no hour-of-silence rule on the
+phone. Delivery words exist on both. That is the remaining thread divergence;
+bringing the separator across is a follow-up.
+
+**The PL/EN chrome toggle is web-only** (`web/src/lib/jezyk.ts`). It covers the
+app chrome *after* sign-in — navigation, conversation-list header, search, empty
+states, appearance settings. It deliberately does **not** replace the bilingual
+entry screens ("Załóż konto · Create account"): those are one decision you have
+to understand before you can pick anything, so a toggle would arrive too late to
+help. Account, backup and device screens stay Polish. Android has no equivalent
+module — widening coverage is its own decision, not a side effect.
+
+The design of record is a canvas under `design/kanwa/` — artboards as `*.dc.html`
+plus `canvas.json`. Change the design there too when you change the stylesheet,
+or the two drift and the canvas starts describing controls the app does not have.
+**They are drifting right now:** the artboards still show the outlined accent,
+and the `Mekamb Web.dc.html` the web restyle was built from was a handoff that
+never landed in the repo — so nothing in `design/kanwa/` describes the current
+web client.
 
 **Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`,
 `--babel-wlasny` — never `--neutral-600`. With two themes a ramp step has no
@@ -508,6 +552,12 @@ Android mirrors this with `KoloryNocturne` behind a `CompositionLocal`
 at render time. Storing the resolved value leaves the app light forever for
 someone whose phone switched to dark that evening — the user asked to follow the
 system, not to be light.
+
+Because the accent is resolved against the theme, it has to be recomputed
+whenever the theme changes — including when the *system* changes it under an
+`auto` choice. `motyw.ts` therefore fires `ZDARZENIE_MOTYWU` on every
+`zastosuj()` and `akcent.ts` listens, rather than `motyw.ts` having to know the
+accent exists.
 
 The light palette is written **twice** in `styles.css` (once under
 `prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP

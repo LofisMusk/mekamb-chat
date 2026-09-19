@@ -57,6 +57,8 @@ fun EkranUstawien(
     onMotyw: (WyborMotywu) -> Unit,
     akcent: Akcent,
     onAkcent: (Akcent) -> Unit,
+    jezyk: Jezyk,
+    onJezyk: (Jezyk) -> Unit,
     odczyt: Boolean,
     onOdczyt: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -65,7 +67,7 @@ fun EkranUstawien(
     val stan = model.stan
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Ustawienia", "Settings", onWstecz = onWstecz)
+        PasekZPowrotem(t("Ustawienia", "Settings"), onWstecz = onWstecz)
 
         // `weight(1f)` jawnie: bez niego kolumna przewijana bierze wysokość
         // z treści i na niskim ekranie ostatnia karta ląduje poza nim, a przy
@@ -89,20 +91,36 @@ fun EkranUstawien(
                         tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
-                    Text("Wygląd", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Wygląd", "Appearance"), style = MaterialTheme.typography.labelLarge)
                 }
 
                 WyborMotywuUI(wybrany = wyborMotywu, onWybor = onMotyw)
 
                 Text(
-                    "„Systemowy\" idzie za ustawieniem telefonu i zmienia się razem z nim. " +
-                        "Wybór jasnego albo ciemnego przestaje go słuchać.",
+                    t(
+                        "„Systemowy\" idzie za ustawieniem telefonu i zmienia się razem z nim. " +
+                            "Wybór jasnego albo ciemnego przestaje go słuchać.",
+                        "\"System\" follows your phone setting and changes with it. " +
+                            "Picking light or dark stops following it.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
 
                 Text(
-                    "Kolor akcentu",
+                    t("Język", "Language"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                KontrolkaSegmentowa(
+                    opcje = Jezyk.entries,
+                    wybrana = jezyk,
+                    etykieta = { it.etykieta },
+                    onWybor = onJezyk,
+                )
+
+                Text(
+                    t("Kolor akcentu", "Accent colour"),
                     style = MaterialTheme.typography.labelMedium,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -124,18 +142,22 @@ fun EkranUstawien(
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
                     Icon(Ikony.Konto, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                    Text("Nazwa wyświetlana", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Nazwa wyświetlana", "Display name"), style = MaterialTheme.typography.labelLarge)
                 }
 
                 var nick by remember(stan.mojNick) { mutableStateOf(stan.mojNick) }
                 val zmienione = nick.trim() != stan.mojNick.trim()
 
-                Pole("Nazwa wyświetlana · Display name", nick, { nick = it })
-                PrzyciskDrugi("Zapisz", wlaczony = zmienione) { model.zmienMojNick(nick.trim()) }
+                Pole(t("Nazwa wyświetlana", "Display name"), nick, { nick = it })
+                PrzyciskDrugi(t("Zapisz", "Save"), wlaczony = zmienione) { model.zmienMojNick(nick.trim()) }
 
                 Text(
-                    "Widzą ją Twoi rozmówcy zamiast nazwy użytkownika. Zostawiona pusta " +
-                        "wraca do nazwy użytkownika.",
+                    t(
+                        "Widzą ją Twoi rozmówcy zamiast nazwy użytkownika. Zostawiona pusta " +
+                            "wraca do nazwy użytkownika.",
+                        "Your contacts see this instead of your username. Left empty, it " +
+                            "falls back to your username.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -158,11 +180,11 @@ fun EkranUstawien(
                         tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
-                    Text("Potwierdzenia odczytu", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Potwierdzenia odczytu", "Read receipts"), style = MaterialTheme.typography.labelLarge)
                 }
 
                 Przelacznik(
-                    etykieta = "Wysyłaj potwierdzenia odczytu",
+                    etykieta = t("Wysyłaj potwierdzenia odczytu", "Send read receipts"),
                     zaznaczony = odczyt,
                     onZmiana = onOdczyt,
                 )
@@ -177,7 +199,10 @@ fun EkranUstawien(
                  * tylko dla nas.
                  */
                 Text(
-                    "Kiedy je wyłączysz, przestaniesz też widzieć cudze.",
+                    t(
+                        "Kiedy je wyłączysz, przestaniesz też widzieć cudze.",
+                        "Turn them off and you stop seeing other people's too.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -202,12 +227,16 @@ fun EkranUstawien(
                             tint = Nocturne.kolory.akcentTekst,
                             modifier = Modifier.size(16.dp),
                         )
-                        Text("Zablokowani", style = MaterialTheme.typography.labelLarge)
+                        Text(t("Zablokowani", "Blocked"), style = MaterialTheme.typography.labelLarge)
                     }
 
                     Text(
-                        "Nie dostajesz od nich wiadomości ani zaproszeń. Odblokowanie " +
-                            "przywraca rozmowy i wszystko, co przyszło w międzyczasie.",
+                        t(
+                            "Nie dostajesz od nich wiadomości ani zaproszeń. Odblokowanie " +
+                                "przywraca rozmowy i wszystko, co przyszło w międzyczasie.",
+                            "You get no messages or invites from them. Unblocking restores " +
+                                "the chats and everything that arrived meanwhile.",
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = Nocturne.kolory.tekstDrugi,
                     )
@@ -225,7 +254,7 @@ fun EkranUstawien(
                                 style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier.weight(1f),
                             )
-                            TextButton(onClick = { model.odblokuj(osoba) }) { Text("Odblokuj") }
+                            TextButton(onClick = { model.odblokuj(osoba) }) { Text(t("Odblokuj", "Unblock")) }
                         }
                     }
                 }
@@ -239,9 +268,9 @@ fun EkranUstawien(
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
                     Icon(Ikony.Dzwonek, null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(16.dp))
-                    Text("Powiadomienia push", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Powiadomienia push", "Push notifications"), style = MaterialTheme.typography.labelLarge)
                     Text(
-                        "niedostępne",
+                        t("niedostępne", "unavailable"),
                         style = MaterialTheme.typography.labelSmall,
                         color = Nocturne.kolory.tekstTrzeci,
                     )
@@ -251,8 +280,12 @@ fun EkranUstawien(
                 // otwarciu aplikacji. Obietnice o przyszłym kształcie ładunku
                 // nie zmieniają dziś niczyjej decyzji.
                 Text(
-                    "Ta wersja ich nie ma. O nowej wiadomości dowiesz się dopiero po otwarciu " +
-                        "aplikacji.",
+                    t(
+                        "Ta wersja ich nie ma. O nowej wiadomości dowiesz się dopiero po otwarciu " +
+                            "aplikacji.",
+                        "This build doesn't have them. You'll learn about a new message only " +
+                            "after opening the app.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -273,34 +306,46 @@ fun EkranUstawien(
                         tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
-                    Text("Droga dostarczania", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Droga dostarczania", "Delivery path"), style = MaterialTheme.typography.labelLarge)
                     Text(
                         when (stan.trybPolaczenia) {
-                            DeliveryMode.DIRECT -> "bezpośrednio"
-                            DeliveryMode.MAILBOX -> "przez serwer"
-                            null -> "brak połączenia"
+                            DeliveryMode.DIRECT -> t("bezpośrednio", "direct")
+                            DeliveryMode.MAILBOX -> t("przez serwer", "via server")
+                            null -> t("brak połączenia", "no connection")
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = Nocturne.kolory.tekstDrugi,
                     )
                 }
                 Text(
-                    "Nie da się jej wybrać — klient zawsze najpierw próbuje wprost, a na " +
-                        "skrzynkę spada dopiero, gdy nie przebije NAT-u.",
+                    t(
+                        "Nie da się jej wybrać — klient zawsze najpierw próbuje wprost, a na " +
+                            "skrzynkę spada dopiero, gdy nie przebije NAT-u.",
+                        "You can't pick it — the client always tries direct first and falls " +
+                            "back to the mailbox only when it can't punch through NAT.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
                 Text(
-                    "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
-                        "Przez serwer: adres zna serwer.",
+                    t(
+                        "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
+                            "Przez serwer: adres zna serwer.",
+                        "Direct: media goes straight through, so your contact sees your IP. " +
+                            "Via server: the server sees it.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
             Ostrzezenie(
-                "Wersja bez audytu. Nie używaj tam, gdzie ujawnienie treści miałoby poważne " +
-                    "konsekwencje.",
+                t(
+                    "Wersja bez audytu. Nie używaj tam, gdzie ujawnienie treści miałoby poważne " +
+                        "konsekwencje.",
+                    "Unaudited build. Don't use it where disclosure of content would have " +
+                        "serious consequences.",
+                ),
             )
 
             Text(
@@ -336,6 +381,9 @@ private enum class TrybKopii { EKSPORT, IMPORT }
 private fun KopiaZapasowa(model: ChatViewModel) {
     val kontekst = LocalContext.current
     val zakres = rememberCoroutineScope()
+    // Język odczytany raz — komunikaty powstają w lambdach launchera i korutyny,
+    // gdzie nie ma już kontekstu Compose, więc `t(pl, en)` tam nie zadziała.
+    val jezyk = LokalnyJezyk.current
 
     var dialog by remember { mutableStateOf<TrybKopii?>(null) }
     var haslo by remember { mutableStateOf("") }
@@ -363,7 +411,7 @@ private fun KopiaZapasowa(model: ChatViewModel) {
                     }
                 }.isSuccess
                 komunikat =
-                    if (zapisano) "Wyeksportowano rozmowy do pliku." else "Nie udało się zapisać pliku."
+                    if (zapisano) t(jezyk, "Wyeksportowano rozmowy do pliku.", "Chats exported to the file.") else t(jezyk, "Nie udało się zapisać pliku.", "Couldn't save the file.")
             }
             pracuje = false
         }
@@ -385,21 +433,25 @@ private fun KopiaZapasowa(model: ChatViewModel) {
             horizontalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-            Text("Kopia rozmów", style = MaterialTheme.typography.labelLarge)
+            Text(t("Kopia rozmów", "Chat backup"), style = MaterialTheme.typography.labelLarge)
         }
 
         Text(
-            "Wyeksportuj rozmowy do pliku ZIP chronionego hasłem albo wczytaj je z takiego " +
-                "pliku. Import dokłada rozmowy do istniejących, nie kasuje ich.",
+            t(
+                "Wyeksportuj rozmowy do pliku ZIP chronionego hasłem albo wczytaj je z takiego " +
+                    "pliku. Import dokłada rozmowy do istniejących, nie kasuje ich.",
+                "Export your chats to a password-protected ZIP file, or load them back from " +
+                    "one. Import adds chats to the existing ones, it doesn't erase them.",
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = Nocturne.kolory.tekstDrugi,
         )
 
-        PrzyciskDrugi("Eksportuj rozmowy · Export", wlaczony = !pracuje) {
+        PrzyciskDrugi(t("Eksportuj rozmowy", "Export chats"), wlaczony = !pracuje) {
             komunikat = null
             dialog = TrybKopii.EKSPORT
         }
-        PrzyciskDrugi("Importuj rozmowy · Import", wlaczony = !pracuje) {
+        PrzyciskDrugi(t("Importuj rozmowy", "Import chats"), wlaczony = !pracuje) {
             komunikat = null
             wczytaj.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
         }
@@ -409,8 +461,12 @@ private fun KopiaZapasowa(model: ChatViewModel) {
         }
 
         Wskazowka(
-            "Plik chroni wyłącznie hasło. Zapomnianego hasła nie da się obejść — kopia " +
-                "zostaje wtedy nie do otwarcia.",
+            t(
+                "Plik chroni wyłącznie hasło. Zapomnianego hasła nie da się obejść — kopia " +
+                    "zostaje wtedy nie do otwarcia.",
+                "Only the password protects the file. A forgotten password can't be worked " +
+                    "around — the backup then stays unopenable.",
+            ),
             Ikony.Klucz,
         )
     }
@@ -446,12 +502,15 @@ private fun KopiaZapasowa(model: ChatViewModel) {
                                 }.getOrNull()
 
                                 if (bajty == null) {
-                                    komunikat = "Nie udało się odczytać pliku."
+                                    komunikat = t(jezyk, "Nie udało się odczytać pliku.", "Couldn't read the file.")
                                 } else {
                                     val wynik = model.importujRozmowy(h, bajty)
                                     if (wynik != null) {
-                                        komunikat = "Zaimportowano: ${wynik.rozmow} rozmów, " +
-                                            "${wynik.wiadomosci} nowych wiadomości."
+                                        komunikat = t(
+                                            jezyk,
+                                            "Zaimportowano: ${wynik.rozmow} rozmów, ${wynik.wiadomosci} nowych wiadomości.",
+                                            "Imported: ${wynik.rozmow} chats, ${wynik.wiadomosci} new messages.",
+                                        )
                                     }
                                     // Gdy `wynik` jest null, model ustawił już błąd w stanie.
                                 }
@@ -483,30 +542,37 @@ private fun DialogHaslaKopii(
     AlertDialog(
         onDismissRequest = onAnuluj,
         title = {
-            Text(if (tryb == TrybKopii.EKSPORT) "Hasło do kopii" else "Hasło pliku")
+            Text(if (tryb == TrybKopii.EKSPORT) t("Hasło do kopii", "Backup password") else t("Hasło pliku", "File password"))
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
                 Text(
                     if (tryb == TrybKopii.EKSPORT) {
-                        "Ustaw hasło, którym zaszyfrujemy plik. Bez niego kopii nikt nie otworzy — " +
-                            "łącznie z Tobą, jeśli je zapomnisz."
+                        t(
+                            "Ustaw hasło, którym zaszyfrujemy plik. Bez niego kopii nikt nie otworzy — " +
+                                "łącznie z Tobą, jeśli je zapomnisz.",
+                            "Set a password we'll encrypt the file with. Without it no one opens " +
+                                "the backup — including you, if you forget it.",
+                        )
                     } else {
-                        "Podaj hasło, którym ten plik zaszyfrowano przy eksporcie."
+                        t(
+                            "Podaj hasło, którym ten plik zaszyfrowano przy eksporcie.",
+                            "Enter the password this file was encrypted with on export.",
+                        )
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
-                Pole("Hasło · Password", haslo, onHaslo, haslo = true)
+                Pole(t("Hasło", "Password"), haslo, onHaslo, haslo = true)
             }
         },
         confirmButton = {
             TextButton(onClick = onZatwierdz, enabled = haslo.isNotEmpty()) {
-                Text(if (tryb == TrybKopii.EKSPORT) "Eksportuj" else "Importuj")
+                Text(if (tryb == TrybKopii.EKSPORT) t("Eksportuj", "Export") else t("Importuj", "Import"))
             }
         },
         dismissButton = {
-            TextButton(onClick = onAnuluj) { Text("Anuluj") }
+            TextButton(onClick = onAnuluj) { Text(t("Anuluj", "Cancel")) }
         },
     )
 }

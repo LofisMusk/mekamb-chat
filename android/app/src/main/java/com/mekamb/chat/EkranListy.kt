@@ -68,11 +68,12 @@ fun EkranListy(
     onOtworzRozmowe: (PozycjaListy) -> Unit,
     onNowaRozmowa: () -> Unit,
     onGalaz: (Galaz) -> Unit,
-    onUstawienia: () -> Unit,
 ) {
     val stan = model.stan
     val kontekst = LocalContext.current
-    var szukanie by remember { mutableStateOf<String?>(null) }
+    // Szukanie jest zawsze widocznym polem pod tytułem, jak w projekcie —
+    // a nie trybem włączanym lupą. Pusty ciąg to „nic nie filtruję".
+    var szukanie by remember { mutableStateOf("") }
 
     /*
      * Szukanie filtruje to, co JUŻ jest na urządzeniu.
@@ -97,50 +98,39 @@ fun EkranListy(
     // Etykieta z nickami/nazwą grupy — po niej też szukamy, bo to ją widać.
     val etykieta: (PozycjaListy) -> String = { model.etykieta(it.groupId, it.rozmowca) }
 
-    val widoczne = szukanie?.trim().orEmpty().let { fraza ->
+    val widoczne = szukanie.trim().let { fraza ->
         if (fraza.isEmpty()) zaakceptowane
         else zaakceptowane.filter { etykieta(it).contains(fraza, ignoreCase = true) }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
+        // Nagłówek: duży tytuł + pigułka „Nowy czat" po prawej, jak w projekcie.
+        Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.l, vertical = Odstep.m),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            if (szukanie == null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+            ) {
                 Text(
-                    "Rozmowy",
+                    t("Rozmowy", "Chats"),
                     style = MaterialTheme.typography.displaySmall,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(
-                    onClick = { szukanie = "" },
-                    modifier = Modifier.size(Dotyk.ikonaWPasku),
-                ) {
-                    Icon(Ikony.Szukaj, contentDescription = "Szukaj", tint = Nocturne.kolory.tekst)
-                }
-                IconButton(onClick = onUstawienia, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                    Icon(Ikony.Suwaki, contentDescription = "Ustawienia", tint = Nocturne.kolory.tekst)
-                }
-            } else {
-                Pole(
-                    etykieta = "Szukaj w rozmowach · Search",
-                    wartosc = szukanie.orEmpty(),
-                    onZmiana = { szukanie = it },
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    onClick = { szukanie = null },
-                    modifier = Modifier.size(Dotyk.ikonaWPasku),
-                ) {
-                    Icon(Ikony.Wstecz, contentDescription = "Zamknij szukanie", tint = Nocturne.kolory.tekst)
-                }
+                PigulkaNowyCzat(onClick = onNowaRozmowa)
             }
+            PoleSzukania(
+                wartosc = szukanie,
+                onZmiana = { szukanie = it },
+                onWyczysc = { szukanie = "" },
+            )
         }
 
         // Prośby ponad listą — sekcja z przyjmij/odrzuć. Widoczna tylko wtedy,
         // gdy jest szukanie puste: prośba nie należy do wyników szukania rozmów.
-        if (prosby.isNotEmpty() && szukanie.isNullOrBlank()) {
+        if (prosby.isNotEmpty() && szukanie.isBlank()) {
             SekcjaProsb(
                 prosby = prosby,
                 etykieta = etykieta,
@@ -175,8 +165,8 @@ fun EkranListy(
                             WierszRozmowy(
                                 nazwa = etykieta(pozycja),
                                 ostatnia = pozycja.ostatnia?.let {
-                                    if (it.wlasna) "Ty: ${it.tresc}" else it.tresc
-                                } ?: "brak wiadomości",
+                                    if (it.wlasna) t("Ty: ", "You: ") + it.tresc else it.tresc
+                                } ?: t("brak wiadomości", "no messages"),
                                 czas = pozycja.ostatnia?.czas,
                                 nieprzeczytane = pozycja.nieprzeczytane,
                                 tryb = stan.trybPolaczenia,
@@ -194,19 +184,25 @@ fun EkranListy(
                     // Jedna wiadomość na oba stany kazałaby użytkownikowi
                     // zgadywać, czy niczego nie ma, czy tylko nie znalazł.
                     Text(
-                        if (szukanie.isNullOrBlank()) {
-                            "Nie masz jeszcze żadnej rozmowy."
+                        if (szukanie.isBlank()) {
+                            t("Nie masz jeszcze żadnej rozmowy.", "You don't have any chats yet.")
                         } else {
-                            "Nic nie pasuje do tej nazwy."
+                            t("Nic nie pasuje do tej nazwy.", "Nothing matches that name.")
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = Nocturne.kolory.tekstDrugi,
                     )
                     Text(
-                        if (szukanie.isNullOrBlank()) {
-                            "Zacznij od kontaktu — wystarczy nazwa użytkownika."
+                        if (szukanie.isBlank()) {
+                            t(
+                                "Zacznij od kontaktu — wystarczy nazwa użytkownika.",
+                                "Start with a contact — a username is enough.",
+                            )
                         } else {
-                            "Szukamy tylko w rozmowach zapisanych na tym urządzeniu."
+                            t(
+                                "Szukamy tylko w rozmowach zapisanych na tym urządzeniu.",
+                                "We only search chats stored on this device.",
+                            )
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = Nocturne.kolory.tekstTrzeci,
@@ -216,14 +212,13 @@ fun EkranListy(
 
             Spacer(Modifier.height(Odstep.l))
             Wskazowka(
-                "Historia jest tylko na tym urządzeniu — serwer jej nie ma.",
+                t(
+                    "Historia jest tylko na tym urządzeniu — serwer jej nie ma.",
+                    "History lives only on this device — the server doesn't have it.",
+                ),
                 Ikony.Klucz,
                 Modifier.padding(horizontal = Odstep.l),
             )
-        }
-
-        Box(Modifier.fillMaxWidth().padding(horizontal = Odstep.l, vertical = Odstep.m)) {
-            PrzyciskGlowny("Nowa rozmowa · New chat", onClick = onNowaRozmowa)
         }
 
         DolnaNawigacja(
@@ -232,6 +227,72 @@ fun EkranListy(
             // Licznik liczy TYLKO zaakceptowane — prośba nie podbija badge'a.
             nieprzeczytane = zaakceptowane.sumOf { it.nieprzeczytane },
         )
+    }
+}
+
+/**
+ * Pigułka „Nowy czat" w nagłówku listy.
+ *
+ * Wypełniona akcentem z „+" i podpisem — akcja główna ekranu, w projekcie stoi
+ * po prawej stronie tytułu zamiast pełnej szerokości na dole.
+ */
+@Composable
+private fun PigulkaNowyCzat(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .defaultMinSize(minHeight = 36.dp)
+            .background(Nocturne.kolory.akcent, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(start = Odstep.l, end = Odstep.l, top = Odstep.s, bottom = Odstep.s),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+    ) {
+        Icon(Ikony.Dodaj, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
+        Text(
+            t("Nowy czat", "New chat"),
+            style = MaterialTheme.typography.titleSmall,
+            color = androidx.compose.ui.graphics.Color.White,
+        )
+    }
+}
+
+/**
+ * Pole szukania na liście — zawsze widoczne, jak w projekcie.
+ *
+ * Niski pasek z lupą i (gdy jest tekst) krzyżykiem do wyczyszczenia. Tło `pole`,
+ * bez ramki — na liście szukanie jest jej częścią, a nie osobnym formularzem.
+ */
+@Composable
+private fun PoleSzukania(wartosc: String, onZmiana: (String) -> Unit, onWyczysc: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 36.dp)
+            .background(Nocturne.kolory.pole, RoundedCornerShape(10.dp))
+            .padding(horizontal = Odstep.m),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+    ) {
+        Icon(Ikony.Szukaj, contentDescription = null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(16.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = wartosc,
+            onValueChange = onZmiana,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Nocturne.kolory.tekst),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(Nocturne.kolory.akcentTekst),
+            modifier = Modifier.weight(1f),
+            decorationBox = { pole ->
+                if (wartosc.isEmpty()) {
+                    Text(t("Szukaj", "Search"), style = MaterialTheme.typography.bodyLarge, color = Nocturne.kolory.tekstTrzeci)
+                }
+                pole()
+            },
+        )
+        if (wartosc.isNotEmpty()) {
+            IconButton(onClick = onWyczysc, modifier = Modifier.size(24.dp)) {
+                Icon(Ikony.Zamknij, contentDescription = t("Wyczyść", "Clear"), tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(14.dp))
+            }
+        }
     }
 }
 
@@ -337,7 +398,7 @@ private fun TloUsuwania() {
                 tint = Nocturne.kolory.alarm,
                 modifier = Modifier.size(20.dp),
             )
-            Text("Usuń", style = MaterialTheme.typography.labelMedium, color = Nocturne.kolory.alarm)
+            Text(t("Usuń", "Delete"), style = MaterialTheme.typography.labelMedium, color = Nocturne.kolory.alarm)
         }
     }
 }
@@ -345,7 +406,7 @@ private fun TloUsuwania() {
 /**
  * Znacznik nieprzeczytanych.
  *
- * Obrys akcentu, nie wypełnione kółko: w tym systemie akcent jest linią.
+ * Wypełnione kółko akcentu — w odsłonie mobilnej akcent jest wypełnieniem.
  * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
  * zaglądać teraz.
  */
@@ -399,9 +460,9 @@ private fun SekcjaProsb(
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             Icon(Ikony.Osoby, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(14.dp))
-            Text("Prośby", style = MaterialTheme.typography.labelLarge)
+            Text(t("Prośby", "Requests"), style = MaterialTheme.typography.labelLarge)
             Text(
-                "Requests · ${prosby.size}",
+                "· ${prosby.size}",
                 style = MaterialTheme.typography.labelSmall,
                 color = Nocturne.kolory.tekstDrugi,
             )
@@ -425,7 +486,7 @@ private fun SekcjaProsb(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "Chce zacząć rozmowę",
+                        t("Chce zacząć rozmowę", "Wants to start a chat"),
                         style = MaterialTheme.typography.labelSmall,
                         color = Nocturne.kolory.tekstDrugi,
                     )
@@ -438,7 +499,7 @@ private fun SekcjaProsb(
                 ) {
                     Icon(
                         Ikony.Zamknij,
-                        contentDescription = "Odrzuć prośbę",
+                        contentDescription = t("Odrzuć prośbę", "Reject request"),
                         tint = Nocturne.kolory.alarm,
                         modifier = Modifier.size(18.dp),
                     )
@@ -449,7 +510,7 @@ private fun SekcjaProsb(
                 ) {
                     Icon(
                         Ikony.Wyslane,
-                        contentDescription = "Przyjmij prośbę",
+                        contentDescription = t("Przyjmij prośbę", "Accept request"),
                         tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(18.dp),
                     )
@@ -474,7 +535,7 @@ fun DolnaNawigacja(
 
         Row(Modifier.fillMaxWidth().background(Nocturne.kolory.tlo)) {
             Zakladka(
-                "Rozmowy",
+                t("Rozmowy", "Chats"),
                 Ikony.Rozmowy,
                 biezaca == Galaz.ROZMOWY,
                 Modifier.weight(1f),
@@ -482,7 +543,7 @@ fun DolnaNawigacja(
             ) {
                 onGalaz(Galaz.ROZMOWY)
             }
-            Zakladka("Konto", Ikony.Konto, biezaca == Galaz.KONTO, Modifier.weight(1f)) {
+            Zakladka(t("Ustawienia", "Settings"), Ikony.Suwaki, biezaca == Galaz.KONTO, Modifier.weight(1f)) {
                 onGalaz(Galaz.KONTO)
             }
         }

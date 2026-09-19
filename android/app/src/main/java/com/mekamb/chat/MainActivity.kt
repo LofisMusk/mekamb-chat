@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -70,30 +71,42 @@ class MainActivity : ComponentActivity() {
             // Kolor akcentu żyje obok motywu — oba są ustawieniami wyglądu i oba
             // muszą działać od pierwszego ekranu, jeszcze przed zalogowaniem.
             var akcent by remember { mutableStateOf(Motyw.wczytajAkcent(this)) }
+            // Język żyje obok motywu i akcentu — kolejne ustawienie wyglądu,
+            // które działa od pierwszego ekranu i ma zostać po wylogowaniu.
+            var jezyk by remember { mutableStateOf(Motyw.wczytajJezyk(this)) }
 
             MotywNocturne(wybor, akcent) {
                 PasekSystemowy()
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = Nocturne.kolory.tlo,
-                ) { wciecia ->
-                    Zawartosc(
-                        wyborMotywu = wybor,
-                        onMotyw = {
-                            wybor = it
-                            Motyw.zapisz(this, it)
-                        },
-                        akcent = akcent,
-                        onAkcent = {
-                            akcent = it
-                            Motyw.zapiszAkcent(this, it)
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(wciecia)
-                            .padding(Odstep.ekran),
-                    )
+                // Język niesiemy tak jak kolory: przez CompositionLocal, więc
+                // przełączenie przemalowuje całą gałąź, a ekrany czytają `t(...)`.
+                CompositionLocalProvider(LokalnyJezyk provides jezyk) {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        containerColor = Nocturne.kolory.tlo,
+                    ) { wciecia ->
+                        Zawartosc(
+                            wyborMotywu = wybor,
+                            onMotyw = {
+                                wybor = it
+                                Motyw.zapisz(this, it)
+                            },
+                            akcent = akcent,
+                            onAkcent = {
+                                akcent = it
+                                Motyw.zapiszAkcent(this, it)
+                            },
+                            jezyk = jezyk,
+                            onJezyk = {
+                                jezyk = it
+                                Motyw.zapiszJezyk(this, it)
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(wciecia)
+                                .padding(Odstep.ekran),
+                        )
+                    }
                 }
             }
         }
@@ -152,6 +165,8 @@ private fun Zawartosc(
     onMotyw: (WyborMotywu) -> Unit,
     akcent: Akcent,
     onAkcent: (Akcent) -> Unit,
+    jezyk: Jezyk,
+    onJezyk: (Jezyk) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val model: ChatViewModel = viewModel()
@@ -402,6 +417,8 @@ private fun Zawartosc(
                     onMotyw = onMotyw,
                     akcent = akcent,
                     onAkcent = onAkcent,
+                    jezyk = jezyk,
+                    onJezyk = onJezyk,
                     odczyt = odczytPotwierdzen,
                     onOdczyt = {
                         odczytPotwierdzen = it
@@ -455,13 +472,12 @@ private fun Zawartosc(
                     },
                     onNowaRozmowa = { nowaRozmowa = true },
                     onGalaz = { galaz = it },
-                    onUstawienia = { wUstawieniach = true },
                 )
             stan.ekran == Ekran.REJESTRACJA -> EkranRejestracji(model)
             stan.ekran == Ekran.POTWIERDZENIE -> PotwierdzenieTotp(model)
             stan.ekran == Ekran.LOGOWANIE -> EkranLogowania(model)
             stan.ekran == Ekran.KOD_LOGOWANIA -> EkranKoduLogowania(model)
-            else -> EkranPowitania(model)
+            else -> EkranPowitania(model, jezyk = jezyk, onJezyk = onJezyk)
         }
     }
 }
@@ -483,7 +499,7 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
-        NaglowekEkranu("Drugi składnik", "Second factor")
+        NaglowekEkranu(t("Drugi składnik", "Second factor"))
 
         // Trzy drogi obok siebie, bo żadna nie działa wszędzie: kod QR wymaga
         // drugiego urządzenia, odnośnik działa tylko na tym samym telefonie,

@@ -57,7 +57,7 @@ fun EkranKonta(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Text("Konto", style = MaterialTheme.typography.displaySmall)
+            Text(t("Ustawienia", "Settings"), style = MaterialTheme.typography.displaySmall)
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -66,7 +66,7 @@ fun EkranKonta(
                 Awatar(konto?.username ?: "?", rozmiar = 52.dp)
                 Column {
                     Text(
-                        konto?.username ?: "brak konta",
+                        konto?.username ?: t("brak konta", "no account"),
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
@@ -86,22 +86,22 @@ fun EkranKonta(
             Karta {
                 WierszMenu(
                     ikona = Ikony.Odcisk,
-                    tytul = "Kody bezpieczeństwa",
-                    opis = "Do porównania z rozmówcą poza aplikacją",
+                    tytul = t("Kody bezpieczeństwa", "Safety numbers"),
+                    opis = t("Do porównania z rozmówcą poza aplikacją", "To compare with your contact outside the app"),
                     onClick = onUczestnicy,
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
                 WierszMenu(
                     ikona = Ikony.Dzwonek,
-                    tytul = "Powiadomienia i połączenie",
-                    opis = "Dźwięki i sposób dostarczania",
+                    tytul = t("Wygląd i powiadomienia", "Appearance and notifications"),
+                    opis = t("Motyw, język, powiadomienia", "Theme, language, notifications"),
                     onClick = onUstawienia,
                 )
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
                 WierszMenu(
                     ikona = Ikony.Ostrzezenie,
-                    tytul = "Zgłoś błąd",
-                    opis = "Napisz nam, co nie działa",
+                    tytul = t("Zgłoś błąd", "Report a problem"),
+                    opis = t("Napisz nam, co nie działa", "Tell us what isn't working"),
                     onClick = onZgloszenie,
                 )
             }
@@ -112,23 +112,30 @@ fun EkranKonta(
                     horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                 ) {
                     Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                    Text("Gdy stracisz to urządzenie", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Gdy stracisz to urządzenie", "If you lose this device"), style = MaterialTheme.typography.labelLarge)
                 }
                 // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
                 // po nim można zrobić coś inaczej — sparować drugie urządzenie
                 // zawczasu, żeby konto nie zależało od jednego telefonu.
                 Text(
-                    "Klucze są tylko tutaj i serwer nie odtworzy ich za Ciebie. Zanim " +
-                        "zmienisz telefon, sparuj drugie urządzenie — potem nie ma z czego.",
+                    t(
+                        "Klucze są tylko tutaj i serwer nie odtworzy ich za Ciebie. Zanim " +
+                            "zmienisz telefon, sparuj drugie urządzenie — potem nie ma z czego.",
+                        "The keys are only here and the server won't recreate them for you. " +
+                            "Before you switch phones, pair a second device — afterwards there's nothing to pair from.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
             }
 
-            PrzyciskNiszczacy("Usuń konto z tego urządzenia") { model.usunKonto() }
+            PrzyciskNiszczacy(t("Usuń konto z tego urządzenia", "Delete account from this device")) { model.usunKonto() }
 
             Text(
-                "Historia rozmów jest tylko tutaj. Po usunięciu nie da się jej odzyskać.",
+                t(
+                    "Historia rozmów jest tylko tutaj. Po usunięciu nie da się jej odzyskać.",
+                    "Chat history is only here. Once deleted it can't be recovered.",
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = Nocturne.kolory.tekstTrzeci,
             )

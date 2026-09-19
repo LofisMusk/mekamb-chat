@@ -758,7 +758,7 @@ button.ikonowy.aktywny:hover { background: var(--segment); }
 }
 .naglowek-wejscia .tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
-/* Znak firmowy: kółko zalane akcentem z tarczą w środku, biała ikona. */
+/* Znak firmowy: kółko zalane akcentem ze znakiem z ikony aplikacji, biała ikona. */
 .marka-znak {
   flex: none;
   width: 2.25rem;

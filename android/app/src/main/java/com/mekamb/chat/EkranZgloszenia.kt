@@ -73,7 +73,7 @@ fun EkranZgloszenia(
     var wynik by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        NaglowekEkranu("Zgłoś błąd", "Report a bug")
+        NaglowekEkranu(t("Zgłoś błąd", "Report a bug"))
 
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),

@@ -65,7 +65,7 @@ fun EkranUstawien(
     val stan = model.stan
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Ustawienia", "Settings", onWstecz = onWstecz)
+        PasekZPowrotem(t("Ustawienia", "Settings"), onWstecz = onWstecz)
 
         // `weight(1f)` jawnie: bez niego kolumna przewijana bierze wysokość
         // z treści i na niskim ekranie ostatnia karta ląduje poza nim, a przy

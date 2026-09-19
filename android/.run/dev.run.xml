@@ -1,0 +1,25 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="dev" type="GradleRunConfiguration" factoryName="Gradle">
+    <ExternalSystemSettings>
+      <option name="executionName" />
+      <option name="externalProjectPath" value="$PROJECT_DIR$" />
+      <option name="externalSystemIdString" value="GRADLE" />
+      <option name="scriptParameters" value="-PapiUrl=https://mekamb-dev.grubyogon10.workers.dev" />
+      <option name="taskDescriptions">
+        <list />
+      </option>
+      <option name="taskNames">
+        <list>
+          <option value=":app:installDebug" />
+          <option value=":app:uruchomAplikacje" />
+        </list>
+      </option>
+      <option name="vmOptions" />
+    </ExternalSystemSettings>
+    <ExternalSystemDebugServerProcess>false</ExternalSystemDebugServerProcess>
+    <ExternalSystemReattachDebugProcess>true</ExternalSystemReattachDebugProcess>
+    <DebugAllEnabled>false</DebugAllEnabled>
+    <RunAsTest>false</RunAsTest>
+    <method v="2" />
+  </configuration>
+</component>

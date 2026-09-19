@@ -100,13 +100,13 @@ fun EkranRozmowyAV(
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(Odstep.l)) {
             Text(
-                text = stan.rozmowca ?: "rozmowa",
+                text = stan.rozmowca ?: t("rozmowa", "chat"),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "mesh · ${stan.rozmowaAV.size} rozmówców",
+                text = t("mesh · ${stan.rozmowaAV.size} rozmówców", "mesh · ${stan.rozmowaAV.size} people"),
                 style = MaterialTheme.typography.labelSmall,
                 color = Nocturne.kolory.tekstDrugi,
             )
@@ -125,19 +125,19 @@ fun EkranRozmowyAV(
         ) {
             PrzyciskRozmowy(
                 ikona = if (stan.mikrofonWlaczony) Ikony.Mikrofon else Ikony.MikrofonWyciszony,
-                opis = if (stan.mikrofonWlaczony) "Wycisz" else "Włącz mikrofon",
+                opis = if (stan.mikrofonWlaczony) t("Wycisz", "Mute") else t("Włącz mikrofon", "Unmute"),
                 wlaczony = stan.mikrofonWlaczony,
                 onClick = { model.przelaczMikrofon() },
             )
             PrzyciskRozmowy(
                 ikona = if (stan.kameraWlaczona) Ikony.Kamera else Ikony.KameraWylaczona,
-                opis = if (stan.kameraWlaczona) "Wyłącz obraz" else "Włącz obraz",
+                opis = if (stan.kameraWlaczona) t("Wyłącz obraz", "Turn off video") else t("Włącz obraz", "Turn on video"),
                 wlaczony = stan.kameraWlaczona,
                 onClick = { przelaczObraz() },
             )
             PrzyciskRozmowy(
                 ikona = Ikony.Rozlacz,
-                opis = "Zakończ",
+                opis = t("Zakończ", "End"),
                 wlaczony = true,
                 alarmowy = true,
                 onClick = onZakoncz,
@@ -145,8 +145,12 @@ fun EkranRozmowyAV(
         }
 
         Text(
-            text = "„Bezpośrednio” znaczy, że rozmówca zna Twój adres IP. " +
-                "„Przez przekaźnik” — że zna go serwer TURN.",
+            text = t(
+                "„Bezpośrednio” znaczy, że rozmówca zna Twój adres IP. " +
+                    "„Przez przekaźnik” — że zna go serwer TURN.",
+                "\"Direct\" means your contact sees your IP address. " +
+                    "\"Via relay\" — the TURN server sees it.",
+            ),
             style = MaterialTheme.typography.labelSmall,
             color = Nocturne.kolory.tekstTrzeci,
             textAlign = TextAlign.Center,
@@ -178,11 +182,11 @@ private fun SiatkaKafelkow(
 
     // Własny kafelek jest pierwszy — patrzy się na niego, żeby sprawdzić, co
     // widzi druga strona, więc nie może być schowany za rozmówcami.
-    val wszystkie = listOf(OpisKafelka(nazwa = "Ty", podpis = null, wideo = wlasne, lustro = true)) +
+    val wszystkie = listOf(OpisKafelka(nazwa = t("Ty", "You"), podpis = null, wideo = wlasne, lustro = true)) +
         uczestnicy.map { uczestnik ->
             OpisKafelka(
                 nazwa = uczestnik.nazwa,
-                podpis = opisFazy(uczestnik),
+                podpis = opisFazy(uczestnik, LokalnyJezyk.current),
                 wideo = uczestnik.wideo,
                 lustro = false,
                 alarm = uczestnik.faza == FazaPolaczenia.ODRZUCONA,
@@ -223,13 +227,13 @@ private data class OpisKafelka(
 )
 
 /** Etykieta drogi połączenia — zdanie o tym, kto zna Twój adres IP. */
-private fun opisFazy(uczestnik: UczestnikRozmowy): String = when (uczestnik.faza) {
-    FazaPolaczenia.LACZENIE -> "łączę…"
-    FazaPolaczenia.POLACZONA -> if (uczestnik.bezposrednio) "bezpośrednio" else "przez przekaźnik"
-    FazaPolaczenia.ZAKONCZONA -> "rozłączony"
+private fun opisFazy(uczestnik: UczestnikRozmowy, jezyk: Jezyk): String = when (uczestnik.faza) {
+    FazaPolaczenia.LACZENIE -> t(jezyk, "łączę…", "connecting…")
+    FazaPolaczenia.POLACZONA -> if (uczestnik.bezposrednio) t(jezyk, "bezpośrednio", "direct") else t(jezyk, "przez przekaźnik", "via relay")
+    FazaPolaczenia.ZAKONCZONA -> t(jezyk, "rozłączony", "disconnected")
     // Niezgodny odcisk DTLS. Mówimy wprost, bo to jedyny stan na tym ekranie,
     // który znaczy „ktoś próbował podsłuchać".
-    FazaPolaczenia.ODRZUCONA -> "odcisk się nie zgadza"
+    FazaPolaczenia.ODRZUCONA -> t(jezyk, "odcisk się nie zgadza", "fingerprint mismatch")
 }
 
 /**
@@ -402,7 +406,7 @@ fun EkranPrzychodzacejRozmowy(
             modifier = Modifier.padding(top = Odstep.l),
         )
         Text(
-            "dzwoni · incoming call",
+            t("dzwoni…", "incoming call…"),
             style = MaterialTheme.typography.bodyMedium,
             color = Nocturne.kolory.tekstDrugi,
         )
@@ -411,9 +415,9 @@ fun EkranPrzychodzacejRozmowy(
             modifier = Modifier.fillMaxWidth().padding(top = Odstep.xxl),
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            PrzyciskGlowny("Odbierz z obrazem · Video") { onOdbierz(true) }
-            PrzyciskDrugi("Odbierz głosowo · Voice") { onOdbierz(false) }
-            PrzyciskCichy("Odrzuć") { onOdrzuc() }
+            PrzyciskGlowny(t("Odbierz z obrazem", "Answer with video")) { onOdbierz(true) }
+            PrzyciskDrugi(t("Odbierz głosowo", "Answer with voice")) { onOdbierz(false) }
+            PrzyciskCichy(t("Odrzuć", "Decline")) { onOdrzuc() }
         }
     }
 }

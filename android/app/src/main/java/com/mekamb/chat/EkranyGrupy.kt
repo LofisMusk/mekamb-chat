@@ -75,10 +75,10 @@ fun EkranNowaRozmowa(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Pole("Nazwa użytkownika · Username", nazwa, { nazwa = it })
+            Pole(t("Nazwa użytkownika", "Username"), nazwa, { nazwa = it })
 
             PrzyciskGlowny(
-                if (stan.pracuje) "Zaczynam…" else "Nowy czat · Start chat",
+                if (stan.pracuje) t("Zaczynam…", "Starting…") else t("Zacznij rozmowę", "Start chat"),
                 wlaczony = !stan.pracuje && nazwa.isNotBlank(),
             ) {
                 model.rozpocznijRozmowe(nazwa.trim())
@@ -86,11 +86,15 @@ fun EkranNowaRozmowa(
 
             // Grupa to osobna droga: zaczyna się od wyboru kilku osób, nie
             // jednej nazwy.
-            PrzyciskDrugi("Nowa grupa · New group", wlaczony = !stan.pracuje) { onGrupa() }
+            PrzyciskDrugi(t("Nowa grupa", "New group"), wlaczony = !stan.pracuje) { onGrupa() }
 
             Wskazowka(
-                "Katalog przechowuje tylko nazwy, urządzenia i key packages. " +
-                    "Kto z kim rozmawia — nie.",
+                t(
+                    "Katalog przechowuje tylko nazwy, urządzenia i key packages. " +
+                        "Kto z kim rozmawia — nie.",
+                    "The directory stores only usernames, devices and key packages. " +
+                        "Who talks to whom — it doesn't.",
+                ),
                 Ikony.Klucz,
             )
         }
@@ -136,11 +140,11 @@ fun EkranNowaGrupa(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Pole("Nazwa grupy · Group name", nazwaGrupy, { nazwaGrupy = it })
+            Pole(t("Nazwa grupy", "Group name"), nazwaGrupy, { nazwaGrupy = it })
 
             if (kontakty.isNotEmpty()) {
                 Text(
-                    "Wybierz z kontaktów",
+                    t("Wybierz z kontaktów", "Pick from contacts"),
                     style = MaterialTheme.typography.labelMedium,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -160,7 +164,7 @@ fun EkranNowaGrupa(
                         Text(model.nick(osoba), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Icon(
                             imageVector = if (zaznaczony) Ikony.Wyslane else Ikony.Dodaj,
-                            contentDescription = if (zaznaczony) "Wybrany" else "Dodaj",
+                            contentDescription = if (zaznaczony) t("Wybrany", "Selected") else t("Dodaj", "Add"),
                             tint = if (zaznaczony) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
                             modifier = Modifier.size(20.dp),
                         )
@@ -170,7 +174,7 @@ fun EkranNowaGrupa(
 
             // Dodanie po nazwie — dla kogoś, z kim jeszcze nie rozmawiasz.
             Text(
-                "Dodaj po nazwie",
+                t("Dodaj po nazwie", "Add by username"),
                 style = MaterialTheme.typography.labelMedium,
                 color = Nocturne.kolory.tekstDrugi,
             )
@@ -179,13 +183,13 @@ fun EkranNowaGrupa(
                 horizontalArrangement = Arrangement.spacedBy(Odstep.m),
             ) {
                 Pole(
-                    "Nazwa użytkownika · Username",
+                    t("Nazwa użytkownika", "Username"),
                     dopisany,
                     { dopisany = it },
                     modifier = Modifier.weight(1f),
                 )
                 PrzyciskDrugi(
-                    "Dodaj",
+                    t("Dodaj", "Add"),
                     modifier = Modifier.widthIn(min = 96.dp),
                     wlaczony = dopisany.isNotBlank(),
                 ) {
@@ -197,7 +201,7 @@ fun EkranNowaGrupa(
 
             if (wybrani.isNotEmpty()) {
                 Text(
-                    "W grupie · ${wybrani.size}",
+                    t("W grupie · ${wybrani.size}", "In the group · ${wybrani.size}"),
                     style = MaterialTheme.typography.labelMedium,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -213,7 +217,7 @@ fun EkranNowaGrupa(
                         Text(model.nick(osoba), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         Icon(
                             Ikony.Zamknij,
-                            contentDescription = "Usuń z grupy",
+                            contentDescription = t("Usuń z grupy", "Remove from group"),
                             tint = Nocturne.kolory.tekstTrzeci,
                             modifier = Modifier
                                 .size(18.dp)
@@ -224,15 +228,19 @@ fun EkranNowaGrupa(
             }
 
             PrzyciskGlowny(
-                if (stan.pracuje) "Tworzę…" else "Utwórz grupę · Create group",
+                if (stan.pracuje) t("Tworzę…", "Creating…") else t("Utwórz grupę", "Create group"),
                 wlaczony = !stan.pracuje && wybrani.isNotEmpty(),
             ) {
                 model.utworzGrupe(wybrani.toList(), nazwaGrupy.trim())
             }
 
             Wskazowka(
-                "Każdy dołączy ze wszystkimi swoimi urządzeniami. Wcześniejszych wiadomości " +
-                    "nie da się nowym osobom pokazać — i jest to zamierzone.",
+                t(
+                    "Każdy dołączy ze wszystkimi swoimi urządzeniami. Wcześniejszych wiadomości " +
+                        "nie da się nowym osobom pokazać — i jest to zamierzone.",
+                    "Everyone joins with all their devices. Earlier messages can't be shown to " +
+                        "new members — and that's deliberate.",
+                ),
                 Ikony.Klucz,
             )
         }
@@ -313,7 +321,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
 
                     if (jaTo) {
                         Text(
-                            "Ty",
+                            t("Ty", "You"),
                             style = MaterialTheme.typography.labelMedium,
                             color = Nocturne.kolory.tekstDrugi,
                         )
@@ -327,7 +335,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                         ) {
                             Icon(
                                 Ikony.Blokuj,
-                                contentDescription = if (zablokowana) "Odblokuj" else "Zablokuj",
+                                contentDescription = if (zablokowana) t("Odblokuj", "Unblock") else t("Zablokuj", "Block"),
                                 tint = if (zablokowana) MaterialTheme.colorScheme.error
                                 else Nocturne.kolory.tekstTrzeci,
                                 modifier = Modifier.size(18.dp),
@@ -337,9 +345,9 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                 }
             }
 
-            Pole("Dodaj osobę · Add member", nowy, { nowy = it })
+            Pole(t("Dodaj osobę", "Add member"), nowy, { nowy = it })
             PrzyciskDrugi(
-                if (stan.pracuje) "Dodaję…" else "Dodaj",
+                if (stan.pracuje) t("Dodaję…", "Adding…") else t("Dodaj", "Add"),
                 wlaczony = !stan.pracuje && nowy.isNotBlank(),
             ) {
                 model.dodajCzlonka(nowy.trim())
@@ -347,8 +355,12 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
             }
 
             Wskazowka(
-                "Nowa osoba zobaczy wiadomości od momentu dołączenia. Wcześniejszych nie da " +
-                    "się jej pokazać — i jest to zamierzone.",
+                t(
+                    "Nowa osoba zobaczy wiadomości od momentu dołączenia. Wcześniejszych nie da " +
+                        "się jej pokazać — i jest to zamierzone.",
+                    "A new member sees messages from the moment they join. Earlier ones can't " +
+                        "be shown to them — and that's deliberate.",
+                ),
                 Ikony.Klucz,
             )
 
@@ -368,7 +380,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
                     ) {
                         Icon(Ikony.Odcisk, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                        Text("Kod bezpieczeństwa", style = MaterialTheme.typography.labelLarge)
+                        Text(t("Kod bezpieczeństwa", "Safety number"), style = MaterialTheme.typography.labelLarge)
                     }
 
                     // Cyfry w dwóch wierszach po sześć grup — tak da się je
@@ -384,16 +396,24 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     )
 
                     Text(
-                        "Porównaj innym kanałem — na żywo albo telefonicznie. Porównanie " +
-                            "przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.",
+                        t(
+                            "Porównaj innym kanałem — na żywo albo telefonicznie. Porównanie " +
+                                "przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.",
+                            "Compare it over another channel — in person or by phone. Comparing " +
+                                "through this app proves nothing: that channel is what we're checking.",
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = Nocturne.kolory.tekstDrugi,
                     )
                 }
 
                 Wskazowka(
-                    "Kod zmienia się przy każdej zmianie składu i przy dołączeniu urządzenia — " +
-                        "wtedy trzeba porównać go ponownie.",
+                    t(
+                        "Kod zmienia się przy każdej zmianie składu i przy dołączeniu urządzenia — " +
+                            "wtedy trzeba porównać go ponownie.",
+                        "The code changes on every membership change and when a device joins — " +
+                            "then it needs comparing again.",
+                    ),
                     Ikony.Odcisk,
                 )
             }
@@ -401,7 +421,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
             // Opuszczenie grupy — NAPRAWDĘ wychodzimy z MLS. Tylko dla grup:
             // z rozmowy prywatnej „wychodzi się" przez usunięcie albo blokadę.
             if (grupa && groupId != null) {
-                PrzyciskNiszczacy("Opuść grupę · Leave group") { pytajOOpuszczenie = true }
+                PrzyciskNiszczacy(t("Opuść grupę", "Leave group")) { pytajOOpuszczenie = true }
             }
         }
     }
@@ -409,11 +429,15 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
     if (pytajOOpuszczenie && groupId != null) {
         AlertDialog(
             onDismissRequest = { pytajOOpuszczenie = false },
-            title = { Text("Opuścić tę grupę?") },
+            title = { Text(t("Opuścić tę grupę?", "Leave this group?")) },
             text = {
                 Text(
-                    "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. " +
-                        "Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
+                    t(
+                        "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. " +
+                            "Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
+                        "You'll leave the group for everyone — you stop getting its messages. " +
+                            "To come back, someone has to invite you again.",
+                    ),
                 )
             },
             confirmButton = {
@@ -422,11 +446,11 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     model.opuscGrupe(groupId)
                     onWstecz()
                 }) {
-                    Text("Opuść", color = MaterialTheme.colorScheme.error)
+                    Text(t("Opuść", "Leave"), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pytajOOpuszczenie = false }) { Text("Anuluj") }
+                TextButton(onClick = { pytajOOpuszczenie = false }) { Text(t("Anuluj", "Cancel")) }
             },
         )
     }
@@ -455,12 +479,12 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Icon(Ikony.Zegar, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-            Text("Znikające wiadomości", style = MaterialTheme.typography.labelLarge)
+            Text(t("Znikające wiadomości", "Disappearing messages"), style = MaterialTheme.typography.labelLarge)
         }
 
         Text(
-            if (sekundy != null) "Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}."
-            else "Wyłączone — wiadomości zostają, dopóki ich nie usuniesz.",
+            if (sekundy != null) t("Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}.", "Messages disappear from this device after: ${opisZnikania(sekundy)}.")
+            else t("Wyłączone — wiadomości zostają, dopóki ich nie usuniesz.", "Off — messages stay until you delete them."),
             style = MaterialTheme.typography.bodySmall,
             color = Nocturne.kolory.tekstDrugi,
         )
@@ -476,8 +500,8 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
                     onZmien(preset.sekundy)
                 }
             }
-            Chip("Własny…", aktywny = wlasny) { wlasny = !wlasny }
-            if (sekundy != null) Chip("Wyłącz", niszczacy = true) { onZmien(null) }
+            Chip(t("Własny…", "Custom…"), aktywny = wlasny) { wlasny = !wlasny }
+            if (sekundy != null) Chip(t("Wyłącz", "Off"), niszczacy = true) { onZmien(null) }
         }
 
         if (wlasny) {
@@ -490,7 +514,7 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
                     Chip(j.etykieta, aktywny = jednostka == j.mnoznik) { jednostka = j.mnoznik }
                 }
             }
-            PrzyciskGlowny("Ustaw", wlaczony = (ile.toLongOrNull() ?: 0) > 0) {
+            PrzyciskGlowny(t("Ustaw", "Set"), wlaczony = (ile.toLongOrNull() ?: 0) > 0) {
                 val liczba = ile.toLongOrNull() ?: return@PrzyciskGlowny
                 onZmien(liczba * jednostka)
                 wlasny = false
@@ -561,7 +585,7 @@ private fun EdytorNazwyGrupy(nazwa: String, onZapisz: (String) -> Unit) {
         ) {
             Icon(
                 Ikony.Wyslane,
-                contentDescription = "Zapisz nazwę grupy",
+                contentDescription = t("Zapisz nazwę grupy", "Save group name"),
                 tint = if (zmienione) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
                 modifier = Modifier.size(20.dp),
             )

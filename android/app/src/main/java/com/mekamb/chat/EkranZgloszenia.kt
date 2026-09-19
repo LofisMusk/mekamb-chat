@@ -73,7 +73,7 @@ fun EkranZgloszenia(
     var wynik by remember { mutableStateOf<String?>(null) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        NaglowekEkranu(t("Zgłoś błąd", "Report a bug"))
+        PasekZPowrotem(t("Zgłoś błąd", "Report a problem"), onWstecz = onWstecz)
 
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -90,13 +90,18 @@ fun EkranZgloszenia(
                         tint = Nocturne.kolory.akcentTekst,
                         modifier = Modifier.size(16.dp),
                     )
-                    Text("Zgłoszenie jest publiczne", style = MaterialTheme.typography.labelLarge)
+                    Text(t("Zgłoszenie jest publiczne", "Reports are public"), style = MaterialTheme.typography.labelLarge)
                 }
 
                 Text(
-                    "Trafia na stronę projektu, gdzie każdy może je przeczytać. Nie wysyłamy " +
-                        "Twojej nazwy ani niczego z rozmów — ale nie wpisuj tu rzeczy, " +
-                        "których nie chcesz pokazać.",
+                    t(
+                        "Trafia na stronę projektu, gdzie każdy może je przeczytać. Nie wysyłamy " +
+                            "Twojej nazwy ani niczego z rozmów — ale nie wpisuj tu rzeczy, " +
+                            "których nie chcesz pokazać.",
+                        "It goes to the project's page where anyone can read it. We don't send " +
+                            "your username or anything from your chats — but don't type things " +
+                            "here you don't want shown.",
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -104,14 +109,14 @@ fun EkranZgloszenia(
 
             Karta {
                 Pole(
-                    etykieta = "Co się stało?",
+                    etykieta = t("Co się stało?", "What happened?"),
                     wartosc = opis,
                     onZmiana = { opis = it },
-                    podpowiedz = "Np. aplikacja gaśnie, kiedy odbieram połączenie.",
+                    podpowiedz = t("Np. aplikacja gaśnie, kiedy odbieram połączenie.", "E.g. the app dies when I answer a call."),
                 )
 
                 Pole(
-                    etykieta = "Telefon i wersja",
+                    etykieta = t("Telefon i wersja", "Phone and version"),
                     wartosc = kontekst,
                     onZmiana = { kontekst = it },
                 )
@@ -126,7 +131,7 @@ fun EkranZgloszenia(
                 }
 
                 PrzyciskGlowny(
-                    tekst = if (wysylam) "Wysyłam…" else "Wyślij",
+                    tekst = if (wysylam) t("Wysyłam…", "Sending…") else t("Wyślij", "Send"),
                     wlaczony = opis.isNotBlank() && !wysylam,
                     onClick = {
                         wysylam = true
@@ -146,7 +151,6 @@ fun EkranZgloszenia(
                 )
             }
 
-            PrzyciskDrugi(tekst = "Wróć", onClick = onWstecz)
         }
     }
 }

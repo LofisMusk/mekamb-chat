@@ -1,6 +1,7 @@
 package com.mekamb.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,7 +57,12 @@ import androidx.compose.ui.unit.dp
  * przy zakładaniu hasła, którego nikt nie odzyska, i przy przenoszeniu konta.
  */
 @Composable
-fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
+fun EkranPowitania(
+    model: ChatViewModel,
+    jezyk: Jezyk,
+    onJezyk: (Jezyk) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -72,9 +79,60 @@ fun EkranPowitania(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.size(Odstep.xxl))
+        // Przyciski wejścia: akcja główna wypełniona z „+", reszta neutralna —
+        // dokładnie jak w projekcie „Mekamb Mobile". Passkey pokazujemy tylko,
+        // gdy urządzenie ma czym go obsłużyć, żeby nie było martwej kontrolki.
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
-            PrzyciskGlowny("Załóż konto · Create account") { model.pokaz(Ekran.REJESTRACJA) }
-            PrzyciskDrugi("Mam już konto · Sign in") { model.pokaz(Ekran.LOGOWANIE) }
+            PrzyciskGlowny(t("Załóż konto", "Create account"), ikona = Ikony.Dodaj) {
+                model.pokaz(Ekran.REJESTRACJA)
+            }
+            PrzyciskDrugi(t("Mam już konto", "I already have an account")) {
+                model.pokaz(Ekran.LOGOWANIE)
+            }
+        }
+
+        Spacer(Modifier.size(Odstep.xl))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            PrzelacznikJezyka(jezyk, onJezyk)
+        }
+    }
+}
+
+/**
+ * Kompaktowy przełącznik PL/EN.
+ *
+ * Wąska pigułka wyśrodkowana na dole powitania, jak w projekcie — a nie
+ * [KontrolkaSegmentowa] na całą szerokość, która jest do ustawień. Ten sam
+ * język tokenów (tor `karta2`, kciuk `segment`), tylko węższy.
+ */
+@Composable
+fun PrzelacznikJezyka(jezyk: Jezyk, onJezyk: (Jezyk) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(Nocturne.kolory.karta2, RoundedCornerShape(9.dp))
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        for (opcja in Jezyk.entries) {
+            val aktywna = opcja == jezyk
+            val ksztalt = RoundedCornerShape(7.dp)
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(32.dp)
+                    .then(
+                        if (aktywna) Modifier.background(Nocturne.kolory.segment, ksztalt)
+                        else Modifier,
+                    )
+                    .clickable { onJezyk(opcja) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    opcja.etykieta,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (aktywna) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
+                )
+            }
         }
     }
 }
@@ -97,35 +155,39 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
             .verticalScroll(rememberScrollState())
             .imePadding(),
     ) {
-        PasekZPowrotem("Nowe konto", "New account") { model.pokaz(Ekran.POWITANIE) }
+        PasekZPowrotem(t("Nowe konto", "New account")) { model.pokaz(Ekran.POWITANIE) }
 
         Column(
             modifier = Modifier.padding(horizontal = Odstep.xl),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Pole("Nazwa użytkownika · Username", username, { username = it })
-            Pole("Hasło · Password", haslo, { haslo = it }, haslo = true)
+            Pole(t("Nazwa użytkownika", "Username"), username, { username = it })
+            Pole(t("Hasło", "Password"), haslo, { haslo = it }, haslo = true)
             SilaHasla(haslo)
         }
 
         Spacer(Modifier.size(Odstep.l))
         Column(modifier = Modifier.padding(horizontal = Odstep.xl)) {
         Wskazowka(
-            "Hasło nie opuszcza tego urządzenia (OPAQUE). Serwer nigdy go nie zobaczy — " +
-                "ale też nie pomoże Ci go odzyskać.",
+            t(
+                "Hasło nie opuszcza tego urządzenia (OPAQUE). Serwer nigdy go nie zobaczy — " +
+                    "ale też nie pomoże Ci go odzyskać.",
+                "Your password never leaves this device (OPAQUE). The server never sees it — " +
+                    "but it also cannot help you recover it.",
+            ),
             Ikony.Klucz,
         )
 
         Spacer(Modifier.size(Odstep.l))
         PrzyciskGlowny(
-            if (stan.pracuje) "Zakładam…" else "Załóż konto · Create account",
+            if (stan.pracuje) t("Zakładam…", "Creating…") else t("Załóż konto", "Create account"),
             wlaczony = !stan.pracuje && username.length >= 3 && haslo.length >= MINIMUM_HASLA,
         ) {
             model.zarejestruj(username.trim(), haslo)
         }
 
         Spacer(Modifier.size(Odstep.s))
-        PrzyciskCichy("Mam już konto") { model.pokaz(Ekran.LOGOWANIE) }
+        PrzyciskCichy(t("Mam już konto", "I already have an account")) { model.pokaz(Ekran.LOGOWANIE) }
         }
     }
 }
@@ -197,17 +259,17 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
     ) {
         OdznakaMarki()
         Spacer(Modifier.size(Odstep.m))
-        NaglowekEkranu("Logowanie", "Sign in to mekamb")
+        NaglowekEkranu(t("Logowanie", "Sign in"))
 
         Spacer(Modifier.size(Odstep.xl))
         Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
-            Pole("Nazwa użytkownika · Username", username, { username = it })
-            Pole("Hasło · Password", haslo, { haslo = it }, haslo = true)
+            Pole(t("Nazwa użytkownika", "Username"), username, { username = it })
+            Pole(t("Hasło", "Password"), haslo, { haslo = it }, haslo = true)
         }
 
         Spacer(Modifier.size(Odstep.xl))
         PrzyciskGlowny(
-            if (model.stan.pracuje) "Sprawdzam…" else "Dalej · Continue",
+            if (model.stan.pracuje) t("Sprawdzam…", "Checking…") else t("Dalej", "Continue"),
             wlaczony = !model.stan.pracuje && username.isNotBlank() && haslo.isNotBlank(),
         ) {
             model.zalogujHaslem(username.trim(), haslo)
@@ -221,7 +283,7 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         // inaczej niż przez odinstalowanie aplikacji. Powitanie prowadzi do
         // wszystkich trzech dróg wejścia, więc wystarczy do niego wrócić.
         Spacer(Modifier.size(Odstep.s))
-        PrzyciskCichy("Nie mam jeszcze konta · Create account") { model.pokaz(Ekran.POWITANIE) }
+        PrzyciskCichy(t("Nie mam jeszcze konta", "I don't have an account yet")) { model.pokaz(Ekran.POWITANIE) }
     }
 }
 
@@ -231,7 +293,7 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
     var kod by remember { mutableStateOf("") }
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Kod z authenticatora", "Authenticator code") {
+        PasekZPowrotem(t("Kod z authenticatora", "Authenticator code")) {
             model.pokaz(Ekran.LOGOWANIE)
         }
 
@@ -242,16 +304,19 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
                 .padding(horizontal = Odstep.xl),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
-            Pole("Sześć cyfr · Six digits", kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
+            Pole(t("Sześć cyfr", "Six digits"), kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
 
             Text(
-                "Kod odświeża się co 30 s. Sekret jest tylko w Twojej aplikacji authenticator.",
+                t(
+                    "Kod odświeża się co 30 s. Sekret jest tylko w Twojej aplikacji authenticator.",
+                    "The code refreshes every 30 s. The secret is only in your authenticator app.",
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = Nocturne.kolory.tekstDrugi,
             )
 
             PrzyciskGlowny(
-                if (model.stan.pracuje) "Loguję…" else "Zaloguj · Sign in",
+                if (model.stan.pracuje) t("Loguję…", "Signing in…") else t("Zaloguj", "Sign in"),
                 wlaczony = !model.stan.pracuje && kod.length == 6,
             ) {
                 model.zalogujKodem(kod)
@@ -261,14 +326,13 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
 }
 
 /**
- * Pasek z powrotem i dwujęzycznym tytułem.
+ * Pasek z powrotem i tytułem w wybranym języku.
  *
  * Wysokość celu dotyku 44 dp z projektu — powyżej minimum Androida.
  */
 @Composable
 fun PasekZPowrotem(
     tytul: String,
-    podtytul: String,
     modifier: Modifier = Modifier,
     onWstecz: () -> Unit,
 ) {
@@ -278,11 +342,8 @@ fun PasekZPowrotem(
         horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {
         IconButton(onClick = onWstecz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-            Icon(Ikony.Wstecz, contentDescription = "Wróć", tint = Nocturne.kolory.tekst)
+            Icon(Ikony.Wstecz, contentDescription = t("Wróć", "Back"), tint = Nocturne.kolory.tekst)
         }
-        Column {
-            Text(tytul, style = MaterialTheme.typography.titleMedium)
-            Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
-        }
+        Text(tytul, style = MaterialTheme.typography.titleMedium)
     }
 }

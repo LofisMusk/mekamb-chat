@@ -86,4 +86,28 @@ object Motyw {
             .putString(KLUCZ_AKCENT, akcent.name)
             .apply()
     }
+
+    /**
+     * Wybrany język interfejsu.
+     *
+     * Ten sam plik co motyw i akcent — kolejne ustawienie wyglądu, które musi
+     * działać od pierwszego ekranu, jeszcze przed odblokowaniem `Vault`.
+     * Domyślnie polski, jak reszta aplikacji.
+     */
+    private const val KLUCZ_JEZYK = "jezyk"
+
+    fun wczytajJezyk(context: Context): Jezyk {
+        val zapisane = context
+            .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
+            .getString(KLUCZ_JEZYK, null)
+        return Jezyk.entries.firstOrNull { it.name == zapisane } ?: Jezyk.PL
+    }
+
+    fun zapiszJezyk(context: Context, jezyk: Jezyk) {
+        context
+            .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KLUCZ_JEZYK, jezyk.name)
+            .apply()
+    }
 }

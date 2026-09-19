@@ -64,7 +64,7 @@ fun EkranNowaRozmowa(
     val stan = model.stan
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Nowa rozmowa", "New chat", onWstecz = onWstecz)
+        PasekZPowrotem(t("Nowa rozmowa", "New chat"), onWstecz = onWstecz)
 
         Column(
             Modifier
@@ -125,7 +125,7 @@ fun EkranNowaGrupa(
     val wybrani = remember { mutableStateListOf<String>() }
 
     Column(modifier = modifier.fillMaxSize()) {
-        PasekZPowrotem("Nowa grupa", "New group", onWstecz = onWstecz)
+        PasekZPowrotem(t("Nowa grupa", "New group"), onWstecz = onWstecz)
 
         Column(
             Modifier
@@ -265,8 +265,8 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
 
     Column(modifier = modifier.fillMaxSize()) {
         PasekZPowrotem(
-            if (grupa) "Grupa · ${uczestnicy.size} osób" else "Rozmowa prywatna",
-            "Members from the MLS tree",
+            if (grupa) t("Grupa · ${uczestnicy.size} osób", "Group · ${uczestnicy.size} people")
+            else t("Rozmowa prywatna", "Private chat"),
             onWstecz = onWstecz,
         )
 

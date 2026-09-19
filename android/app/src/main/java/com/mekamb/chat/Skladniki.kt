@@ -66,6 +66,7 @@ fun PrzyciskGlowny(
     tekst: String,
     modifier: Modifier = Modifier,
     wlaczony: Boolean = true,
+    ikona: ImageVector? = null,
     onClick: () -> Unit,
 ) {
     Button(
@@ -80,7 +81,7 @@ fun PrzyciskGlowny(
             disabledContentColor = Nocturne.kolory.tekstTrzeci,
         ),
     ) {
-        Text(tekst, style = MaterialTheme.typography.labelLarge)
+        TrescPrzycisku(tekst, ikona)
     }
 }
 
@@ -90,6 +91,7 @@ fun PrzyciskDrugi(
     tekst: String,
     modifier: Modifier = Modifier,
     wlaczony: Boolean = true,
+    ikona: ImageVector? = null,
     onClick: () -> Unit,
 ) {
     Button(
@@ -104,6 +106,22 @@ fun PrzyciskDrugi(
             disabledContentColor = Nocturne.kolory.tekstTrzeci,
         ),
     ) {
+        TrescPrzycisku(tekst, ikona)
+    }
+}
+
+/** Etykieta przycisku, opcjonalnie z ikoną przed tekstem — jak w projekcie. */
+@Composable
+private fun TrescPrzycisku(tekst: String, ikona: ImageVector?) {
+    if (ikona != null) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(ikona, null, modifier = Modifier.size(16.dp))
+            Text(tekst, style = MaterialTheme.typography.labelLarge)
+        }
+    } else {
         Text(tekst, style = MaterialTheme.typography.labelLarge)
     }
 }
@@ -210,14 +228,15 @@ fun OdznakaMarki(modifier: Modifier = Modifier) {
 }
 
 /**
- * Nagłówek ekranu: tytuł po polsku i drugorzędna linia po angielsku.
+ * Nagłówek ekranu — jedna linia w wybranym języku.
+ *
+ * Wcześniej niósł podtytuł po angielsku pod polskim tytułem; z przełącznikiem
+ * PL/EN (patrz [Jezyk]) napis dwujęzyczny nie ma już sensu — jest jeden tytuł,
+ * a język wybiera przełącznik. Projekt „Mekamb Mobile" też ma nagłówki jednoliniowe.
  */
 @Composable
-fun NaglowekEkranu(tytul: String, podtytul: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.xs)) {
-        Text(tytul, style = MaterialTheme.typography.headlineMedium)
-        Text(podtytul, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
-    }
+fun NaglowekEkranu(tytul: String, modifier: Modifier = Modifier) {
+    Text(tytul, style = MaterialTheme.typography.headlineMedium, modifier = modifier)
 }
 
 /**

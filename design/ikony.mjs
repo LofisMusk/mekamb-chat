@@ -280,9 +280,20 @@ export const IKONY = [
 
   // --- Bezpieczeństwo -------------------------------------------------------
   {
+    // Ten sam znak co ikona aplikacji (`logo.png`): „M" w narożnikach kadru.
+    // Wcześniej markę grała tarcza, więc ekran wejścia pokazywał co innego niż
+    // ikona, którą użytkownik właśnie stuknął.
+    nazwa: "marka",
+    kotlin: "Marka",
+    opis: "Znak firmowy — ten sam co ikona aplikacji. Mówi, gdzie jesteś, i nic ponadto.",
+    sciezka:
+      "M4 8.5 V4 H9 M15 4 H20 V8.5 M20 15.5 V20 H15 M9 20 H4 V15.5 " +
+      "M8.5 16 V8 L12 12.5 L15.5 8 V16",
+  },
+  {
     nazwa: "tarcza",
     kotlin: "Tarcza",
-    opis: "Znak firmowy i szyfrowanie end-to-end.",
+    opis: "Ochrona danych: szyfrowanie end-to-end i usuwanie metadanych z plików.",
     sciezka:
       "M12 3 L20 6 V12 C20 16.5 16.5 19.8 12 21 C7.5 19.8 4 16.5 4 12 V6 Z " +
       "M9 12 L11 14 L15.5 9.5",

@@ -191,7 +191,7 @@ fun Pole(
     }
 }
 
-/** Znak firmowy: wypełnione kółko akcentu z białą tarczą. */
+/** Znak firmowy: wypełnione kółko akcentu z białym znakiem z ikony aplikacji. */
 @Composable
 fun OdznakaMarki(modifier: Modifier = Modifier) {
     Box(
@@ -201,7 +201,7 @@ fun OdznakaMarki(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = Ikony.Tarcza,
+            imageVector = Ikony.Marka,
             contentDescription = null,
             tint = Color.White,
             modifier = Modifier.size(18.dp),

@@ -328,3 +328,44 @@ android.sourceSets.getByName("main") {
 // wbudowana i ten typ nie jest już widoczny w skrypcie budowania.
 tasks.matching { it.name.startsWith("compile") && it.name.contains("Kotlin") }
     .configureEach { dependsOn(generateUniffiBindings) }
+
+// ---------------------------------------------------------------------------
+// Uruchamianie z Android Studio
+// ---------------------------------------------------------------------------
+
+/**
+ * Włącza zainstalowaną aplikację na każdym podłączonym urządzeniu.
+ *
+ * Potrzebne konfiguracjom z `android/.run/` (emulator, dev, release): backend
+ * wybiera się przez `-PapiUrl`, a zwykła konfiguracja „app" nie ma gdzie
+ * przyjąć parametru Gradle'a — więc te konfiguracje są zadaniami Gradle'a
+ * (`installDebug` + to), a Gradle sam z siebie po instalacji niczego nie
+ * uruchamia. Flavory dałyby to samo przez „Build Variants", ale zmieniają
+ * nazwy zadań (`assembleProdRelease`), na których stoją workflowy i instrukcje.
+ */
+val uruchomAplikacje by tasks.registering {
+    group = "uruchamianie"
+    description = "Uruchamia zainstalowaną aplikację na podłączonych urządzeniach"
+    mustRunAfter("installDebug")
+
+    val adb = androidComponents.sdkComponents.adb
+    val aktywnosc = "${android.defaultConfig.applicationId}/com.mekamb.chat.MainActivity"
+    doLast {
+        val adbPath = adb.get().asFile.absolutePath
+        fun uruchom(vararg argumenty: String): String {
+            val proces = ProcessBuilder(adbPath, *argumenty).redirectErrorStream(true).start()
+            val wynik = proces.inputStream.bufferedReader().readText()
+            check(proces.waitFor() == 0) { "adb ${argumenty.joinToString(" ")}: $wynik" }
+            return wynik
+        }
+        val urzadzenia = uruchom("devices").lines().drop(1)
+            .map { it.split("\t") }
+            .filter { it.size == 2 && it[1].trim() == "device" }
+            .map { it[0] }
+        check(urzadzenia.isNotEmpty()) { "Brak podłączonego urządzenia ani uruchomionego emulatora." }
+        urzadzenia.forEach { numer ->
+            uruchom("-s", numer, "shell", "am", "start", "-n", aktywnosc)
+            logger.lifecycle("Uruchomiono na $numer")
+        }
+    }
+}

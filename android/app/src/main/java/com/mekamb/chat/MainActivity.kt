@@ -417,6 +417,8 @@ private fun Zawartosc(
                     onMotyw = onMotyw,
                     akcent = akcent,
                     onAkcent = onAkcent,
+                    jezyk = jezyk,
+                    onJezyk = onJezyk,
                     odczyt = odczytPotwierdzen,
                     onOdczyt = {
                         odczytPotwierdzen = it

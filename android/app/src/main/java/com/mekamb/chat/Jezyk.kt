@@ -51,7 +51,15 @@ val LokalnyJezyk = staticCompositionLocalOf { Jezyk.PL }
  */
 @Composable
 @ReadOnlyComposable
-fun t(pl: String, en: String): String = when (LokalnyJezyk.current) {
+fun t(pl: String, en: String): String = t(LokalnyJezyk.current, pl, en)
+
+/**
+ * Wariant bez kontekstu Compose — gdy język trzeba rozstrzygnąć w miejscu, które
+ * samo nie jest węzłem UI (lambda launchera, korutyna, callback). Wtedy język
+ * odczytuje się raz na górze funkcji composable (`val jezyk = LokalnyJezyk.current`)
+ * i podaje tutaj.
+ */
+fun t(jezyk: Jezyk, pl: String, en: String): String = when (jezyk) {
     Jezyk.PL -> pl
     Jezyk.EN -> en
 }

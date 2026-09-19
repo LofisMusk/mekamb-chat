@@ -190,6 +190,39 @@ val hostLibExt = when {
     else -> "so"
 }
 
+/**
+ * PATH, w którym na pewno jest `cargo` i `cargo-ndk`.
+ *
+ * Android Studio uruchomione z Docka nie czyta `.zshrc`, więc dostaje goły
+ * systemowy PATH — z terminala build działał, z IDE padał na „Cannot run
+ * program cargo". Dokładamy typowe miejsca instalacji (rustup ze skryptu,
+ * rustup i rust z Homebrew) zamiast wymagać od każdego konfigurowania IDE.
+ * `~/.cargo/bin` jest potrzebne także wtedy, gdy samo `cargo` leży gdzie
+ * indziej: tam `cargo install` kładzie `cargo-ndk`.
+ */
+val rustPath: String = run {
+    val dom = System.getProperty("user.home")
+    val dodatkowe = listOfNotNull(
+        System.getenv("CARGO_HOME")?.let { "$it/bin" },
+        "$dom/.cargo/bin",
+        "/opt/homebrew/opt/rustup/bin",
+        "/opt/homebrew/bin",
+        "/usr/local/opt/rustup/bin",
+        "/usr/local/bin",
+    )
+    (dodatkowe + (System.getenv("PATH") ?: "").split(File.pathSeparator))
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(File.pathSeparator)
+}
+
+/** Bezwzględna ścieżka do `cargo` — `commandLine` szuka programu w PATH Gradle'a, nie w `environment`. */
+val cargo: String = rustPath.split(File.pathSeparator)
+    .map { File(it, "cargo") }
+    .firstOrNull { it.canExecute() }
+    ?.absolutePath
+    ?: "cargo"
+
 val rustRoot = rootProject.file("..")
 val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
 val generatedKotlin = layout.buildDirectory.dir("generated/uniffi")
@@ -208,9 +241,10 @@ val buildRustLibs by tasks.registering(Exec::class) {
     }
 
     workingDir = rustRoot
+    environment("PATH", rustPath)
     commandLine(
         buildList {
-            add("cargo")
+            add(cargo)
             add("ndk")
             abi.forEach { add("-t"); add(it) }
             add("-o"); add(jniLibsDir.asFile.absolutePath)
@@ -241,7 +275,8 @@ val buildHostLib by tasks.registering(Exec::class) {
     description = "Buduje rdzeń dla hosta, żeby odczytać metadane UniFFI"
 
     workingDir = rustRoot
-    commandLine("cargo", "build", "-p", "mekamb-ffi")
+    environment("PATH", rustPath)
+    commandLine(cargo, "build", "-p", "mekamb-ffi")
 
     inputs.dir(rustRoot.resolve("core"))
     inputs.dir(rustRoot.resolve("opaque"))
@@ -257,8 +292,9 @@ val generateUniffiBindings by tasks.registering(Exec::class) {
     val biblioteka = rustRoot.resolve("target/debug/libmekamb_ffi.$hostLibExt")
 
     workingDir = rustRoot
+    environment("PATH", rustPath)
     commandLine(
-        "cargo", "run", "-p", "mekamb-ffi", "--bin", "uniffi-bindgen", "--",
+        cargo, "run", "-p", "mekamb-ffi", "--bin", "uniffi-bindgen", "--",
         "generate", "--library", biblioteka.absolutePath,
         "--language", "kotlin",
         "--out-dir", generatedKotlin.get().asFile.absolutePath,

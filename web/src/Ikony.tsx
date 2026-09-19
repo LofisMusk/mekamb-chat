@@ -5,7 +5,7 @@
  * Poprawka wpisana tutaj zniknie przy najbliższym generowaniu, a test
  * `web/src/lib/ikony.test.ts` wywali się, zanim zdąży komukolwiek pomóc.
  *
- * Zestaw: 50 ikon, płótno 24×24, kontur 1,8.
+ * Zestaw: 51 ikon, płótno 24×24, kontur 1,8.
  * Komponent rysuje kontur w `currentColor`, więc ikona bierze kolor z tekstu
  * obok — w tym systemie kolor niesie stan, a nie sama ikona.
  */
@@ -44,6 +44,7 @@ export type NazwaIkony =
   | "mikrofon"
   | "mikrofonWyciszony"
   | "glosnik"
+  | "marka"
   | "tarcza"
   | "klucz"
   | "odcisk"
@@ -147,7 +148,10 @@ export const SCIEZKI: Record<NazwaIkony, string> = {
   /** Dźwięk rozmowy na głośniku zamiast przy uchu. */
   glosnik: "M4 9.5 H7.5 L12 5.5 V18.5 L7.5 14.5 H4 Z M15 9.8 A4 4 0 0 1 15 14.2" +
     " M17.5 7 A7.5 7.5 0 0 1 17.5 17",
-  /** Znak firmowy i szyfrowanie end-to-end. */
+  /** Znak firmowy — ten sam co ikona aplikacji. Mówi, gdzie jesteś, i nic ponadto. */
+  marka: "M4 8.5 V4 H9 M15 4 H20 V8.5 M20 15.5 V20 H15 M9 20 H4 V15.5" +
+    " M8.5 16 V8 L12 12.5 L15.5 8 V16",
+  /** Ochrona danych: szyfrowanie end-to-end i usuwanie metadanych z plików. */
   tarcza: "M12 3 L20 6 V12 C20 16.5 16.5 19.8 12 21 C7.5 19.8 4 16.5 4 12 V6 Z" +
     " M9 12 L11 14 L15.5 9.5",
   /** Materiał kryptograficzny, który zostaje na urządzeniu. Serwer nie ma czego wydać ani zgubić. */

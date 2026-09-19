@@ -19,11 +19,11 @@ import {
  * po pół roku jest drugą aplikacją.
  */
 
-/** Znak firmowy: obrys akcentu z tarczą w środku. Nigdy wypełniony. */
+/** Znak firmowy: obrys akcentu ze znakiem z ikony aplikacji. Nigdy wypełniony. */
 export function ZnakMarki() {
   return (
     <span className="marka-znak" aria-hidden="true">
-      <Ikona nazwa="tarcza" rozmiar={16} />
+      <Ikona nazwa="marka" rozmiar={18} />
     </span>
   );
 }

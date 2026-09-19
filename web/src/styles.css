@@ -750,7 +750,7 @@ button.ikonowy.aktywny { border-color: var(--akcent); color: var(--akcent-tekst)
 }
 .naglowek-wejscia .tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
-/* Znak firmowy: obrys akcentu z tarczą w środku. Nigdy wypełniony. */
+/* Znak firmowy: obrys akcentu ze znakiem z ikony aplikacji. Nigdy wypełniony. */
 .marka-znak {
   flex: none;
   width: 2.25rem;

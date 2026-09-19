@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
  * Poprawka wpisana tutaj zniknie przy najbliższym generowaniu, a test
  * `web/src/lib/ikony.test.ts` wywali się, zanim zdąży komukolwiek pomóc.
  *
- * Zestaw: 50 ikon, płótno 24×24, kontur 1,8.
+ * Zestaw: 51 ikon, płótno 24×24, kontur 1,8.
  * Rysowane wprost, bo projekt zakłada Phosphor, którego na Androida nie ma bez
  * pliku z krojem, a `material-icons-extended` waży kilka megabajtów przy APK
  * ważącym 5,4 MB.
@@ -205,7 +205,14 @@ object Ikony {
         " M17.5 7 A7.5 7.5 0 0 1 17.5 17",
     )
 
-    /** Znak firmowy i szyfrowanie end-to-end. */
+    /** Znak firmowy — ten sam co ikona aplikacji. Mówi, gdzie jesteś, i nic ponadto. */
+    val Marka = ikona(
+        "marka",
+        "M4 8.5 V4 H9 M15 4 H20 V8.5 M20 15.5 V20 H15 M9 20 H4 V15.5" +
+        " M8.5 16 V8 L12 12.5 L15.5 8 V16",
+    )
+
+    /** Ochrona danych: szyfrowanie end-to-end i usuwanie metadanych z plików. */
     val Tarcza = ikona(
         "tarcza",
         "M12 3 L20 6 V12 C20 16.5 16.5 19.8 12 21 C7.5 19.8 4 16.5 4 12 V6 Z" +

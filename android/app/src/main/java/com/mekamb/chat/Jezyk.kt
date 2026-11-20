@@ -40,7 +40,7 @@ enum class Jezyk {
  * `staticCompositionLocalOf`, jak [LokalneKolory]: język zmienia się rzadko, więc
  * śledzenie odczytów byłoby płaceniem za nic — zmiana i tak przerysowuje gałąź.
  */
-val LokalnyJezyk = staticCompositionLocalOf { Jezyk.PL }
+val LokalnyJezyk = staticCompositionLocalOf { Jezyk.EN }
 
 /**
  * Wybiera połowę pary językowej wg [LokalnyJezyk].

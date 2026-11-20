@@ -361,9 +361,12 @@ private fun PrzyciskRozmowy(
 ) {
     val k = Nocturne.kolory
     val obrys = when {
-        alarmowy -> Nocturne.kolory.alarm
-        wlaczony -> Nocturne.kolory.akcentTekst
-        else -> Nocturne.kolory.liniaMocna
+        alarmowy -> k.alarm.copy(alpha = 0.5f)
+        else -> k.liniaMocna
+    }
+    val tlo = when {
+        alarmowy || wlaczony -> androidx.compose.ui.graphics.Color.Transparent
+        else -> k.wglebienieMocne
     }
 
     // 56 dp, wyraźnie powyżej minimum: w rozmowie trafia się w te przyciski
@@ -426,8 +429,8 @@ fun EkranPrzychodzacejRozmowy(
             verticalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             PrzyciskGlowny(t("Odbierz z obrazem", "Answer with video")) { onOdbierz(true) }
-            PrzyciskDrugi(t("Odbierz głosowo", "Answer with voice")) { onOdbierz(false) }
-            PrzyciskCichy(t("Odrzuć", "Decline")) { onOdrzuc() }
+            PrzyciskObrys(t("Odbierz głosowo", "Answer with voice")) { onOdbierz(false) }
+            PrzyciskDuch(t("Odrzuć", "Decline")) { onOdrzuc() }
         }
     }
 }

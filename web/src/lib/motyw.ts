@@ -15,13 +15,12 @@
  * świata — bo w chwili zapisu system był jeszcze jasny. Wybór użytkownika to
  * „idź za systemem", nie „bądź jasny".
  *
- * # Dlaczego domyślnie jasny, a nie `auto`
+ * # Dlaczego domyślnie `auto`
  *
- * Bo to zwykły komunikator, nie panel sterowania — telefon (`Nocturne.kt`,
- * wariant „Mekamb Mobile") startuje jasno z tych samych powodów: to jest
- * oczekiwany domyślny wygląd większości komunikatorów, a ciemny motyw
- * dołożyliśmy dla tych, którzy go wolą, nie po to, żeby stał się domyślny na
- * połowie urządzeń. Kto chce iść za systemem, wybiera to jawnie.
+ * Nocturne było systemem ciemnym z założenia i dlatego startowało ciemne.
+ * System „Neutralny" (`docs/UI_NEUTRALNY.md`) ma dwie równorzędne palety — ta
+ * sama skala szarości odwrócona — więc nie ma powodu, żeby aplikacja kłóciła
+ * się z ustawieniem telefonu. Kto chce na sztywno, wybiera to jawnie.
  */
 
 /** Co użytkownik wybrał. */
@@ -32,20 +31,9 @@ export type Motyw = "ciemny" | "jasny";
 
 const KLUCZ = "mekamb.motyw";
 
-/**
- * Nazwa zdarzenia wysyłanego po każdym `zastosuj()`.
- *
- * Akcent (`lib/akcent.ts`) liczy swoje tło z tego, czy motyw jest jasny czy
- * ciemny — więc musi przeliczyć się od nowa za każdym razem, kiedy motyw się
- * zmienia, niezależnie od tego, czy zmianę wywołał klik w przełącznik, czy
- * system. Zdarzenie na dokumencie jest tu prostsze niż odwrotna zależność
- * (ten moduł nie musi nic wiedzieć o istnieniu akcentu).
- */
-export const ZDARZENIE_MOTYWU = "mekamb-motyw";
-
 /** Kolor `--tlo` obu motywów. Musi zgadzać się z `styles.css` — patrz test. */
 export const TLO: Record<Motyw, string> = {
-  ciemny: "#000000",
+  ciemny: "#0a0a0a",
   jasny: "#ffffff",
 };
 
@@ -53,15 +41,15 @@ function poprawny(wartosc: string | null): wartosc is WyborMotywu {
   return wartosc === "ciemny" || wartosc === "jasny" || wartosc === "auto";
 }
 
-/** Odczyt wyboru. Cokolwiek innego niż znana wartość znaczy „jasny". */
+/** Odczyt wyboru. Cokolwiek innego niż znana wartość znaczy „za systemem". */
 export function wczytajWybor(magazyn: Pick<Storage, "getItem"> = localStorage): WyborMotywu {
   try {
     const zapisane = magazyn.getItem(KLUCZ);
-    return poprawny(zapisane) ? zapisane : "jasny";
+    return poprawny(zapisane) ? zapisane : "auto";
   } catch {
     // Prywatne okno bez dostępu do magazynu. Motyw jest ustawieniem
     // kosmetycznym — brak zapisu nie może wywrócić startu aplikacji.
-    return "jasny";
+    return "auto";
   }
 }
 
@@ -107,8 +95,6 @@ export function zastosuj(motyw: Motyw, dokument: Document = document) {
 
   const znacznik = dokument.querySelector('meta[name="theme-color"]');
   znacznik?.setAttribute("content", TLO[motyw]);
-
-  dokument.dispatchEvent(new Event(ZDARZENIE_MOTYWU));
 }
 
 /**

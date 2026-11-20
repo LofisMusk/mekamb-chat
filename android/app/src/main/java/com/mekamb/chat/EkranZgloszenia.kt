@@ -83,18 +83,7 @@ fun EkranZgloszenia(
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Karta {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-                ) {
-                    Icon(
-                        Ikony.Ostrzezenie,
-                        contentDescription = null,
-                        tint = Nocturne.kolory.akcentTekst,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(t("Zgłoszenie jest publiczne", "Reports are public"), style = MaterialTheme.typography.labelLarge)
-                }
+                NaglowekKarty(t("Zgłoszenie jest publiczne", "Reports are public"), Ikony.Ostrzezenie)
 
                 Text(
                     t(

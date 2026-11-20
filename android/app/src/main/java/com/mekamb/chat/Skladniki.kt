@@ -165,23 +165,20 @@ fun PrzyciskGlowny(
     modifier: Modifier = Modifier,
     wlaczony: Boolean = true,
     ikona: ImageVector? = null,
+    pelnaSzerokosc: Boolean = true,
     onClick: () -> Unit,
 ) {
     val k = Nocturne.kolory
     PrzyciskBaza(
         onClick = onClick,
-        enabled = wlaczony,
-        modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
-        shape = MaterialTheme.shapes.medium,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Nocturne.kolory.akcent,
-            contentColor = Color.White,
-            disabledContainerColor = Nocturne.kolory.karta2,
-            disabledContentColor = Nocturne.kolory.tekstTrzeci,
-        ),
-    ) {
-        TrescPrzycisku(tekst, ikona)
-    }
+        wlaczony = wlaczony,
+        modifier = modifier,
+        tlo = k.glowny,
+        tloWcisniete = k.glowny.copy(alpha = 0.85f),
+        obrys = null,
+        tresc = k.glownyTekst,
+        pelnaSzerokosc = pelnaSzerokosc,
+    ) { TrescPrzycisku(tekst, ikona) }
 }
 
 /** Akcja drugorzędna — obrys `linia-mocna`, tekst `tekst`. */
@@ -191,39 +188,20 @@ fun PrzyciskObrys(
     modifier: Modifier = Modifier,
     wlaczony: Boolean = true,
     ikona: ImageVector? = null,
+    pelnaSzerokosc: Boolean = true,
     onClick: () -> Unit,
 ) {
     val k = Nocturne.kolory
     PrzyciskBaza(
         onClick = onClick,
-        enabled = wlaczony,
-        modifier = modifier.fillMaxWidth().defaultMinSize(minHeight = Dotyk.kontrolka),
-        shape = MaterialTheme.shapes.medium,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = Nocturne.kolory.karta2,
-            contentColor = Nocturne.kolory.akcentTekst,
-            disabledContainerColor = Nocturne.kolory.karta2,
-            disabledContentColor = Nocturne.kolory.tekstTrzeci,
-        ),
-    ) {
-        TrescPrzycisku(tekst, ikona)
-    }
-}
-
-/** Etykieta przycisku, opcjonalnie z ikoną przed tekstem — jak w projekcie. */
-@Composable
-private fun TrescPrzycisku(tekst: String, ikona: ImageVector?) {
-    if (ikona != null) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(ikona, null, modifier = Modifier.size(16.dp))
-            Text(tekst, style = MaterialTheme.typography.labelLarge)
-        }
-    } else {
-        Text(tekst, style = MaterialTheme.typography.labelLarge)
-    }
+        wlaczony = wlaczony,
+        modifier = modifier,
+        tlo = Color.Transparent,
+        tloWcisniete = k.wglebienie,
+        obrys = k.liniaMocna,
+        tresc = k.tekst,
+        pelnaSzerokosc = pelnaSzerokosc,
+    ) { TrescPrzycisku(tekst, ikona) }
 }
 
 /** Akcja poboczna — „duch": bez tła, tło `wglebienie` dopiero pod palcem. */
@@ -379,16 +357,35 @@ fun Pole(
             },
             placeholder = podpowiedz?.let { { Text(it, color = k.tekstTrzeci) } },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = Nocturne.kolory.akcentTekst,
-                unfocusedBorderColor = Nocturne.kolory.linia,
-                focusedContainerColor = Nocturne.kolory.karta2,
-                unfocusedContainerColor = Nocturne.kolory.karta2,
+                focusedTextColor = k.tekst,
+                unfocusedTextColor = k.tekst,
+                focusedBorderColor = k.pierscien,
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = k.wglebienie,
+                unfocusedContainerColor = k.wglebienie,
+                cursorColor = k.tekst,
             ),
         )
     }
 }
 
-/** Znak firmowy: wypełnione kółko akcentu z białym znakiem z ikony aplikacji. */
+/**
+ * Znacznik gałęzi testowej `dev`.
+ *
+ * Na produkcji (`main`) tego kodu nie ma. Gdy `true`, ekrany wejścia pokazują
+ * [BannerTestowy] i wymagają [ZgodaTestowa] przed założeniem konta — bo ta
+ * wersja CELOWO osłabia zabezpieczenia (pomija 2FA, przyjmuje dowolny kod,
+ * wyłącza limity prób). Patrz README i `server/src/dev.ts`.
+ */
+const val WERSJA_TESTOWA = true
+
+/**
+ * Ostrzeżenie o wersji testowej.
+ *
+ * Rola `ostrzezenie` (bursztyn), nie `alarm`: wersja testowa nie jest błędem,
+ * tylko stanem, o którym trzeba wiedzieć. Bursztyn niesie ikona i obrys; treść
+ * zostaje w `tekst`, bo bursztyn na bieli nie ma kontrastu na zdanie.
+ */
 @Composable
 fun BannerTestowy(modifier: Modifier = Modifier) {
     val k = Nocturne.kolory
@@ -403,7 +400,7 @@ fun BannerTestowy(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.Top,
     ) {
         Icon(
-            imageVector = Ikony.Marka,
+            Ikony.Ostrzezenie,
             contentDescription = null,
             tint = k.ostrzezenie,
             modifier = Modifier.size(18.dp),
@@ -431,15 +428,64 @@ fun BannerTestowy(modifier: Modifier = Modifier) {
 }
 
 /**
- * Nagłówek ekranu — jedna linia w wybranym języku.
+ * Zgoda na korzystanie z wersji testowej — brama przed założeniem konta.
  *
- * Wcześniej niósł podtytuł po angielsku pod polskim tytułem; z przełącznikiem
- * PL/EN (patrz [Jezyk]) napis dwujęzyczny nie ma już sensu — jest jeden tytuł,
- * a język wybiera przełącznik. Projekt „Mekamb Mobile" też ma nagłówki jednoliniowe.
+ * Cały wiersz jest klikalny (`toggleable`), a `Checkbox` sam nie obsługuje
+ * kliknięcia (`onCheckedChange = null`), żeby stan czytnika ekranu nie dublował
+ * się z wierszem. Bez zaznaczenia ekran rejestracji nie pozwala iść dalej.
  */
 @Composable
-fun NaglowekEkranu(tytul: String, modifier: Modifier = Modifier) {
-    Text(tytul, style = MaterialTheme.typography.headlineMedium, modifier = modifier)
+fun ZgodaTestowa(zaznaczone: Boolean, onZmiana: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val k = Nocturne.kolory
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .toggleable(value = zaznaczone, role = Role.Checkbox, onValueChange = onZmiana)
+            .padding(vertical = Odstep.xs),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = zaznaczone,
+            onCheckedChange = null,
+            colors = CheckboxDefaults.colors(
+                checkedColor = k.glowny,
+                checkmarkColor = k.glownyTekst,
+                uncheckedColor = k.liniaMocna,
+            ),
+        )
+        Text(
+            t(
+                "Rozumiem, że to wersja testowa i nie nadaje się do prywatnych rozmów.",
+                "I understand this is a test build and not fit for private conversations.",
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = k.tekstDrugi,
+        )
+    }
+}
+
+/**
+ * Znak firmowy: kwadrat `glowny` ze znakiem z ikony aplikacji.
+ *
+ * To nie jest akcja, więc nie konkuruje z przyciskiem głównym — ale jest jedyną
+ * plamą na powitaniu poza nim, dlatego stoi małe i z dala od przycisków.
+ */
+@Composable
+fun OdznakaMarki(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .background(Nocturne.kolory.glowny, RoundedCornerShape(Promien.m)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Ikony.Marka,
+            contentDescription = null,
+            tint = Nocturne.kolory.glownyTekst,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 /** Nagłówek ekranu — 22, 600, odstęp −0,02em. */

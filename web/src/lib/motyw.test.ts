@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { TLO, ZDARZENIE_MOTYWU, rozwin, wczytajWybor, zapiszWybor, zastosuj } from "./motyw";
+import { TLO, rozwin, wczytajWybor, zapiszWybor, zastosuj } from "./motyw";
 
 const ARKUSZ = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "styles.css"),
@@ -29,36 +29,33 @@ function deklaracje(selektor: string): string[] {
 }
 
 /*
- * Sedno: paleta ciemna jest w arkuszu dwa razy, więc musi być pilnowana.
+ * Sedno: paleta jasna jest w arkuszu dwa razy, więc musi być pilnowana.
  *
  * Powtórzenie nie jest niedopatrzeniem — polityka bezpieczeństwa treści nie
  * dopuszcza skryptów inline, więc przed startem skryptu motyw może wybrać tylko
  * `@media (prefers-color-scheme)`. Reguły z warunkiem `@media` nie da się scalić
- * z regułą po atrybucie, a bez tej pierwszej ktoś z ciemnym systemem widzi
- * jasny błysk przy każdym uruchomieniu — mimo że aplikacja jest jasna
- * z założenia i tylko system podpowiada inaczej.
+ * z regułą po atrybucie, a bez tej pierwszej użytkownik z jasnym systemem widzi
+ * ciemny błysk przy każdym uruchomieniu.
  *
  * Ceną jest kopia, której nikt nie zauważy okiem: różnica jednego odcienia
  * między „motyw wybrany ręcznie" a „motyw z systemu" nie rzuca się w oczy,
  * dopóki ktoś nie postawi obok siebie dwóch urządzeń.
  */
-describe("paleta ciemna", () => {
+describe("paleta jasna", () => {
   it("obie kopie są identyczne", () => {
-    expect(deklaracje(':root:not([data-motyw])')).toEqual(
-      deklaracje(':root[data-motyw="ciemny"]'),
-    );
+    expect(deklaracje(':root:not([data-motyw])')).toEqual(deklaracje(':root[data-motyw="jasny"]'));
   });
 
-  it("każda rola z motywu jasnego ma odpowiednik w ciemnym", () => {
+  it("każda rola z motywu ciemnego ma odpowiednik w jasnym", () => {
     // Rola bez odpowiednika nie jest błędem składni — dziedziczy wartość
-    // z motywu jasnego, więc w ciemnym zostaje jasna plama w jednym miejscu.
+    // z motywu ciemnego, więc w jasnym zostaje ciemna plama w jednym miejscu.
     const role = (bloki: string[]) =>
       bloki.filter((d) => d.startsWith("--")).map((d) => d.split(":")[0]);
 
-    const jasny = role(deklaracje(":root {"));
-    const ciemny = role(deklaracje(':root[data-motyw="ciemny"]'));
+    const ciemny = role(deklaracje(":root {"));
+    const jasny = role(deklaracje(':root[data-motyw="jasny"]'));
 
-    expect(ciemny.sort()).toEqual(jasny.sort());
+    expect(jasny.sort()).toEqual(ciemny.sort());
   });
 });
 
@@ -71,8 +68,8 @@ describe("paleta ciemna", () => {
  */
 describe("kolor tła", () => {
   it("zgadza się z arkuszem", () => {
-    expect(deklaracje(":root {")).toContain(`--tlo: ${TLO.jasny}`);
-    expect(deklaracje(':root[data-motyw="ciemny"]')).toContain(`--tlo: ${TLO.ciemny}`);
+    expect(deklaracje(":root {")).toContain(`--tlo: ${TLO.ciemny}`);
+    expect(deklaracje(':root[data-motyw="jasny"]')).toContain(`--tlo: ${TLO.jasny}`);
   });
 });
 
@@ -98,11 +95,12 @@ describe("zapamiętany wybór", () => {
     expect(wczytajWybor(magazyn("auto"))).toBe("auto");
   });
 
-  it("cokolwiek innego znaczy jasny", () => {
+  it("cokolwiek innego znaczy „za systemem”", () => {
     // Wartość spoza zbioru bierze się z ręcznej edycji albo starszego wydania.
-    // Jasny jest domyślny w tym systemie, więc to bezpieczny powrót.
-    expect(wczytajWybor(magazyn(null))).toBe("jasny");
-    expect(wczytajWybor(magazyn("niebieski"))).toBe("jasny");
+    // W systemie z dwiema równorzędnymi paletami bezpiecznym powrotem jest
+    // ustawienie telefonu, nie jedna z palet narzucona na ślepo.
+    expect(wczytajWybor(magazyn(null))).toBe("auto");
+    expect(wczytajWybor(magazyn("niebieski"))).toBe("auto");
   });
 
   it("brak dostępu do magazynu nie wywraca startu", () => {
@@ -117,7 +115,7 @@ describe("zapamiętany wybór", () => {
       },
     };
 
-    expect(wczytajWybor(rzucajacy)).toBe("jasny");
+    expect(wczytajWybor(rzucajacy)).toBe("auto");
     expect(() => zapiszWybor("jasny", rzucajacy)).not.toThrow();
   });
 });
@@ -128,7 +126,6 @@ describe("zastosowanie motywu", () => {
     const dokument = {
       documentElement: { dataset: {} as Record<string, string>, style: { colorScheme: "" } },
       querySelector: () => meta,
-      dispatchEvent: () => true,
     } as unknown as Document;
 
     zastosuj("jasny", dokument);
@@ -136,22 +133,5 @@ describe("zastosowanie motywu", () => {
     expect(dokument.documentElement.dataset.motyw).toBe("jasny");
     expect(dokument.documentElement.style.colorScheme).toBe("light");
     expect(meta.content).toBe(TLO.jasny);
-  });
-
-  it("zgłasza zdarzenie, po które sięga wybór akcentu", () => {
-    const meta = { content: "", setAttribute() {} };
-    const typy: string[] = [];
-    const dokument = {
-      documentElement: { dataset: {} as Record<string, string>, style: { colorScheme: "" } },
-      querySelector: () => meta,
-      dispatchEvent: (e: Event) => {
-        typy.push(e.type);
-        return true;
-      },
-    } as unknown as Document;
-
-    zastosuj("ciemny", dokument);
-
-    expect(typy).toEqual([ZDARZENIE_MOTYWU]);
   });
 });

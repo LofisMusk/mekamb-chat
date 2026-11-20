@@ -104,10 +104,12 @@ class MainActivity : ComponentActivity() {
                                 jezyk = it
                                 Motyw.zapiszJezyk(this, it)
                             },
+                            // Bez wspólnego marginesu: każdy ekran sam trzyma 16 dp od
+                            // krawędzi, bo wiersze listy, nagłówki i tło „pod palcem"
+                            // mają sięgać krawędzi ekranu, a treść — nie.
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(wciecia)
-                                .padding(Odstep.ekran),
+                                .padding(wciecia),
                         )
                     }
                 }
@@ -355,43 +357,10 @@ private fun Zawartosc(
         model.pokaz(Ekran.POWITANIE)
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
-        // Znak i droga dostarczania dopiero po zalogowaniu. Ekrany wejścia mają
-        // własne nagłówki, a tryb połączenia nic tam jeszcze nie znaczy.
-        if (stan.zalogowany) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Odstep.s),
-            ) {
-                Icon(
-                    imageVector = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> Ikony.Bezposrednio
-                        DeliveryMode.MAILBOX -> Ikony.PrzezSerwer
-                        null -> Ikony.BrakSieci
-                    },
-                    contentDescription = null,
-                    tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcentTekst,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> "bezpośrednio — rozmówca zna Twój adres IP"
-                        DeliveryMode.MAILBOX -> "przez serwer"
-                        null -> "brak połączenia"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-            }
-        }
-
-        stan.blad?.let { komunikat ->
-            PasekBledu(komunikat, onZamknij = { model.wyczyscBlad() })
-        }
-
-        stan.informacja?.let { komunikat ->
-            Karta { Text(komunikat, style = MaterialTheme.typography.bodySmall) }
-        }
+    // Ukryta informacja — model nie ma jej czyszczenia (zmienia ją dopiero
+    // przejście między ekranami), więc zamknięcie toastu pamiętamy tutaj.
+    var ukrytaInformacja by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(stan.informacja) { if (stan.informacja == null) ukrytaInformacja = null }
 
     Box(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -486,6 +455,33 @@ private fun Zawartosc(
             stan.ekran == Ekran.LOGOWANIE -> EkranLogowania(model)
             stan.ekran == Ekran.KOD_LOGOWANIA -> EkranKoduLogowania(model)
             else -> EkranPowitania(model, jezyk = jezyk, onJezyk = onJezyk)
+        }
+    }
+
+        /*
+         * Toasty u góry, nad treścią — błąd i informacja, każdy w swoim miejscu.
+         *
+         * Wcześniej oba były paskami wstawionymi w kolumnę nad ekranem, więc
+         * pojawienie się błędu przesuwało cały ekran w dół pod palcem. Nakładka
+         * niczego nie przesuwa.
+         */
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = Odstep.l, vertical = Odstep.s),
+            verticalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            MiejsceToastu(
+                komunikat = stan.blad,
+                rodzaj = RodzajToastu.BLAD,
+                onZamknij = { model.wyczyscBlad() },
+            )
+            MiejsceToastu(
+                komunikat = stan.informacja?.takeIf { it != ukrytaInformacja },
+                rodzaj = RodzajToastu.INFORMACJA,
+                onZamknij = { ukrytaInformacja = stan.informacja },
+            )
         }
     }
 }

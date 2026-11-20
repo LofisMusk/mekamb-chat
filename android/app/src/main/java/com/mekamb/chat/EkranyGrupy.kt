@@ -89,7 +89,7 @@ fun EkranNowaRozmowa(
 
             // Grupa to osobna droga: zaczyna się od wyboru kilku osób, nie
             // jednej nazwy.
-            PrzyciskDrugi(t("Nowa grupa", "New group"), wlaczony = !stan.pracuje) { onGrupa() }
+            PrzyciskObrys(t("Nowa grupa", "New group"), wlaczony = !stan.pracuje) { onGrupa() }
 
             Wskazowka(
                 t(
@@ -168,7 +168,7 @@ fun EkranNowaGrupa(
                         Icon(
                             imageVector = if (zaznaczony) Ikony.Wyslane else Ikony.Dodaj,
                             contentDescription = if (zaznaczony) t("Wybrany", "Selected") else t("Dodaj", "Add"),
-                            tint = if (zaznaczony) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
+                            tint = if (zaznaczony) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -191,7 +191,7 @@ fun EkranNowaGrupa(
                     { dopisany = it },
                     modifier = Modifier.weight(1f),
                 )
-                PrzyciskDrugi(
+                PrzyciskObrys(
                     t("Dodaj", "Add"),
                     modifier = Modifier.widthIn(min = 96.dp),
                     wlaczony = dopisany.isNotBlank(),
@@ -203,11 +203,14 @@ fun EkranNowaGrupa(
             }
 
             if (wybrani.isNotEmpty()) {
-                Text(
-                    t("W grupie · ${wybrani.size}", "In the group · ${wybrani.size}"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        t("W grupie", "In the group"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Nocturne.kolory.tekstDrugi,
+                    )
+                    Licznik(wybrani.size, styl = MaterialTheme.typography.labelMedium, kolor = Nocturne.kolory.tekst)
+                }
                 wybrani.forEach { osoba ->
                     Row(
                         modifier = Modifier
@@ -220,11 +223,9 @@ fun EkranNowaGrupa(
                         Text(model.nick(osoba), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                         PrzyciskIkona(
                             Ikony.Zamknij,
-                            contentDescription = t("Usuń z grupy", "Remove from group"),
-                            tint = Nocturne.kolory.tekstTrzeci,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clickable { wybrani.remove(osoba) },
+                            t("Usuń z grupy", "Remove from group"),
+                            { wybrani.remove(osoba) },
+                            kolor = Nocturne.kolory.tekstDrugi,
                         )
                     }
                 }
@@ -342,25 +343,18 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     } else {
                         // Blokada per osoba — decyzja o TEJ osobie, po jej nazwie
                         // użytkownika (tożsamości MLS), nie po nicku.
-                        IconButton(
-                            onClick = {
-                                if (zablokowana) model.odblokuj(osoba) else model.zablokuj(osoba)
-                            },
-                        ) {
-                            Icon(
-                                Ikony.Blokuj,
-                                contentDescription = if (zablokowana) t("Odblokuj", "Unblock") else t("Zablokuj", "Block"),
-                                tint = if (zablokowana) MaterialTheme.colorScheme.error
-                                else Nocturne.kolory.tekstTrzeci,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                        PrzyciskIkona(
+                            Ikony.Blokuj,
+                            if (zablokowana) t("Odblokuj", "Unblock") else t("Zablokuj", "Block"),
+                            { if (zablokowana) model.odblokuj(osoba) else model.zablokuj(osoba) },
+                            kolor = if (zablokowana) Nocturne.kolory.alarm else Nocturne.kolory.tekstDrugi,
+                        )
                     }
                 }
             }
 
             Pole(t("Dodaj osobę", "Add member"), nowy, { nowy = it })
-            PrzyciskDrugi(
+            PrzyciskObrys(
                 if (stan.pracuje) t("Dodaję…", "Adding…") else t("Dodaj", "Add"),
                 wlaczony = !stan.pracuje && nowy.isNotBlank(),
             ) {
@@ -389,13 +383,7 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
 
             if (kod != null) {
                 Karta {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-                    ) {
-                        Icon(Ikony.Odcisk, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                        Text(t("Kod bezpieczeństwa", "Safety number"), style = MaterialTheme.typography.labelLarge)
-                    }
+                    NaglowekKarty(t("Kod bezpieczeństwa", "Safety number"), Ikony.Odcisk)
 
                     // Cyfry w dwóch wierszach po sześć grup — tak da się je
                     // przeczytać przez telefon bez gubienia miejsca.
@@ -446,32 +434,26 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
     }
 
     if (pytajOOpuszczenie && groupId != null) {
-        AlertDialog(
-            onDismissRequest = { pytajOOpuszczenie = false },
-            title = { Text(t("Opuścić tę grupę?", "Leave this group?")) },
-            text = {
-                Text(
-                    t(
-                        "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. " +
-                            "Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
-                        "You'll leave the group for everyone — you stop getting its messages. " +
-                            "To come back, someone has to invite you again.",
-                    ),
-                )
+        DialogPotwierdzenia(
+            tytul = t("Opuścić tę grupę?", "Leave this group?"),
+            potwierdz = t("Opuść", "Leave"),
+            niszczacy = true,
+            onPotwierdz = {
+                pytajOOpuszczenie = false
+                model.opuscGrupe(groupId)
+                onWstecz()
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    pytajOOpuszczenie = false
-                    model.opuscGrupe(groupId)
-                    onWstecz()
-                }) {
-                    Text(t("Opuść", "Leave"), color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pytajOOpuszczenie = false }) { Text(t("Anuluj", "Cancel")) }
-            },
-        )
+            onAnuluj = { pytajOOpuszczenie = false },
+        ) {
+            Text(
+                t(
+                    "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. " +
+                        "Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
+                    "You'll leave the group for everyone — you stop getting its messages. " +
+                        "To come back, someone has to invite you again.",
+                ),
+            )
+        }
     }
 }
 
@@ -493,13 +475,7 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
     var jednostka by remember { mutableStateOf(JEDNOSTKI_ZNIKANIA[1].mnoznik) }
 
     Karta {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-        ) {
-            Icon(Ikony.Zegar, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-            Text(t("Znikające wiadomości", "Disappearing messages"), style = MaterialTheme.typography.labelLarge)
-        }
+        NaglowekKarty(t("Znikające wiadomości", "Disappearing messages"), Ikony.Zegar)
 
         Text(
             if (sekundy != null) t("Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}.", "Messages disappear from this device after: ${opisZnikania(sekundy)}.")
@@ -556,10 +532,12 @@ private fun Chip(
     niszczacy: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val kolor = when {
-        niszczacy -> MaterialTheme.colorScheme.error
-        aktywny -> Nocturne.kolory.akcentTekst
-        else -> Nocturne.kolory.liniaMocna
+    val k = Nocturne.kolory
+    val ksztalt = RoundedCornerShape(Promien.pigulka)
+    val obrys = when {
+        niszczacy -> k.alarm.copy(alpha = 0.5f)
+        aktywny -> Color.Transparent
+        else -> k.liniaMocna
     }
     val tekstKolor = when {
         niszczacy -> k.alarm
@@ -599,18 +577,13 @@ private fun EdytorNazwyGrupy(nazwa: String, onZapisz: (String) -> Unit) {
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
     ) {
-        Pole("Nazwa grupy · Group name", pole, { pole = it }, modifier = Modifier.weight(1f))
-        IconButton(
-            onClick = { if (zmienione) onZapisz(pole.trim()) },
-            enabled = zmienione,
-            modifier = Modifier.size(Dotyk.kontrolka),
-        ) {
-            Icon(
-                Ikony.Wyslane,
-                contentDescription = t("Zapisz nazwę grupy", "Save group name"),
-                tint = if (zmienione) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        Pole(t("Nazwa grupy", "Group name"), pole, { pole = it }, modifier = Modifier.weight(1f))
+        PrzyciskIkona(
+            Ikony.Wyslane,
+            t("Zapisz nazwę grupy", "Save group name"),
+            { if (zmienione) onZapisz(pole.trim()) },
+            wlaczony = zmienione,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
     }
 }

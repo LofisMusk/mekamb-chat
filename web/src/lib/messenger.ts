@@ -12,7 +12,7 @@ import init, {
 import { ApiError, api } from "./api";
 import { czyWlasna, zapamietaj } from "./echa";
 import { WYSCIG, odmowaRelaya } from "./relay";
-import { naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
+import { ileTokenow, naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
 import { loadSeed, loadState, saveSeed, saveState } from "./vault";
 
@@ -288,6 +288,10 @@ export class Messenger {
       },
       this.token,
     );
+    // Zapas tokenów doręczeniowych przy wejściu, z dala od chwili nadania —
+    // tak jak iOS i Android. Bez tego świeże konto nie miało czym nadać
+    // pierwszej koperty (patrz `zostawWSkrzynkach`).
+    void uzupelnij(this.token);
   }
 
   /** Publikuje zapas key packages, żeby dało się nas dodać do grupy offline. */
@@ -680,6 +684,19 @@ export class Messenger {
    * po stronie serwera.
    */
   private async zostawWSkrzynkach(odbiorcy: string[], envelope: Uint8Array): Promise<void> {
+    /*
+     * Pusty portfel dobieramy PRZED nadaniem — wyjątek od zasady „po wysyłce".
+     *
+     * Świeże konto zaczyna z zerem tokenów, a dobieranie było tylko po udanej
+     * wysyłce. Przy `DELIVERY_TOKEN_REQUIRED` pierwsza wysyłka dostawała 401,
+     * więc do dobrania nigdy nie dochodziło: nowe konto webowe nie mogło
+     * zaprosić nikogo ani niczego wysłać, a welcome — znowu — nie docierał.
+     * Rozruch dobiera zapas wcześniej (`registerDevice`); to jest siatka na
+     * przypadek, gdy wysyłka wyprzedzi tamto żądanie. Bez tokenu nadanie
+     * i tak by się nie udało, więc korelacja w czasie nic tu nie kosztuje.
+     */
+    if (ileTokenow() < odbiorcy.length) await uzupelnij(this.token);
+
     await Promise.all(
       odbiorcy.map((userId) => {
         const token = wezToken();

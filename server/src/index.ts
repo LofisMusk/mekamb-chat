@@ -48,7 +48,12 @@ app.use("*", async (c, next) =>
       return dozwolone.includes(origin) ? origin : null;
     },
     allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    // `X-Delivery-Token` musi tu być: bez niego przeglądarka odrzuca preflight
+    // każdego `POST /inbox/:userId` z tokenem, więc przy włączonym
+    // `DELIVERY_TOKEN_REQUIRED` klient webowy nie mógł nadać ANICZEGO — ani
+    // wiadomości, ani welcome. Aplikacje natywne nie robią preflightu, dlatego
+    // na Androidzie i iOS tego nie widać.
+    allowHeaders: ["Content-Type", "Authorization", "X-Delivery-Token"],
     // Wymagane, żeby przeglądarka wysyłała i przyjmowała httpOnly cookie
     // tokenu odświeżającego (`/auth/refresh`). Bez tego `Set-Cookie` z
     // odpowiedzi jest po cichu ignorowany przy żądaniach cross-origin.

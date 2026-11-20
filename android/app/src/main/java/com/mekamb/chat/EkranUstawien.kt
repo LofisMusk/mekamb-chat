@@ -250,42 +250,6 @@ fun EkranUstawien(
                 )
             }
 
-            Karta {
-                NaglowekKarty(
-                    t("Droga dostarczania", "Delivery path"),
-                    when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> Ikony.Bezposrednio
-                        DeliveryMode.MAILBOX -> Ikony.PrzezSerwer
-                        null -> Ikony.BrakSieci
-                    },
-                    dopisek = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> t("bezpośrednio", "direct")
-                        DeliveryMode.MAILBOX -> t("przez serwer", "via server")
-                        null -> t("brak połączenia", "no connection")
-                    },
-                )
-                Text(
-                    t(
-                        "Nie da się jej wybrać — klient zawsze najpierw próbuje wprost, a na " +
-                            "skrzynkę spada dopiero, gdy nie przebije NAT-u.",
-                        "You can't pick it — the client always tries direct first and falls " +
-                            "back to the mailbox only when it can't punch through NAT.",
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-                Text(
-                    t(
-                        "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
-                            "Przez serwer: adres zna serwer.",
-                        "Direct: media goes straight through, so your contact sees your IP. " +
-                            "Via server: the server sees it.",
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-            }
-
             Ostrzezenie(
                 t(
                     "Wersja bez audytu. Nie używaj tam, gdzie ujawnienie treści miałoby poważne " +

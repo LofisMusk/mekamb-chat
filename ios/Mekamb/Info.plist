@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>pl</string>
+	<string>en</string>
 	<key>CFBundleDisplayName</key>
 	<string>Mekamb</string>
 	<key>CFBundleExecutable</key>
@@ -14,8 +14,8 @@
 	<string>6.0</string>
 	<key>CFBundleLocalizations</key>
 	<array>
-		<string>pl</string>
 		<string>en</string>
+		<string>pl</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
@@ -30,9 +30,9 @@
 	<key>MekambAdresApi</key>
 	<string>$(MEKAMB_ADRES_API)</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Aparat jest potrzebny do rozmów wideo. Obraz idzie zaszyfrowany wprost do rozmówcy.</string>
+	<string>The camera is used for video calls. Video goes end-to-end encrypted straight to the other person.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Mikrofon jest potrzebny do rozmów głosowych i wideo. Dźwięk idzie zaszyfrowany wprost do rozmówcy.</string>
+	<string>The microphone is used for voice and video calls. Audio goes end-to-end encrypted straight to the other person.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

@@ -16,7 +16,7 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
-  developmentLanguage: pl
+  developmentLanguage: en
 
 # WebRTC dla rozmów A/V — gotowe binarne XCFramework z oficjalnego kodu Google.
 #
@@ -80,8 +80,8 @@ targets:
         CFBundleDisplayName: Mekamb
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
-        CFBundleDevelopmentRegion: pl
-        CFBundleLocalizations: [pl, en]
+        CFBundleDevelopmentRegion: en
+        CFBundleLocalizations: [en, pl]
         # Adres backendu z ustawienia builda — patrz MEKAMB_ADRES_API niżej.
         MekambAdresApi: $(MEKAMB_ADRES_API)
         UILaunchScreen: {}
@@ -89,8 +89,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # Rozmowy A/V. Opis mówi, DOKĄD trafia dźwięk i obraz — to jest
         # pytanie, które ktoś zadaje, widząc prośbę o mikrofon w komunikatorze.
-        NSMicrophoneUsageDescription: "Mikrofon jest potrzebny do rozmów głosowych i wideo. Dźwięk idzie zaszyfrowany wprost do rozmówcy."
-        NSCameraUsageDescription: "Aparat jest potrzebny do rozmów wideo. Obraz idzie zaszyfrowany wprost do rozmówcy."
+        NSMicrophoneUsageDescription: "The microphone is used for voice and video calls. Audio goes end-to-end encrypted straight to the other person."
+        NSCameraUsageDescription: "The camera is used for video calls. Video goes end-to-end encrypted straight to the other person."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mekamb.chat

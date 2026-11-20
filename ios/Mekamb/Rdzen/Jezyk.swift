@@ -65,7 +65,8 @@ final class Preferencje {
 
     init(ustawienia: UserDefaults = .standard) {
         self.ustawienia = ustawienia
-        let domyslny: Jezyk = Locale.preferredLanguages.first?.hasPrefix("pl") == false ? .en : .pl
+        // Angielski jest głównym językiem projektu; polski to wybór w ustawieniach.
+        let domyslny: Jezyk = .en
         let jezyk = Jezyk(rawValue: ustawienia.string(forKey: "mekamb.jezyk") ?? "") ?? domyslny
         self.jezyk = jezyk
         self.motyw = Motyw(rawValue: ustawienia.string(forKey: "mekamb.motyw") ?? "") ?? .auto
@@ -76,7 +77,7 @@ final class Preferencje {
 
 /// Bieżący język dla kodu poza wątkiem głównym (formatowanie dat w modelu).
 enum JezykBiezacy {
-    nonisolated(unsafe) private static var wartosc: Jezyk = .pl
+    nonisolated(unsafe) private static var wartosc: Jezyk = .en
     private static let zamek = NSLock()
 
     static func ustaw(_ jezyk: Jezyk) {

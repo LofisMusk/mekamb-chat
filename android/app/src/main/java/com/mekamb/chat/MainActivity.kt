@@ -362,45 +362,11 @@ private fun Zawartosc(
     var ukrytaInformacja by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(stan.informacja) { if (stan.informacja == null) ukrytaInformacja = null }
 
-    // Rozmowa i rozmowa A/V mają własne nagłówki, w których droga dostarczania
-    // już stoi (podtytuł wątku, podpis siatki) — drugi raz nad nimi byłby szumem.
-    val wWatku = stan.zalogowany && (
-        stan.rozmowaAV.isNotEmpty() || stan.przychodzacaRozmowa != null ||
-            (stan.groupId != null && wRozmowie && !wGlebi && galaz == Galaz.ROZMOWY)
-        )
-
     Box(modifier = modifier) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Droga dostarczania dopiero po zalogowaniu. Ekrany wejścia mają
-        // własne nagłówki, a tryb połączenia nic tam jeszcze nie znaczy.
-        if (stan.zalogowany && !wWatku) {
-            Row(
-                modifier = Modifier.padding(horizontal = Odstep.l, vertical = Odstep.xs),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> Ikony.Bezposrednio
-                        DeliveryMode.MAILBOX -> Ikony.PrzezSerwer
-                        null -> Ikony.BrakSieci
-                    },
-                    contentDescription = null,
-                    tint = Nocturne.kolory.tekstDrugi,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    text = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> t("bezpośrednio — rozmówca zna Twój adres IP", "direct — your contact sees your IP address")
-                        DeliveryMode.MAILBOX -> t("przez serwer", "via server")
-                        null -> t("brak połączenia", "no connection")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.kolory.tekstDrugi,
-                )
-            }
-        }
-
+        // Bez wiersza „bezpośrednio / przez serwer / brak połączenia" nad listą —
+        // stan połączenia ze skrzynką przy każdym spojrzeniu był szumem (decyzja
+        // użytkownika, tak samo na webie i iOS). Drogę mediów pokazuje ekran rozmowy A/V.
         when {
             // Rozmowa A/V przykrywa wszystko: gdy trwa, jest jedyną rzeczą,
             // którą użytkownik chce widzieć.

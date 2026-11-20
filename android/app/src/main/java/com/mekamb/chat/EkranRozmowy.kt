@@ -168,7 +168,6 @@ fun EkranRozmowy(
             // użytkownika (tożsamość MLS).
             nazwa = stan.groupId?.let { model.etykieta(it, stan.rozmowca.orEmpty()) }
                 ?: stan.rozmowca ?: t("rozmowa", "chat"),
-            tryb = stan.trybPolaczenia,
             onWstecz = onWstecz,
             onUczestnicy = onUczestnicy,
             onRozmowa = onRozmowa,
@@ -335,7 +334,6 @@ private fun KafelekZalacznika(
 @Composable
 private fun PasekRozmowy(
     nazwa: String,
-    tryb: DeliveryMode?,
     onWstecz: () -> Unit,
     onUczestnicy: () -> Unit,
     onRozmowa: (Boolean) -> Unit,
@@ -368,11 +366,7 @@ private fun PasekRozmowy(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        when (tryb) {
-                            DeliveryMode.DIRECT -> t("bezpośrednio · zna Twój adres IP", "direct · sees your IP address")
-                            DeliveryMode.MAILBOX -> t("przez serwer", "via server")
-                            null -> t("brak połączenia", "offline")
-                        },
+                        t("szyfrowane end-to-end", "end-to-end encrypted"),
                         style = MaterialTheme.typography.labelSmall,
                         color = Nocturne.kolory.tekstDrugi,
                         maxLines = 1,

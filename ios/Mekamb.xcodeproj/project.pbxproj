@@ -267,11 +267,11 @@
 				};
 			};
 			buildConfigurationList = 152DD8569C7B6A089E6E0F93 /* Build configuration list for PBXProject "Mekamb" */;
-			developmentRegion = pl;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
-				pl,
+				en,
 			);
 			mainGroup = 5BB2A7AD39C85211047BCD7F;
 			minimizedProjectReferenceProxies = 1;

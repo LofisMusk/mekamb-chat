@@ -1,0 +1,12 @@
+# Wyniki budowania — `xcodebuild -derivedDataPath build`.
+/build/
+
+# Rdzeń Rust i wiązania UniFFI składa `skrypty/zbuduj-rdzen.sh` przy każdym
+# buildzie (faza „Rdzeń Rust" w project.yml) — jak `jniLibs/` na Androidzie.
+# XCFramework waży ~200 MB i zmienia się z każdą zmianą w `core/`.
+/Rdzen/
+/Wygenerowane/
+
+# Stan Xcode jednej osoby.
+xcuserdata/
+*.xcuserstate

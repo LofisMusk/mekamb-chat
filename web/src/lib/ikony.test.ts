@@ -5,7 +5,14 @@ import { describe, expect, it } from "vitest";
 // Źródło ikon i generator są zwykłymi modułami ESM, żeby dało się je uruchomić
 // samym `node`. Typy leżą obok, w plikach `.d.mts`.
 import { IKONY } from "../../../design/ikony.mjs";
-import { SCIEZKA_ANDROID, SCIEZKA_WEB, zrodloAndroid, zrodloWeb } from "../../../design/generuj.mjs";
+import {
+  SCIEZKA_ANDROID,
+  SCIEZKA_IOS,
+  SCIEZKA_WEB,
+  zrodloAndroid,
+  zrodloIos,
+  zrodloWeb,
+} from "../../../design/generuj.mjs";
 
 import { SCIEZKI, type NazwaIkony } from "../Ikony";
 
@@ -19,8 +26,9 @@ const ikony = IKONY;
  * kształtu rozjedzie platformy — i że nikt tego nie zauważy, bo różnicy dwóch
  * stopni w łuku nie widać z pamięci.
  *
- * Te testy porównują wygenerowane pliki ze źródłem. Zmiana w `Ikony.tsx` albo
- * `Ikony.kt` bez przepuszczenia jej przez `node design/generuj.mjs` wywala CI.
+ * Te testy porównują wygenerowane pliki ze źródłem. Zmiana w `Ikony.tsx`,
+ * `Ikony.kt` albo `Ikony.swift` bez przepuszczenia jej przez
+ * `node design/generuj.mjs` wywala CI.
  */
 describe("wygenerowany zestaw ikon", () => {
   it("web zgadza się ze źródłem", () => {
@@ -29,6 +37,10 @@ describe("wygenerowany zestaw ikon", () => {
 
   it("Android zgadza się ze źródłem", () => {
     expect(readFileSync(SCIEZKA_ANDROID, "utf8")).toBe(zrodloAndroid());
+  });
+
+  it("iOS zgadza się ze źródłem", () => {
+    expect(readFileSync(SCIEZKA_IOS, "utf8")).toBe(zrodloIos());
   });
 });
 

@@ -1,8 +1,8 @@
 /**
- * Generator zestawu ikon na obie platformy.
+ * Generator zestawu ikon na wszystkie platformy.
  *
- * Czyta `ikony.mjs` i wypisuje `web/src/Ikony.tsx` oraz
- * `android/.../Ikony.kt`. Uruchamiany ręcznie po zmianie źródła:
+ * Czyta `ikony.mjs` i wypisuje `web/src/Ikony.tsx`, `android/.../Ikony.kt`
+ * oraz `ios/Mekamb/Ikony.swift`. Uruchamiany ręcznie po zmianie źródła:
  *
  *     node design/generuj.mjs
  *
@@ -41,6 +41,8 @@ export const SCIEZKA_ANDROID = join(
   "chat",
   "Ikony.kt",
 );
+
+export const SCIEZKA_IOS = join(KORZEN, "ios", "Mekamb", "Ikony.swift");
 
 /**
  * Ostrzeżenie na górze wygenerowanych plików.
@@ -261,6 +263,71 @@ export function zrodloAndroid() {
   return wiersze.join("\n");
 }
 
+// --- iOS ---------------------------------------------------------------------
+
+/**
+ * Swift: zamknięty `enum` nazw i ścieżki w notacji SVG, znak w znak ze źródła.
+ *
+ * Ścieżki NIE są przepisywane na wywołania `Path` — czyta je w czasie działania
+ * `SciezkaSvg` (`ios/Mekamb/Widoki/SciezkaSvg.swift`), tak jak Android podaje je
+ * `PathParser`. Przepisanie byłoby drugą definicją kształtu, której ten plik
+ * nie potrafiłby już porównać ze źródłem.
+ */
+export function zrodloIos() {
+  const komentarz = naglowek(
+    "Ścieżki zostają w notacji SVG i są czytane w czasie działania przez " +
+      "`SciezkaSvg` — dokładnie te same napisy co w webie i na Androidzie.",
+  );
+
+  const wiersze = [
+    ...komentarz.map((w) => (w ? `// ${w}` : "//")),
+    "",
+    "import CoreGraphics",
+    "",
+    "/// Nazwy ikon. Zamknięty zbiór — literówka jest błędem kompilacji, nie pustym miejscem.",
+    "enum NazwaIkony: String, CaseIterable, Sendable {",
+  ];
+
+  for (const ikona of IKONY) {
+    wiersze.push(`    /// ${ikona.opis}`);
+    wiersze.push(`    case ${ikona.nazwa}`);
+  }
+
+  wiersze.push(
+    "",
+    `    /// Ścieżka konturu na płótnie ${PLOTNO}×${PLOTNO}.`,
+    "    var sciezka: String {",
+    "        switch self {",
+  );
+
+  for (const ikona of IKONY) {
+    const wartosc = napis(ikona.sciezka, "            ", 84);
+    if (wartosc.includes("\n")) {
+      wiersze.push(`        case .${ikona.nazwa}:`);
+      wiersze.push(`            ${wartosc}`);
+    } else {
+      wiersze.push(`        case .${ikona.nazwa}: ${wartosc}`);
+    }
+  }
+
+  wiersze.push(
+    "        }",
+    "    }",
+    "}",
+    "",
+    "/// Parametry rysunku wspólne dla całego zestawu.",
+    "enum Ikony {",
+    "    /// Grubość konturu. Jedna dla całego zestawu; różne grubości czyta się jak dwa zestawy.",
+    `    static let grubosc: CGFloat = ${GRUBOSC}`,
+    "    /// Bok płótna.",
+    `    static let plotno: CGFloat = ${PLOTNO}`,
+    "}",
+    "",
+  );
+
+  return wiersze.join("\n");
+}
+
 // --- Uruchomienie ------------------------------------------------------------
 
 /** Czy plik na dysku zgadza się z tym, co generator by wypisał. */
@@ -278,5 +345,6 @@ export function zgodne(sciezka, oczekiwane) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   writeFileSync(SCIEZKA_WEB, zrodloWeb());
   writeFileSync(SCIEZKA_ANDROID, zrodloAndroid());
-  console.log(`Wygenerowano ${IKONY.length} ikon:\n  ${SCIEZKA_WEB}\n  ${SCIEZKA_ANDROID}`);
+  writeFileSync(SCIEZKA_IOS, zrodloIos());
+  console.log(`Wygenerowano ${IKONY.length} ikon:\n  ${SCIEZKA_WEB}\n  ${SCIEZKA_ANDROID}\n  ${SCIEZKA_IOS}`);
 }

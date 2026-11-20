@@ -4,9 +4,8 @@ import { toast } from "sonner";
 import { Czat } from "./Czat";
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
-import { Migotanie, WyborJezykaUI, WyborMotywuUI, WzorKropek, ZnakMarki } from "./Wspolne";
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
+import { PasekBledu, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { pilnujAkcentu, wczytajAkcent } from "./lib/akcent";
 import {
   confirmRegistration,
   loginStart,
@@ -104,6 +103,12 @@ export function App() {
    * wymagałoby przeładowania strony, żeby zaczęło działać.
    */
   useEffect(() => pilnujMotywu(() => wczytajWybor()), []);
+
+  /*
+   * Akcent — patrz `akcent.ts`. Obok motywu, bo to ta sama kategoria: rzecz
+   * dotycząca `<html>`, nie poddrzewa Reacta, ustawiana raz na życie aplikacji.
+   */
+  useEffect(() => pilnujAkcentu(() => wczytajAkcent()), []);
 
   /*
    * Wysokość widoku razem z klawiaturą — patrz `okno.ts`.

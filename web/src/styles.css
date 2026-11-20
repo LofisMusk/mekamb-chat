@@ -1,171 +1,196 @@
 /*
- * System wizualny „Neutralny" — normatywny opis w `docs/UI_NEUTRALNY.md`.
+ * System wizualny Mekamb — język Nocturne Mobile.
  *
- * Charakter: skala szarości (baza „neutral" z shadcn/ui), kontrast z jasności,
- * kolor zarezerwowany dla STANÓW — błąd, zweryfikowano, ostrzeżenie. Akcja
- * główna jest PLAMĄ koloru `--glowny` (prawie czerń w jasnym, prawie biel
- * w ciemnym) i na ekranie jest najwyżej jedna taka; reszta to obrys albo duch.
- *
- * # Dlaczego odwrotnie niż w Nocturne
- *
- * Nocturne trzymało akcent jako linię, bo miało kolor, który tę linię
- * wyróżniał. W palecie bez koloru obrys akcji głównej wygląda identycznie jak
- * obrys drugorzędnej — rozróżnia je dopiero jasność plamy. Odrzucona
- * alternatywa: zostawić cyjan jako akcent. Każdy ekran wymagał wtedy osobnego
- * strojenia odcienia pod kontrast (historia `#06B6D4` → `#0891B2` → `#0E7490`),
- * a trzy platformy rozjeżdżały się dokładnie na tym strojeniu.
+ * Charakter: zwykły komunikator, nie panel sterowania. Jasny motyw domyślnie,
+ * jeden zalany akcent (`#007AFF`, niebieski systemowy) na akcjach głównych,
+ * własnych dymkach i znacznikach, karty odcięte od tła linią i cieniem
+ * włosa, a nie odcieniem. To świadoma zmiana względem poprzedniej wersji tego
+ * pliku: tamta trzymała akcent wyłącznie jako obrys („Nocturne" desktopowe).
+ * Zamieniliśmy go na wypełnienie, bo to jest język, w którym telefon
+ * (`android/.../Nocturne.kt`, wariant „Mekamb Mobile") już żyje — a klient
+ * webowy i mobilny mają wyglądać jak ten sam produkt, nie jak dwa.
  *
  * # Tokeny są rolami, nie odcieniami
  *
- * `--tekst-drugi`, `--linia`, `--glowny` — nigdy `--neutral-600`. Przy dwóch
- * motywach stopień rampy nie ma stałego znaczenia: „600" w ciemnym jest
- * jaśniejsze od tła, a w jasnym ciemniejsze. Reguła napisana raz na roli działa
- * w obu motywach bez jednego warunku. Nazwy shadcn/ui (`--color-background`,
- * `--color-primary`…) są tylko ALIASAMI tych ról w bloku `@theme` niżej — dzięki
- * temu wzorce kopiowane z shadcn działają bez przepisywania, a kanoniczne
- * zostają nazwy ról, te same co w `Nocturne.kt` i w specyfikacji.
+ * Arkusz nie sięga wprost po stopnie rampy (`--niebieski-600`) — każdy token
+ * mówi, DO CZEGO służy (`--tekst-drugi`, `--linia`, `--babel-wlasny`), a motyw
+ * podstawia pod niego odcień. Reguła napisana raz działa w obu motywach i nie
+ * wymaga ani jednego warunku. Ten sam podział ma Android; zmiana projektu jest
+ * przepisaniem tokenów po obu stronach, a nie dobieraniem odcieni od nowa.
+ *
+ * # Dlaczego akcent jest jaśniejszy w ciemnym motywie
+ *
+ * `#007AFF` na czerni wypada matowo obok tekstu — telefon (i teraz przeglądarka
+ * w ciemnym motywie) bierze więc `#0A84FF`, o oczko jaśniejszy, tak jak robi to
+ * systemowy niebieski iOS w Dark Mode. W jasnym motywie zostaje węższy
+ * `#007AFF`: na białym tle nie potrzebuje pomocy.
  *
  * # Dlaczego paleta jasna jest wpisana dwa razy
  *
- * Polityka bezpieczeństwa treści nie dopuszcza skryptów inline (patrz
- * `index.html`), więc nic nie ustawi motywu przed pierwszym malowaniem. Paleta
- * jasna obowiązuje więc w dwóch sytuacjach: gdy wybrano ją jawnie
- * (atrybut `data-motyw` równy „jasny") i — zanim skrypt cokolwiek ustawi — gdy
- * prosi o nią system. Reguły z warunkiem `@media` nie da się scalić z regułą po
- * atrybucie, więc deklaracje są powtórzone, a rozjazdu pilnuje
- * `src/lib/motyw.test.ts` — różnicy jednego odcienia nikt nie zauważy okiem.
- */
-
-@import "tailwindcss";
-@import "tw-animate-css";
-
-/*
- * `dark:` z Tailwinda idzie za atrybutem motywu, nie za samym systemem.
+ * Bo polityka bezpieczeństwa treści nie dopuszcza skryptów inline (patrz
+ * `index.html`), więc nie ma jak ustawić motywu przed pierwszym malowaniem.
+ * Skrypt startuje po sparsowaniu dokumentu — a do tego czasu ktoś z ciemnym
+ * systemem zobaczyłby jasny błysk, mimo że aplikacja jest jasna z założenia
+ * i tylko system podpowiada inaczej.
  *
- * Użytkownik, który wybrał „ciemny" na jasnym systemie, ma dostać ciemne
- * warianty; zapytanie `prefers-color-scheme` powiedziałoby mu co innego niż
- * reszta ekranu. Kolory i tak niosą tokeny — wariant zostaje dla nielicznych
- * miejsc, w których różni się coś innego niż kolor.
+ * Paleta ciemna obowiązuje więc w dwóch sytuacjach: gdy wybrano ją jawnie
+ * (`[data-motyw="ciemny"]`) i — zanim skrypt cokolwiek ustawi — gdy prosi o nią
+ * system. Reguły z warunkiem `@media` nie da się scalić z regułą po atrybucie,
+ * więc deklaracje są powtórzone. Rozjazdu między kopiami pilnuje test
+ * `src/lib/motyw.test.ts`, bo różnicy jednego odcienia nikt nie zauważy okiem.
  */
 @custom-variant dark (&:where([data-motyw="ciemny"], [data-motyw="ciemny"] *));
 
-/* --- Motyw ciemny ------------------------------------------------------- */
+/* --- Motyw jasny: domyślny ------------------------------------------------ */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* Neutralny — ciepły odcień szarości, nie idealnie czysty. */
-  --tlo: #0a0a0a;
-  --karta: #171717;
-  --wglebienie: #262626;
-  --wglebienie-mocne: #404040;
+  /*
+   * Karta jest tego samego koloru co tło — odcina ją LINIA i włosowy cień,
+   * nie różnica jasności. Tak wygląda grupowana lista w iOS: strona i wiersz
+   * są bielą, a granicę rysuje obrys.
+   */
+  --tlo: #ffffff;
+  --karta: #ffffff;
+  --karta-hover: #f2f2f7;
+  --wglebienie: #f2f2f7;
 
-  --tekst: #fafafa;
-  --tekst-drugi: #a3a3a3;
-  --tekst-trzeci: #737373;
+  /* Tekst */
+  --tekst: #000000;
+  --tekst-drugi: #6c6c70;
+  --tekst-trzeci: #8e8e93;
 
-  /* Linia z nutą ciepła — mniej chłodna niż czysta biel. */
-  --linia: rgb(255 255 255 / .10);
-  --linia-mocna: rgb(255 255 255 / .15);
-  --pierscien: #737373;
+  /* Linie */
+  --linia: rgb(60 60 67 / .16);
+  --linia-mocna: rgb(60 60 67 / .29);
 
-  /* Kropka koloru — nie akcent, ale rozstrzygająca plama na ekranie. */
-  --glowny: #e5e5e5;
-  --glowny-tekst: #171717;
+  /* Akcent — wypełnia akcje główne, własne dymki i znaczniki. */
+  --akcent: #007aff;
+  --akcent-tekst: #007aff;
+  --akcent-tlo: #e8f1ff;
 
-  --alarm: #f87171;
-  --alarm-tlo: #450a0a;
-  --sukces: #4ade80;
-  --ostrzezenie: #fbbf24;
+  /* Dymki rozmowy. Własny zalany akcentem, cudzy neutralną szarością. */
+  --babel: #e9e9eb;
+  --babel-wlasny: #007aff;
+  --babel-wlasny-tekst: #ffffff;
 
-  --nakladka: rgb(0 0 0 / .6);
+  /* Chrom rozmowy: listwa pisania i pole tekstowe w niej. */
+  --pasek: #f7f7f8;
+  --pole: #ffffff;
 
-  /* Cień na prawie czarnym tle nie ma czego przyciemnić — głębię niesie
-     obrys `--linia`, który dokładają same karty unoszące się. */
-  --cien: none;
+  /* Awatar — szare kółko wypełnione inicjałem, bez obrysu akcentu. */
+  --awatar-tlo: #b9bac1;
+  --awatar-tekst: #ffffff;
+
+  /* Pigułka wybranego stanu w przełączniku trzystanowym i segmentach. */
+  --segment: #ffffff;
+
+  /* Znacznik nieprzeczytanych — ta sama rodzina co dymek własny. */
+  --znacznik-tlo: #007aff;
+  --znacznik-tekst: #ffffff;
+
+  /* Przełącznik iOS — zielony niezależny od motywu i akcentu. */
+  --przelacznik-wl: #34c759;
+
+  /* Stany wymagające reakcji */
+  --alarm: #ff3b30;
+  --alarm-tekst: #ff3b30;
+  --alarm-tlo: #ffeceb;
+
+  --cien: 0 1px 2px rgb(0 0 0 / .04);
+  --cien-panelu: 0 8px 28px rgb(0 0 0 / .16);
 }
 
 /*
- * Paleta jasna — kopia 1 z 2: zanim skrypt ustawi wybór, idziemy za systemem.
- * Zmieniasz tu cokolwiek — zmień identycznie w kopii po atrybucie niżej.
+ * Paleta ciemna — kopia 1 z 2: zanim skrypt ustawi wybór, idziemy za systemem.
+ * Zmieniasz tu cokolwiek — zmień identycznie w `[data-motyw="ciemny"]` niżej.
  */
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root:not([data-motyw]) {
-    color-scheme: light;
-    /* Neutralny — lekko ciepły odcień białego. */
-    --tlo: #ffffff;
-    --karta: #ffffff;
-    --wglebienie: #f5f5f5;
-    --wglebienie-mocne: #e5e5e5;
-    --tekst: #0a0a0a;
-    --tekst-drugi: #737373;
-    --tekst-trzeci: #a3a3a3;
-    --linia: #e5e5e5;
-    --linia-mocna: #d4d4d4;
-    --pierscien: #a3a3a3;
-
-    /* Kropka koloru — kontrast z jasnym tłem. */
-    --glowny: #171717;
-    --glowny-tekst: #fafafa;
-
-    --alarm: #dc2626;
-    --alarm-tlo: #fef2f2;
-    --sukces: #16a34a;
-    --ostrzezenie: #d97706;
-    --nakladka: rgb(0 0 0 / .4);
-    --cien: 0 1px 2px #0000000d;
+    color-scheme: dark;
+    --tlo: #000000;
+    --karta: #1c1c1e;
+    --karta-hover: #2c2c2e;
+    --wglebienie: #2c2c2e;
+    --tekst: #ffffff;
+    --tekst-drugi: #a1a1a6;
+    --tekst-trzeci: #8e8e93;
+    --linia: rgb(255 255 255 / .14);
+    --linia-mocna: rgb(255 255 255 / .26);
+    --akcent: #0a84ff;
+    --akcent-tekst: #0a84ff;
+    --akcent-tlo: #12233a;
+    --babel: #26262a;
+    --babel-wlasny: #0a84ff;
+    --babel-wlasny-tekst: #ffffff;
+    --pasek: #101012;
+    --pole: #1c1c1e;
+    --awatar-tlo: #545458;
+    --awatar-tekst: #ffffff;
+    --segment: #5a5a5e;
+    --znacznik-tlo: #0a84ff;
+    --znacznik-tekst: #ffffff;
+    --przelacznik-wl: #34c759;
+    --alarm: #ff453a;
+    --alarm-tekst: #ff453a;
+    --alarm-tlo: #3a1a18;
+    --cien: none;
+    --cien-panelu: 0 0 0 1px rgb(255 255 255 / .12);
   }
 }
 
-/* Paleta jasna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
-:root[data-motyw="jasny"] {
-  color-scheme: light;
-  --tlo: #ffffff;
-  --karta: #ffffff;
-  --wglebienie: #f5f5f5;
-  --wglebienie-mocne: #e5e5e5;
-  --tekst: #0a0a0a;
-  --tekst-drugi: #737373;
-  --tekst-trzeci: #a3a3a3;
-  --linia: #e5e5e5;
-  --linia-mocna: #d4d4d4;
-  --pierscien: #a3a3a3;
-  --glowny: #171717;
-  --glowny-tekst: #fafafa;
-  --alarm: #dc2626;
-  --alarm-tlo: #fef2f2;
-  --sukces: #16a34a;
-  --ostrzezenie: #d97706;
-  --nakladka: rgb(0 0 0 / .4);
-  --cien: 0 1px 2px #0000000d;
+/* Paleta ciemna — kopia 2 z 2: wybór jawny. Musi zgadzać się z kopią wyżej. */
+:root[data-motyw="ciemny"] {
+  color-scheme: dark;
+  --tlo: #000000;
+  --karta: #1c1c1e;
+  --karta-hover: #2c2c2e;
+  --wglebienie: #2c2c2e;
+  --tekst: #ffffff;
+  --tekst-drugi: #a1a1a6;
+  --tekst-trzeci: #8e8e93;
+  --linia: rgb(255 255 255 / .14);
+  --linia-mocna: rgb(255 255 255 / .26);
+  --akcent: #0a84ff;
+  --akcent-tekst: #0a84ff;
+  --akcent-tlo: #12233a;
+  --babel: #26262a;
+  --babel-wlasny: #0a84ff;
+  --babel-wlasny-tekst: #ffffff;
+  --pasek: #101012;
+  --pole: #1c1c1e;
+  --awatar-tlo: #545458;
+  --awatar-tekst: #ffffff;
+  --segment: #5a5a5e;
+  --znacznik-tlo: #0a84ff;
+  --znacznik-tekst: #ffffff;
+  --przelacznik-wl: #34c759;
+  --alarm: #ff453a;
+  --alarm-tekst: #ff453a;
+  --alarm-tlo: #3a1a18;
+  --cien: none;
+  --cien-panelu: 0 0 0 1px rgb(255 255 255 / .12);
 }
 
-/* --- Role pochodne i miary (niezależne od motywu) ------------------------ */
+/* --- Miary --------------------------------------------------------------- */
 
 :root {
-  /*
-   * Dymki są rolami wyprowadzonymi, nie nowymi odcieniami.
-   *
-   * Własny = `glowny`, cudzy = `wglebienie`: autora rozpoznaje się po jasności,
-   * nie po stronie — strona ginie, gdy zdanie zajmuje całą szerokość. Odwołanie
-   * do roli zamiast wpisanego odcienia sprawia, że dymek zmienia się razem
-   * z motywem bez osobnej kopii w każdej palecie.
-   */
-  --babel: var(--wglebienie);
-  --babel-tekst: var(--tekst);
-  --babel-wlasny: var(--glowny);
-  --babel-wlasny-tekst: var(--glowny-tekst);
+  /* Skala odstępów, gęstość 0,70× — ten system jest ciasny celowo. */
+  --odstep-1: .175rem;
+  --odstep-2: .35rem;
+  --odstep-3: .525rem;
+  --odstep-4: .7rem;
+  --odstep-6: 1.05rem;
+  --odstep-8: 1.4rem;
 
-  /* Skala odstępów co 4 — ta sama na trzech platformach. */
-  --odstep-1: 4px;
-  --odstep-2: 8px;
-  --odstep-3: 12px;
-  --odstep-4: 16px;
-  --odstep-6: 24px;
-  --odstep-8: 32px;
-
-  --promien-s: 6px;
-  --promien-m: 10px;
+  --promien-s: 4px;
+  --promien-m: 8px;
+  /* Pole tekstowe i przycisk mają teraz OSOBNE promienie — telefon je
+     rozróżnia (`Ksztalty` w Nocturne.kt) i pigułkowaty przycisk obok pola
+     o łagodniejszym rogu czytał się jako dwa różne systemy na jednym ekranie. */
+  --promien-pole: 10px;
+  --promien-przycisk: 12px;
   --promien-l: 14px;
   --promien-arkusz: 16px;
   --promien-pole: 20px;
@@ -307,7 +332,38 @@
 @layer base {
   *, ::before, ::after { border-color: var(--linia); }
 
-  html { height: 100%; }
+/*
+ * Wcięć bezpiecznych NIE ma na `<body>`.
+ *
+ * Miały je i to był ten błąd: `body` dokładał `env(safe-area-inset-top)`
+ * i `…-bottom`, a leżący w środku układ czatu miał `height: calc(100dvh - …)`.
+ * Na iPhonie z wcięciem dawało to stronę wyższą od ekranu o jakieś 47 px —
+ * dokładnie tyle, żeby pole pisania zeszło pod krawędź i trzeba było przewijać,
+ * żeby cokolwiek napisać. Wcięcie było liczone dwa razy: raz jako margines
+ * strony, raz jako brakująca część `100dvh`.
+ *
+ * Teraz wcięcia bierze POWŁOKA (`.aplikacja`), wewnątrz swojej wysokości.
+ * Cokolwiek by nie wynosiły, powłoka nie może być wyższa od widoku.
+ */
+body {
+  /* Przypięty do widoku — patrz wyżej. `inset: 0` zamiast `height: 100%`,
+     bo tylko wtedy dokument NIE MA obszaru przewijania w ogóle. */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  background: var(--tlo);
+  color: var(--tekst);
+  /* Krój systemowy, nie Inter — zwykły komunikator wygląda jak reszta
+     telefonu, nie jak osobny produkt z własną marką typograficzną. */
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* Przewinięcie listy do końca nie ma ruszać niczego pod spodem. */
+  overscroll-behavior: none;
+  transition: background-color var(--wolno), color var(--wolno);
+}
 
   /*
    * Dokument NIE PRZEWIJA SIĘ. Przewija się zawartość w środku.
@@ -340,16 +396,17 @@
 
   ::selection { background: color-mix(in srgb, var(--tekst) 18%, transparent); }
 
-  /*
-   * Pierścień fokusu tylko dla klawiatury: 2 px, odsunięty o 2 px.
-   *
-   * `:focus-visible`, nie `:focus` — obrys po kliknięciu myszą czyta się jak
-   * usterka, a bez obrysu w ogóle nie da się przejść aplikacji z klawiatury.
-   */
-  :where(input, textarea, select, button, a, summary, [tabindex], [role="option"]):focus-visible {
-    outline: 2px solid var(--pierscien);
-    outline-offset: 2px;
-  }
+/* --- Typografia ---------------------------------------------------------- */
+
+h1, h2, h3 {
+  font-weight: 600;
+  letter-spacing: -.01em;
+  margin: 0;
+}
+
+h1 { font-size: 1.375rem; }
+h2 { font-size: 1.0625rem; }
+h3 { font-size: .9375rem; }
 
   h1, h2, h3 { font-weight: 600; letter-spacing: -.02em; }
 
@@ -497,24 +554,19 @@
     background: #000;
   }
 
-  /*
-   * Siła hasła: trzy kreski i zdanie, ile brakuje.
-   *
-   * Świadomie nie udaje pomiaru entropii — sprawdzamy tylko dwanaście znaków.
-   * Pełna kreska jest `--glowny`, bo to postęp, a nie stan: zieleń mówiłaby
-   * „bezpieczne", a tego o „aaaaaaaaaaaa" powiedzieć nie umiemy.
-   */
-  .sila-hasla { display: flex; align-items: center; gap: 6px; }
-  .sila-hasla .kreska {
-    flex: 1;
-    height: 3px;
-    border-radius: 2px;
-    background: var(--wglebienie-mocne);
-    transition: background-color var(--szybko);
-  }
-  .sila-hasla .kreska.pelna { background: var(--glowny); }
-  .sila-hasla .opis { flex: none; font-size: 12px; color: var(--tekst-drugi); }
-  .sila-hasla .opis.wystarczy { color: var(--tekst); }
+input, textarea {
+  background: var(--karta-hover);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-pole);
+  color: var(--tekst);
+  padding: .7rem .8rem;
+  font: inherit;
+  font-size: .9375rem;
+  min-height: var(--dotyk);
+  transition: border-color var(--szybko), background-color var(--szybko);
+}
+input:hover, textarea:hover { border-color: var(--linia-mocna); }
+input::placeholder, textarea::placeholder { color: var(--tekst-trzeci); }
 
   /*
    * Shimmer przy ładowaniu (wzorzec z Magic UI, przyciszony).
@@ -562,43 +614,78 @@
       calc(var(--margines-tresci) + var(--bezpiecznie-lewo));
   }
 
-  .aplikacja {
-    display: flex;
-    flex-direction: column;
-    height: var(--wysokosc-okna);
-    overflow: hidden;
-    /* Dół zostaje zerowy na telefonie: ostatni wiersz układu (dolny pasek albo
-       pole pisania) sam dokłada wcięcie, żeby jego TŁO sięgało krawędzi. */
-    padding: var(--bezpiecznie-gora) var(--bezpiecznie-prawo) 0 var(--bezpiecznie-lewo);
-  }
+/*
+ * Przyciski są ZALANE kolorem, nie obrysowane.
+ *
+ * Odwrotność poprzedniej zasady tego pliku, i to świadomie: telefon
+ * (`Nocturne.kt`, wariant „Mekamb Mobile") maluje akcje wypełnionym akcentem,
+ * jak każdy zwykły komunikator — a klient webowy ma wyglądać jak ten sam
+ * produkt. Domyślny przycisk dostaje więc przyciemnione tło (`--karta-hover`)
+ * i akcent tylko w TEKŚCIE; główny (`.glowny`) zalewa się samym akcentem
+ * z białym tekstem; niszczący dostaje tło alarmu tym samym wzorem. Obrys
+ * zostaje wyłącznie tam, gdzie i tak nic nie jest wypełnione — na przyciskach
+ * cichych i samych ikonach.
+ */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--odstep-3);
+  background: var(--karta-hover);
+  border: none;
+  border-radius: var(--promien-przycisk);
+  color: var(--akcent-tekst);
+  padding: .6rem 1rem;
+  font: inherit;
+  font-size: .9375rem;
+  font-weight: 500;
+  min-height: var(--dotyk);
+  cursor: pointer;
+  transition: background-color var(--szybko), color var(--szybko), opacity var(--szybko);
+}
+button:hover { background: color-mix(in srgb, var(--tekst) 6%, var(--karta-hover)); }
+button:active { background: color-mix(in srgb, var(--tekst) 12%, var(--karta-hover)); }
 
-  /*
-   * Szyna · lista · wątek · szczegóły — kolumny siatki.
-   *
-   * Kolumna szczegółów dokłada się atrybutem dokładnie wtedy, gdy panel jest
-   * kolumną; jako czwarte dziecko trzech zadeklarowanych kolumn lądowałby
-   * w drugim wierszu pod szyną, na jej szerokość.
-   */
-  .uklad {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: var(--kol-szyna) var(--kol-lista) minmax(0, 1fr);
-  }
-  .uklad[data-galaz="konto"] { grid-template-columns: var(--kol-szyna) minmax(0, 1fr); }
-  .uklad[data-szczegoly="kolumna"] {
-    grid-template-columns: var(--kol-szyna) var(--kol-lista) minmax(0, 1fr) var(--kol-szczegoly);
-  }
+/* Akcja główna ekranu — jedyne miejsce obok dymka i znacznika, gdzie akcent
+   jest samą plamą, nie tinted pigułką. */
+button.glowny { background: var(--akcent); color: #fff; }
+button.glowny:hover { opacity: .86; }
+button.glowny:active { opacity: .75; }
 
-  .szyna {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--odstep-1);
-    min-height: 0;
-    padding: var(--odstep-3) 0;
-    border-right: 1px solid var(--linia);
-  }
+button.cichy {
+  background: transparent;
+  color: var(--tekst-drugi);
+  min-height: var(--dotyk-ikona);
+}
+button.cichy:hover { color: var(--tekst); background: transparent; }
+
+button.niszczacy { background: var(--alarm-tlo); color: var(--alarm-tekst); }
+button.niszczacy:hover { opacity: .86; }
+button.niszczacy:active { opacity: .75; }
+
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { opacity: .45; }
+
+/* Przycisk będący samą ikoną — kwadratowe pole dotyku, bez etykiety. */
+button.ikonowy {
+  flex: none;
+  width: var(--dotyk-ikona);
+  height: var(--dotyk-ikona);
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: var(--promien-m);
+  color: var(--tekst-drugi);
+}
+button.ikonowy:hover { color: var(--tekst); background: var(--karta-hover); }
+/* Stan wciśnięty: pigułka segmentu z lekkim cieniem, jak aktywny wybór
+   motywu na telefonie — nie linia akcentu. */
+button.ikonowy.aktywny {
+  background: var(--segment);
+  color: var(--akcent-tekst);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .18);
+}
+button.ikonowy.aktywny:hover { background: var(--segment); }
 
   .panel-listy {
     display: flex;
@@ -616,87 +703,116 @@
     overflow: hidden;
   }
 
-  .szczegoly {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    border-left: 1px solid var(--linia);
-  }
+.karta {
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  padding: var(--odstep-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  box-shadow: var(--cien);
+}
 
-  /* Między tabletem a laptopem lista oddaje trochę szerokości wątkowi. */
-  @media (min-width: 48rem) and (max-width: 63.99rem) {
-    .uklad { --kol-lista: 288px; }
-  }
+.karta + .karta { margin-top: var(--odstep-4); }
+.karta strong { font-weight: 600; }
 
-  /*
-   * Telefon: jeden panel naraz, nawigacja na dole.
-   *
-   * Lista i wątek ułożone jeden pod drugim wyglądały, jakby pozycja listy się
-   * rozwinęła, i nie było jak wrócić. Ekran pokazuje albo listę, albo rozmowę,
-   * a między nimi chodzi się „wstecz". Rozstrzyga arkusz stylów, nie warunek
-   * w kodzie: szerokość okna zmienia się bez udziału Reacta (obrót telefonu,
-   * podzielony ekran), a stan komponentu musiałby za nią nadążać.
-   */
-  @media (max-width: 47.99rem) {
-    .uklad,
-    .uklad[data-galaz="konto"],
-    .uklad[data-szczegoly="kolumna"] {
-      display: flex;
-      flex-direction: column;
-    }
+/* Rozdzielacz wewnątrz karty — dwie sekcje tego samego tematu (np. motyw
+   i akcent w „Wyglądzie"), za blisko siebie na osobne karty. */
+.rozdzielacz-karty { height: 1px; background: var(--linia); border: none; margin: 0; padding: 0; }
 
-    /* Treść pierwsza, nawigacja pod nią — mimo że w kodzie jest odwrotnie.
-       Kolejność w dokumencie jest właściwa dla czytnika ekranu (nawigacja przed
-       treścią); wzrok na telefonie chce jej na dole, przy kciuku. */
-    .panel-listy, .ekran { order: 1; flex: 1; border: none; }
+.blad {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--odstep-3);
+  background: var(--alarm-tlo);
+  border: none;
+  border-radius: var(--promien-przycisk);
+  padding: var(--odstep-4) var(--odstep-6);
+  color: var(--alarm-tekst);
+  font-size: .875rem;
+  margin: 0 0 var(--odstep-4);
+}
+.blad .ikona { flex: none; margin-top: .15rem; color: var(--alarm); }
+.blad p { margin: 0; flex: 1; }
+.blad button { border: none; min-height: 0; padding: 0 .3rem; color: inherit; }
+.blad button:hover { background: transparent; opacity: .7; }
 
-    .szyna {
-      order: 2;
-      flex: none;
-      flex-direction: row;
-      justify-content: space-around;
-      gap: 0;
-      padding: 6px var(--odstep-2) calc(6px + var(--bezpiecznie-dol));
-      border-right: none;
-      border-top: 1px solid var(--linia);
-      background: var(--tlo);
-    }
-
-    /* Otwarta rozmowa jest osobnym ekranem ze stosu: bez listy i bez paska,
-       który w wątku zabierałby wysokość polu pisania. */
-    .uklad[data-watek="otwarty"] .panel-listy,
-    .uklad[data-watek="otwarty"] .szyna { display: none; }
-
-    .uklad[data-galaz="rozmowy"]:not([data-watek="otwarty"]) .ekran { display: none; }
-  }
-
-  @media (min-width: 48rem) {
-    .aplikacja { padding-bottom: var(--bezpiecznie-dol); }
-  }
+/*
+ * Ostrzeżenie: karta tinted akcentem, jak w projekcie — nie pasek z boku.
+ *
+ * Ten sam tint co przyciski wtórne (`--akcent-tlo`), więc karta czyta się jako
+ * „coś do zrobienia", nie jako osobny, trzeci rodzaj komunikatu.
+ */
+.ostrzezenie {
+  background: var(--akcent-tlo);
+  border: none;
+  border-radius: var(--promien-l);
+  padding: var(--odstep-6);
+  margin: 0 0 var(--odstep-4);
+  font-size: .875rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+}
+.ostrzezenie strong { font-weight: 500; }
+.ostrzezenie p { margin: 0; color: var(--tekst-drugi); font-size: .8125rem; }
+.ostrzezenie button { align-self: flex-start; }
 
   /* --- Wątek ---------------------------------------------------------- */
 
-  .wiadomosci {
-    list-style: none;
-    margin: 0;
-    padding: var(--odstep-4) var(--margines-tresci) var(--odstep-3);
-    display: flex;
-    flex-direction: column;
-    /*
-     * 2 px, a nie odstęp z siatki.
-     *
-     * Wiadomości tej samej osoby mają stać CIASNO — to bliskość, a nie
-     * etykieta, mówi „to dalej jedna wypowiedź". Oddech między blokami dokłada
-     * margines niżej.
-     */
-    gap: 2px;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-anchor: none;
-  }
+/*
+ * Znacznik nieprzeczytanych.
+ *
+ * Ta sama rodzina co dymek własny — pełny akcent, biały tekst.
+ *
+ * Znacznik odpowiada na to samo pytanie, co dymek („czy ktoś coś do mnie
+ * powiedział"), a nie oferuje czynności, więc nie jest przyciskiem.
+ *
+ * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
+ * zaglądać teraz.
+ */
+.znacznik {
+  flex: none;
+  min-width: 1.25rem;
+  padding: 0 .35rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--znacznik-tlo);
+  color: var(--znacznik-tekst);
+  font-size: .6875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
+/* Etykieta stanu — mała, obrysowana, bez koloru dopóki nic się nie dzieje. */
+.tryb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .75rem;
+  color: var(--tekst-drugi);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-s);
+  padding: .2rem .5rem;
+}
+.tryb.uwaga { border-color: color-mix(in srgb, var(--alarm) 45%, transparent); color: var(--alarm); }
+
+.awatar {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--awatar-tlo);
+  border: none;
+  color: var(--awatar-tekst);
+  display: grid;
+  place-items: center;
+  font-size: .875rem;
+  font-weight: 500;
+  text-transform: uppercase;
   /*
    * `:not(…)` z LISTĄ, nie kilka `:not` po kolei.
    *
@@ -738,6 +854,1302 @@
     margin-top: var(--odstep-3);
   }
 
+/*
+ * Ekrany wejścia są wąskie, widok zalogowany bierze całą szerokość.
+ *
+ * Formularz logowania rozciągnięty na 1400 px czyta się źle; trzy panele
+ * ściśnięte do 34rem marnują dokładnie tę szerokość, dla której powstały.
+ */
+/*
+ * Ekran wejścia PRZEWIJA się, ekran czatu NIE.
+ *
+ * To dwa różne zadania. Formularz z otwartą klawiaturą musi dać się przewinąć
+ * do pola, które jest akurat wypełniane — tam przewijanie jest jedynym
+ * wyjściem. Czat odwrotnie: pole pisania ma być widoczne ZAWSZE, więc powłoka
+ * dostaje twardą wysokość widoku i nic nie może z niej wystać.
+ */
+.aplikacja {
+  max-width: 34rem;
+  margin: 0 auto;
+  /* Skoro dokument nie przewija się, ekran wejścia musi robić to sam —
+     inaczej przy otwartej klawiaturze nie da się dojść do dolnego pola. */
+  height: var(--wysokosc-okna);
+  overflow-y: auto;
+  padding:
+    calc(var(--odstep-8) + var(--bezpiecznie-gora))
+    calc(var(--odstep-6) + var(--bezpiecznie-prawo))
+    calc(var(--odstep-8) + var(--bezpiecznie-dol))
+    calc(var(--odstep-6) + var(--bezpiecznie-lewo));
+}
+
+.aplikacja:has(.uklad) {
+  max-width: none;
+  /* Twarda wysokość, nie minimalna: układ w środku bierze `height: 100%`,
+     więc pole pisania nie ma jak zejść pod krawędź ekranu. */
+  height: var(--wysokosc-okna);
+  overflow: hidden;
+  padding:
+    max(var(--odstep-6), var(--bezpiecznie-gora))
+    max(var(--odstep-6), var(--bezpiecznie-prawo))
+    max(var(--odstep-6), var(--bezpiecznie-dol))
+    max(var(--odstep-6), var(--bezpiecznie-lewo));
+}
+
+.naglowek-wejscia {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-4);
+  margin-bottom: var(--odstep-8);
+}
+.naglowek-wejscia .tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+/* Znak firmowy: kółko zalane akcentem ze znakiem z ikony aplikacji, biała ikona. */
+.marka-znak {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--akcent);
+  color: #fff;
+}
+
+/* Pasek nad ekranem, do którego się wchodzi: strzałka wstecz i tytuł. */
+.pasek-ekranu {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  margin-bottom: var(--odstep-4);
+}
+.pasek-ekranu h2 { flex: 1; min-width: 0; }
+
+/*
+ * Nagłówek dwujęzyczny: polski wiodący, angielski drugą linią.
+ *
+ * Konwencja z projektu, ta sama co `NaglowekEkranu` na Androidzie. Angielski
+ * jest wyraźnie drugorzędny — mniejszy i przygaszony — bo ma pomagać, a nie
+ * konkurować z polskim o uwagę.
+ */
+.tytul-ekranu { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.podtytul-en {
+  font-size: .6875rem;
+  color: var(--tekst-trzeci);
+  letter-spacing: .02em;
+}
+
+/* --- Układ trzech paneli ------------------------------------------------- */
+
+/*
+ * Nawigacja, lista rozmów, wątek — obok siebie.
+ *
+ * Poprzedni układ chował listę w momencie otwarcia rozmowy, mimo że na ekranie
+ * było miejsce na oba. Panel z boku wykorzystuje szerokość, którą przeglądarka
+ * i tak ma; poniżej 46rem wraca na dół, bo tam sięga kciuk, nie wzrok.
+ */
+/*
+ * Kolumn jest tyle, ile paneli.
+ *
+ * Inspektor jest CZWARTYM dzieckiem siatki. Przy trzech zadeklarowanych
+ * kolumnach nie mieścił się w pierwszym wierszu i lądował w drugim — pod
+ * panelem bocznym, na jego szerokość. Wyglądało to jak rozsypany układ,
+ * bo nim było. Kolumna dokłada się więc dokładnie wtedy, gdy inspektor jest
+ * na ekranie.
+ */
+/*
+ * Wysokość bierze się z powłoki, a nie z `100dvh` liczonego drugi raz.
+ *
+ * Powłoka ma już wysokość widoku pomniejszoną o wcięcia bezpieczne i o własny
+ * margines. Powtórzenie tego rachunku tutaj było źródłem błędu na iPhonie:
+ * dwa niezależne odejmowania od tej samej liczby nigdy nie dawały tego samego
+ * wyniku. Pasek błędu nad układem zabiera swoje, a `flex: 1` oddaje resztę.
+ */
+.aplikacja:has(.uklad) { display: flex; flex-direction: column; gap: var(--odstep-4); }
+
+.uklad {
+  display: grid;
+  grid-template-columns: var(--kol-nawigacja) var(--kol-lista) minmax(0, 1fr);
+  gap: var(--odstep-6);
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+.uklad:has(.inspektor.otwarty) {
+  grid-template-columns: var(--kol-nawigacja) var(--kol-lista) minmax(0, 1fr) var(--kol-inspektor);
+}
+
+/*
+ * Kolumny rosną z oknem, zamiast stać na sztywnych `14rem 21rem`.
+ *
+ * Sztywne działały tylko w oknie, w którym je dobrano. Na laptopie 13" lista
+ * zjadała trzecią część szerokości i wątek łamał się co kilka słów; na monitorze
+ * dwa wąskie paski stały przy wątku rozciągniętym na resztę ekranu. `clamp`
+ * trzyma proporcję w środku i zatrzymuje ją na krańcach, gdzie proporcja
+ * przestaje mieć sens.
+ */
+.uklad {
+  --kol-nawigacja: clamp(12rem, 15vw, 15rem);
+  --kol-lista: clamp(17rem, 24vw, 24rem);
+  --kol-inspektor: clamp(16rem, 20vw, 21rem);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-1);
+  min-width: 0;
+}
+
+.marka {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  font-weight: 500;
+  padding: 0 var(--odstep-2);
+  margin-bottom: var(--odstep-6);
+}
+
+.galaz {
+  justify-content: flex-start;
+  text-align: left;
+  background: transparent;
+  color: var(--tekst-drugi);
+  font-weight: 500;
+  padding-inline: var(--odstep-4);
+}
+.galaz:hover { background: var(--karta-hover); color: var(--tekst); }
+.galaz .znacznik { margin-left: auto; }
+/* Gałąź aktywna: pigułka tinted akcentem, jak aktywny wiersz rozmowy —
+   ten sam wzorek „to jest tu i teraz" w całej nawigacji. */
+.galaz.aktywna { background: var(--akcent-tlo); color: var(--akcent-tekst); font-weight: 600; }
+.galaz.aktywna:hover { background: var(--akcent-tlo); }
+
+/* Stopka panelu: stan sieci i motyw. Na dole, bo to nie są gałęzie nawigacji. */
+.stopka-sidebara {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  padding-top: var(--odstep-4);
+  border-top: 1px solid var(--linia);
+}
+
+.ekran {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Panel listy — własna kolumna, własne przewijanie. */
+.panel-listy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--linia);
+  padding-right: var(--odstep-6);
+}
+.panel-listy-naglowek {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  min-height: var(--dotyk-ikona);
+}
+/* Duży tytuł: lista rozmów jest ekranem samym w sobie, nie sekcją innego. */
+.panel-listy-naglowek h2 { flex: 1; font-size: 1.625rem; font-weight: 700; letter-spacing: -.02em; }
+
+/*
+ * Inspektor: uczestnicy i kod bezpieczeństwa.
+ *
+ * Po prawej, a nie pod wątkiem. Kod bezpieczeństwa porównuje się patrząc
+ * jednocześnie na rozmowę — schowany pod wiadomościami wymagał przewinięcia
+ * na sam dół, czyli odejścia od tego, co się właśnie sprawdza.
+ */
+/*
+ * Zamknięty znaczy zamknięty — na każdej szerokości.
+ *
+ * Wcześniej ta reguła obowiązywała wyłącznie poniżej 78rem, więc na szerokim
+ * ekranie panel był stałą kolumną siatki: krzyżyk zmieniał stan, którego nikt
+ * nie czytał, i nie dawało się go zamknąć. Przycisk obiecywał coś, czego nie
+ * potrafił zrobić — a to gorsze niż brak przycisku.
+ */
+.inspektor:not(.otwarty) { display: none; }
+
+.inspektor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--linia);
+  padding-left: var(--odstep-6);
+}
+
+/* --- Lista rozmów -------------------------------------------------------- */
+
+.szukanie {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+/*
+ * Lupa środkowana jawnie, a nie „bo tak wypadnie".
+ *
+ * Element pozycjonowany bezwzględnie wypada z układu elastycznego, więc
+ * `align-items: center` rodzica przestaje go dotyczyć — a pozycja statyczna
+ * takiego elementu to miejsce, które przeglądarki rozstrzygają różnie. Lupa
+ * siedziała przez to o kilka pikseli za wysoko w Safari i równo w Chrome.
+ */
+.szukanie .ikona {
+  position: absolute;
+  left: .65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--tekst-trzeci);
+  pointer-events: none;
+}
+.szukanie input {
+  flex: 1;
+  min-width: 0;
+  padding-left: 2.3rem;
+  min-height: var(--dotyk-ikona);
+  font-size: .875rem;
+  border: none;
+  background: var(--pole);
+  border-radius: 10px;
+}
+
+.lista-rozmow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * Wiersz zaczyna się od góry, nie od środka.
+ *
+ * Podgląd ma teraz dwa wiersze, więc wyśrodkowanie w pionie ustawiałoby
+ * awatar raz wyżej, raz niżej — zależnie od tego, czy ostatnia wiadomość
+ * była krótka. Awatar przy górnej krawędzi stoi w każdym wierszu tak samo
+ * i lista przestaje falować.
+ */
+.wiersz-rozmowy {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--odstep-4);
+  min-height: 4.25rem;
+  background: transparent;
+  color: var(--tekst);
+  border-radius: var(--promien-l);
+  text-align: left;
+  padding: var(--odstep-3);
+  font-weight: 400;
+}
+.wiersz-rozmowy .awatar { width: 3rem; height: 3rem; font-size: 1.0625rem; }
+.wiersz-rozmowy:hover { background: var(--karta-hover); }
+/* Otwarta rozmowa: pigułka tinted akcentem, tekst zwykły — to podświetlenie
+   wiersza, nie link, więc nazwa nie zmienia koloru na akcent. */
+.wiersz-rozmowy.otwarta {
+  background: var(--akcent-tlo);
+  color: var(--tekst);
+}
+
+.wiersz-tresc { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: .1rem; }
+.wiersz-gora { display: flex; align-items: baseline; gap: var(--odstep-3); }
+.wiersz-nazwa {
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: -.01em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiersz-czas { flex: none; font-size: .75rem; color: var(--tekst-trzeci); }
+.wiersz-ostatnia {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--odstep-2);
+  font-size: .875rem;
+  line-height: 1.3;
+  color: var(--tekst-drugi);
+}
+.wiersz-ostatnia .ikona { margin-top: .15rem; }
+/*
+ * Dwa wiersze podglądu, nie jeden.
+ *
+ * Jeden ucinał zdanie tam, gdzie akurat wypadła krawędź — najczęściej po
+ * dwóch słowach, bo nazwa i godzina zabierają wiersz wyżej. Wiersz listy
+ * przestawał wtedy mówić cokolwiek o rozmowie i trzeba było ją otworzyć,
+ * żeby się dowiedzieć, czy warto ją otwierać.
+ */
+.wiersz-ostatnia .tekst {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/*
+ * Przeciągnięcie wiersza w lewo odsłania kosz spod spodu.
+ *
+ * Wiersz jest nieprzezroczysty (kryje kosz w spoczynku) i przesuwa się nad nim;
+ * `overflow: hidden` na pozycji obcina to, co wyjechało poza krawędź. Kolor
+ * kosza to `--alarm-tlo`, nie nasycona czerwień — Nocturne trzyma akcent i alarm
+ * jako linię, a nie plamę.
+ *
+ * # Dlaczego kosz jest niewidoczny w spoczynku
+ *
+ * Wiersz ma zaokrąglone rogi (`--promien-l`), więc jego nieprzezroczyste tło NIE
+ * dochodzi do samych narożników — a pod spodem, aż do prostych krawędzi pozycji,
+ * leżał `--alarm-tlo`. Efekt: alarmowa czerwień prześwitywała w czterech rogach
+ * każdego wiersza, najmocniej na ciemnym motywie. Kosz odsłaniamy więc dopiero,
+ * gdy wiersz faktycznie się przesuwa (`.odslania`); w spoczynku rogi pokazują
+ * czyste tło listy, nie alarm.
+ */
+.pozycja-rozmowy {
+  position: relative;
+  overflow: hidden;
+  list-style: none;
+}
+.pozycja-rozmowy .wiersz-rozmowy {
+  position: relative;
+  z-index: 1;
+  background: var(--tlo);
+  /* Poziom obsługujemy sami; pion zostawiamy przewijaniu listy. */
+  touch-action: pan-y;
+}
+.pozycja-rozmowy .wiersz-rozmowy.otwarta { background: var(--akcent-tlo); }
+.wiersz-usun {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 5.5rem;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .15rem;
+  min-height: 0;
+  border: none;
+  background: var(--alarm-tlo);
+  color: var(--alarm);
+  font-size: .6875rem;
+  /* W spoczynku niewidoczny i nieklikalny — patrz komentarz wyżej. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.pozycja-rozmowy.odslania .wiersz-usun { opacity: 1; pointer-events: auto; }
+.wiersz-usun:hover { background: color-mix(in srgb, var(--alarm) 20%, var(--alarm-tlo)); }
+
+/*
+ * Kebab „więcej" na wierszu — droga do usunięcia na desktopie.
+ *
+ * Gest przeciągnięcia jest dotykowy; na myszy nie istnieje, więc bez tego
+ * przycisku desktop nie miał JAK usunąć rozmowy. Pokazujemy go tylko tam, gdzie
+ * jest realny wskaźnik (`hover: hover`), i dopiero na najechanie wiersza albo
+ * gdy jego menu jest otwarte — żeby lista w spoczynku była czysta.
+ */
+.wiersz-kebab { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .wiersz-kebab {
+    position: absolute;
+    top: .5rem;
+    right: .5rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: none;
+    border-radius: var(--promien-s);
+    background: transparent;
+    color: var(--tekst-drugi);
+    opacity: 0;
+    transition: opacity .12s ease, background .12s ease;
+  }
+  .pozycja-rozmowy:hover .wiersz-kebab,
+  .wiersz-kebab.aktywny { opacity: 1; }
+  .wiersz-kebab:hover { background: var(--karta-hover); color: var(--tekst); }
+}
+
+/* Małe menu pod kebabem. Jedna akcja dziś, ale to jego naturalne miejsce. */
+.menu-rozmowy {
+  position: absolute;
+  top: 2.4rem;
+  right: .5rem;
+  z-index: 3;
+  min-width: 11rem;
+  padding: var(--odstep-2);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .38);
+}
+.menu-rozmowy button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  padding: var(--odstep-3);
+  border: none;
+  border-radius: var(--promien-s);
+  background: transparent;
+  color: var(--alarm);
+  text-align: left;
+  font-size: .875rem;
+}
+.menu-rozmowy button:hover { background: var(--alarm-tlo); }
+/* Niewidoczne tło zamykające menu kliknięciem obok. */
+.zaslona-menu { position: fixed; inset: 0; z-index: 2; background: transparent; border: none; }
+
+/*
+ * Wiersz z OTWARTYM menu przestaje przycinać swoją zawartość.
+ *
+ * `.pozycja-rozmowy` ma `overflow: hidden` dla gestu przeciągnięcia (chowa
+ * przycisk kosza zjeżdżający spod wiersza). To samo przycinanie ucinało jednak
+ * menu kebaba, które opada NIŻEJ niż dół wiersza — dropdown pojawiał się
+ * obcięty do wysokości wiersza i wchodził na sąsiada pod spodem. Menu jest
+ * desktopowe, a gest dotykowy, więc gdy menu jest otwarte, przycinania i tak
+ * nie potrzebujemy: puszczamy zawartość na wierzch i podnosimy wiersz nad te
+ * pod nim, żeby dropdown je przykrył, a nie odwrotnie.
+ */
+.pozycja-rozmowy.menu-otwarte {
+  overflow: visible;
+  z-index: 5;
+}
+
+/*
+ * Potwierdzenie usunięcia rozmowy.
+ *
+ * Kasowanie jest nieodwracalne (historia jest tylko na tym urządzeniu), więc
+ * każda droga do niego — gest, przycisk spod wiersza, kebab — przechodzi przez
+ * to samo pytanie. „Usuń" niesie alarm jako linię, nie plamę; domyślnie
+ * podświetlony jest „Anuluj", bo bezpieczniejsza odpowiedź ma być tą łatwą.
+ */
+.nakladka-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--odstep-5);
+  background: rgb(0 0 0 / .55);
+}
+.modal-karta {
+  width: 100%;
+  max-width: 22rem;
+  padding: var(--odstep-5);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  box-shadow: 0 20px 60px rgb(0 0 0 / .5);
+}
+.modal-karta h3 { margin: 0 0 var(--odstep-3); font-size: 1.0625rem; }
+.modal-karta p { margin: 0 0 var(--odstep-5); color: var(--tekst-drugi); font-size: .875rem; line-height: 1.45; }
+.modal-przyciski { display: flex; gap: var(--odstep-3); justify-content: flex-end; }
+.modal-przyciski button { flex: none; }
+
+/* Znacznik stoi w linii nazwy, a nie na środku dwuwierszowego wiersza. */
+.wiersz-rozmowy > .znacznik { margin-top: .35rem; }
+
+.pusto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-3);
+  text-align: center;
+  color: var(--tekst-drugi);
+  padding: var(--odstep-8) var(--odstep-6);
+  font-size: .875rem;
+}
+.pusto .ikona { color: var(--tekst-trzeci); }
+
+/* --- Wątek --------------------------------------------------------------- */
+
+.watek {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * Nagłówek wątku: kto, jaką drogą i co można z tym zrobić.
+ *
+ * Droga dostarczania stoi przy nazwie, a nie w ustawieniach — „przez serwer"
+ * to zdanie o tym, kto widzi metadane rozmowy, więc ma być tam, gdzie się na
+ * tę rozmowę patrzy.
+ */
+.pasek-watku {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  min-height: 3.75rem;
+  padding-bottom: var(--odstep-3);
+  border-bottom: 1px solid var(--linia);
+}
+
+.pasek-kto { display: flex; align-items: center; gap: var(--odstep-3); min-width: 0; flex: 1; }
+.pasek-kto .awatar { width: 2.25rem; height: 2.25rem; font-size: .8125rem; }
+.pasek-tozsamosc { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pasek-nazwa {
+  font-weight: 600;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pasek-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  color: var(--tekst-drugi);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.pasek-meta .ikona { color: var(--tekst-trzeci); }
+.pasek-meta.uwaga, .pasek-meta.uwaga .ikona { color: var(--alarm); }
+
+.akcje-watku { display: flex; gap: var(--odstep-1); flex: none; }
+
+.wiadomosci {
+  list-style: none;
+  margin: 0;
+  padding: var(--odstep-4) 0 var(--odstep-3);
+  display: flex;
+  flex-direction: column;
+  /*
+   * 2 px, a nie odstęp z siatki.
+   *
+   * Wiadomości tej samej osoby mają stać CIASNO — to ich bliskość, a nie
+   * żadna etykieta, mówi „to dalej jedna wypowiedź". Oddech między blokami
+   * dokładają marginesy niżej, więc siatka nie musi tu pasować.
+   */
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+/*
+ * Własne po prawej i zalane akcentem, cudze po lewej i szare — układ, który
+ * czyta się bez etykiet, także wtedy, gdy oba dymki są na całą szerokość.
+ */
+/*
+ * `:not(…)` z LISTĄ, nie kilka `:not` po kolei.
+ *
+ * To nie jest skrót zapisu, tylko warunek poprawności. Specyficzność `:not()`
+ * to specyficzność jego NAJBARDZIEJ szczegółowego argumentu, więc wersja
+ * z listą waży tyle samo, ile jedna klasa — niezależnie od tego, ile pozycji
+ * lista ma. Kilka `:not` napisanych obok siebie SUMUJE się i podnosi tę regułę
+ * PONAD `.wiadomosci li.wlasna` — a wtedy własne wiadomości dostają wyrównanie
+ * i tło cudzych, bo reguła ogólna zaczyna wygrywać ze szczegółową.
+ *
+ * Dokładnie tak się to zepsuło przy dokładaniu śladu po rozmowie: dymki
+ * ustawiły się po lewej i straciły swój kolor, mimo że reguła `.wlasna` była
+ * nietknięta. Pilnuje tego `lib/dymki.test.ts`.
+ *
+ * Na liście są wszystkie pozycje wątku, które dymkiem NIE są: rozdzielacz
+ * czasu, ślad po rozmowie A/V, wiersz stanu wysyłki i pusty stan. Każda z nich
+ * bez wyłączenia dziedziczy tło i promienie dymka — i wygląda jak wiadomość
+ * wysłana przez nikogo.
+ */
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) {
+  position: relative;
+  background: var(--babel);
+  border: none;
+  border-radius: var(--promien-babel);
+  padding: .4rem .75rem;
+  max-width: min(76%, 32rem);
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  font-size: .9375rem;
+  line-height: 1.34;
+}
+.wiadomosci li.wlasna {
+  background: var(--babel-wlasny);
+  color: var(--babel-wlasny-tekst);
+  align-self: flex-end;
+}
+
+/*
+ * Nowy blok odsuwa się od poprzedniego; ciąg zostaje przy swoim.
+ *
+ * Odstęp jest tu JEDYNYM znakiem podziału na wypowiedzi — promień mają
+ * wszystkie dymki taki sam. Dlatego różnica między 2 px a 10 px musi być
+ * wyraźna; przy 4 px blok przestaje się rysować.
+ */
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku, .ciag) {
+  margin-top: var(--odstep-3);
+}
+
+/*
+ * Ogon — wyłącznie przy OSTATNIM dymku bloku.
+ *
+ * Ogon znaczy „ktoś to powiedział". Postawiony przy każdym dymku serii daje
+ * trzy ogony pod rzędem i seria rozpada się na trzy osobne wypowiedzi;
+ * postawiony przy ostatnim domyka blok jak kropka domyka zdanie.
+ *
+ * Rysują go dwa prostokąty: `::before` w kolorze dymka wystaje poza jego
+ * krawędź, a `::after` w kolorze TŁA wycina z niego łuk. Stąd twarde
+ * `var(--tlo)` — gdyby wątek dostał kiedyś własne tło inne niż tło strony,
+ * wycięcie przestanie pasować i trzeba je podmienić razem z nim.
+ */
+.wiadomosci li.ogon::before,
+.wiadomosci li.ogon::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  height: 17px;
+  pointer-events: none;
+}
+.wiadomosci li.ogon::before { width: 20px; }
+.wiadomosci li.ogon::after { width: 11px; background: var(--tlo); }
+
+.wiadomosci li.ogon:not(.wlasna)::before {
+  left: -7px;
+  background: var(--babel);
+  border-bottom-right-radius: 16px 14px;
+}
+.wiadomosci li.ogon:not(.wlasna)::after { left: -11px; border-bottom-right-radius: 12px; }
+
+.wiadomosci li.ogon.wlasna::before {
+  right: -7px;
+  background: var(--babel-wlasny);
+  border-bottom-left-radius: 16px 14px;
+}
+.wiadomosci li.ogon.wlasna::after { right: -11px; border-bottom-left-radius: 12px; }
+
+.autor {
+  font-size: .6875rem;
+  color: var(--tekst-drugi);
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.tresc { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/*
+ * Stan wysyłki: SŁOWEM, pod ostatnim własnym dymkiem.
+ *
+ * # Dlaczego to wyszło z dymka
+ *
+ * Ptaszek stał w każdej własnej wiadomości i przy serii trzech zdań dawał
+ * trzy takie same ptaszki jeden pod drugim. Odpowiadał przy tym na pytanie
+ * zadawane o JEDNĄ wiadomość — tę ostatnią: „doszło czy nie". Kolumna
+ * powtórzeń kosztowała drugi wiersz w każdym dymku i nie mówiła nic więcej
+ * niż jedno słowo pod ostatnim.
+ *
+ * Słowo, a nie ikona, bo „dostarczono" i „przeczytano" to różnica, którą
+ * trzeba ZROZUMIEĆ, a nie rozpoznać: dwa odcienie tego samego ptaszka
+ * wymagały pamiętania, który jest który. Wyjątkiem zostają stany, z którymi
+ * trzeba coś zrobić — te pokazujemy przy każdej wiadomości, której dotyczą.
+ */
+.stan-wysylki {
+  align-self: flex-end;
+  margin: .2rem .3rem var(--odstep-2);
+  font-size: .6875rem;
+  color: var(--tekst-trzeci);
+}
+.stan-wysylki.nieudany { color: var(--alarm); }
+
+/* Wiadomość w locie: przygaszona, dopóki nie ma potwierdzenia. */
+.wiadomosci li.w-locie { opacity: .62; }
+/*
+ * Nieudana dostaje obrys błędu — to stan, z którym trzeba coś zrobić.
+ *
+ * `box-shadow`, nie `border`: dymek nie ma już obramowania, a dołożenie go
+ * tutaj przesunęłoby treść o piksel i zmieniło wysokość wiersza w chwili,
+ * w której wysyłka zawodzi.
+ */
+.wiadomosci li.nieudana { box-shadow: inset 0 0 0 1px var(--alarm); }
+
+/* Pusty wątek zajmuje całą wysokość listy, żeby stanąć w jej środku. */
+.wiadomosci li.pusto-watku { flex: 1; align-self: stretch; display: flex; }
+
+/*
+ * Ślad po rozmowie A/V — na środku, jak rozdzielacz dnia.
+ *
+ * Rozmowa się WYDARZYŁA, a nie została wysłana: nie ma nadawcy, więc nie ma
+ * strony, po której miałaby stanąć. Dymek przypisałby ją komuś, a przy rozmowie
+ * grupowej temu komuś nieprawdziwie.
+ */
+/*
+ * Bez ramki, bo w wątku pełnym zalanych dymków obrysowana kapsułka na środku
+ * czyta się jak trzeci rodzaj wiadomości. Ślad rozmowy jest podpisem pod
+ * osią czasu, jak rozdzielacz — i tak samo ma wyglądać.
+ */
+.wiadomosci li.zdarzenie {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  margin: var(--odstep-3) 0;
+  padding: 0 var(--odstep-4);
+  border: none;
+  color: var(--tekst-drugi);
+  font-size: .75rem;
+  max-width: 100%;
+}
+.wiadomosci li.zdarzenie .ikona { color: var(--tekst-trzeci); }
+.wiadomosci li.zdarzenie .czas-zdarzenia {
+  color: var(--tekst-trzeci);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Nieodebrana świeci alarmem, bo jest jedyną z nich, z którą trzeba coś zrobić:
+ * oddzwonić. Odbyta rozmowa jest tylko zapisem w kronice.
+ */
+.wiadomosci li.zdarzenie.nieodebrane { color: var(--alarm); }
+.wiadomosci li.zdarzenie.nieodebrane .ikona { color: var(--alarm); }
+
+/*
+ * Rozdzielacz czasu — jedyne miejsce w wątku, które mówi „kiedy".
+ *
+ * Kreski po bokach zniknęły razem z obrysami dymków: linia przez całą
+ * szerokość dzieliła wątek na sekcje, a to nie są sekcje — to ta sama rozmowa
+ * z przerwą w środku. Zostaje sam napis, wyśrodkowany i przygaszony.
+ *
+ * Dzień wytłuszczony, godzina zwykła: jedno zdanie („Dziś 08:42"), a nie dwie
+ * etykiety obok siebie.
+ */
+.rozdzielacz {
+  align-self: center;
+  margin: var(--odstep-4) 0 var(--odstep-3);
+  color: var(--tekst-trzeci);
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+}
+.rozdzielacz strong { font-weight: 600; color: var(--tekst-drugi); }
+
+/* --- Pisanie ------------------------------------------------------------- */
+
+.pisanie {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--odstep-3);
+  padding-top: var(--odstep-3);
+  border-top: 1px solid var(--linia);
+}
+
+/*
+ * Pole i strzałka są JEDNYM przedmiotem.
+ *
+ * Przycisk stojący obok pola jest osobną kontrolką, którą trzeba znaleźć
+ * wzrokiem; wsunięty w prawy koniec pola jest końcem tej samej czynności —
+ * dopisujesz zdanie i wypychasz je tym samym ruchem kciuka, bez przenoszenia
+ * ręki. Przy okazji listwa pisania przestaje być rzędem trzech pudełek.
+ */
+.pole-pisania {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--odstep-2);
+  min-height: var(--dotyk-ikona);
+  padding: 3px 3px 3px .75rem;
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-babel);
+  background: var(--pole);
+  transition: border-color var(--szybko);
+}
+.pole-pisania:hover { border-color: var(--linia-mocna); }
+
+/*
+ * Obrys skupienia bierze CAŁE pole, nie samo `textarea`.
+ *
+ * Obrys wokół pola tekstowego rysowałby się w środku pigułki, jako prostokąt
+ * o kilka pikseli mniejszy od niej — czyli dokładnie tak, jak wygląda usterka
+ * renderowania.
+ */
+.pole-pisania:has(textarea:focus-visible) {
+  outline: 2px solid var(--akcent);
+  outline-offset: 2px;
+}
+
+/*
+ * Załącznik jako spinacz przy polu, nie prostokąt nad nim.
+ *
+ * Pole na całą szerokość zajmowało tyle miejsca co dwie wiadomości
+ * i podpowiadało, że załącznik jest głównym sposobem pisania.
+ */
+/*
+ * Kółko, nie kwadrat: spinacz i strzałka są tej samej rodziny co dymek,
+ * a dymek jest miękki. Kwadratowy przycisk obok pigułkowatego pola wygląda
+ * jak kontrolka z innego ekranu.
+ *
+ * 34 px to ROZMIAR WIDOCZNY. Pole dotyku dokłada `::after` rozciągnięty do
+ * 44 px — powiększanie samego kółka rozpycha listwę pisania i zabiera
+ * szerokość temu, po co ona jest.
+ */
+.dolacz-plik {
+  position: relative;
+  flex: none;
+  align-self: flex-end;
+  display: grid;
+  place-items: center;
+  width: 2.125rem;
+  height: 2.125rem;
+  margin-bottom: calc((var(--dotyk-ikona) - 2.125rem) / 2);
+  border: none;
+  border-radius: 50%;
+  background: var(--babel);
+  color: var(--tekst-drugi);
+  cursor: pointer;
+  transition: color var(--szybko), background-color var(--szybko);
+}
+.dolacz-plik::after { content: ""; position: absolute; inset: -5px; }
+.dolacz-plik:hover { color: var(--tekst); background: var(--karta-hover); }
+.dolacz-plik:focus-within { outline: 2px solid var(--akcent); outline-offset: 2px; }
+.dolacz-plik input { display: none; }
+
+/*
+ * Pole pisania rośnie z treścią, ale nie w nieskończoność.
+ *
+ * Jednowierszowe pole przy dłuższej wiadomości pokazuje ostatnie kilka słów
+ * i nie da się przeczytać tego, co się właśnie napisało.
+ */
+.pisanie textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  min-height: 0;
+  max-height: 8rem;
+  padding: .34rem 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  line-height: 1.34;
+}
+.pisanie textarea:hover { border-color: transparent; }
+/* Obrys nosi pole (wyżej) — dwa naraz dałyby dwie ramki jedna w drugiej. */
+.pisanie textarea:focus-visible { outline: none; }
+
+/*
+ * Strzałka wypełniona kolorem własnego dymka — jedyny przycisk w systemie,
+ * który jest plamą. Wolno mu, bo mówi dokładnie to samo, co dymek, który
+ * za chwilę powstanie: „to jest moje". Wyszarzała, gdy nie ma czego wysłać.
+ */
+.pisanie button.wyslij {
+  position: relative;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  min-height: 0;
+  padding: 0;
+  margin-bottom: 1px;
+  border: none;
+  border-radius: 50%;
+  background: var(--babel-wlasny);
+  color: var(--babel-wlasny-tekst);
+}
+/* Pole dotyku do 44 px bez powiększania kółka — jak przy spinaczu. */
+.pisanie button.wyslij::after { content: ""; position: absolute; inset: -8px; }
+.pisanie button.wyslij:hover { background: color-mix(in srgb, var(--babel-wlasny) 82%, var(--tekst)); }
+.pisanie button.wyslij:disabled {
+  background: var(--wglebienie);
+  color: var(--tekst-trzeci);
+  opacity: 1;
+}
+.pisanie button.wyslij:disabled:hover { background: var(--wglebienie); }
+
+/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */
+.wskazowka-plik {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  color: var(--tekst-trzeci);
+  margin: var(--odstep-2) 0 0 calc(2.125rem + var(--odstep-3));
+}
+
+/* --- Załączniki ---------------------------------------------------------- */
+
+/*
+ * Dymek z obrazem: obraz JEST dymkiem.
+ *
+ * Obraz w dymku z pełnym paddingiem dawał ramkę koloru dymka dookoła zdjęcia —
+ * przy własnej wiadomości cyjanową obwódkę, która wyglądała jak passe-partout.
+ * Zostaje 4 px, tyle, żeby róg obrazu nie wyszedł poza róg dymka.
+ */
+.wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku):has(> .zalacznik) {
+  padding: 4px;
+}
+.wiadomosci li:has(> .zalacznik) > .tresc { padding: .15rem .5rem .35rem; }
+/* Nazwa autora też musi odsunąć się od krawędzi, skoro dymek jej nie odsuwa. */
+.wiadomosci li:has(> .zalacznik) > .autor { padding: .1rem .5rem .2rem; }
+
+.zalacznik {
+  max-width: 100%;
+  max-height: 18rem;
+  border-radius: calc(var(--promien-babel) - 4px);
+  display: block;
+  margin-top: 0;
+  background: var(--wglebienie);
+}
+
+.zalacznik-pobierz {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  margin-top: var(--odstep-2);
+  font-size: .8125rem;
+  border: 1px solid var(--linia-mocna);
+  color: inherit;
+  text-decoration: none;
+  padding: .35rem .6rem;
+  border-radius: var(--promien-s);
+}
+.zalacznik-pobierz:hover { background: color-mix(in srgb, var(--tekst) 8%, transparent); }
+
+/*
+ * Zdjęcie jako przycisk: kliknięcie powiększa je na pełny ekran.
+ *
+ * Przycisk, a nie samo `<img onclick>`, bo powiększenie to akcja — ma być
+ * osiągalne z klawiatury i czytane przez czytnik ekranu. Kadr zostaje dokładnie
+ * taki jak zdjęcia w wątku; zmienia się tylko kursor i lekkie podniesienie na
+ * najechanie, żeby było widać, że da się w nie kliknąć.
+ */
+.zalacznik-obraz {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  border-radius: calc(var(--promien-babel) - 4px);
+}
+.zalacznik-obraz .zalacznik { transition: filter .12s ease; }
+.zalacznik-obraz:hover .zalacznik { filter: brightness(1.06); }
+
+/*
+ * Nakładka zdjęcia na pełny ekran.
+ *
+ * Ponad wszystkim (`z-index` wyżej niż modale i ekran rozmowy), przygaszone tło,
+ * zdjęcie wpisane w widok bez przycinania. Klik w tło i krzyżyk zamykają;
+ * kliknięcie w samo zdjęcie nie — patrz `Pelnoekranowy`.
+ */
+.nakladka-zdjecia {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--odstep-6);
+  background: rgb(0 0 0 / .82);
+  cursor: zoom-out;
+}
+.zdjecie-pelne {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--promien-s);
+  cursor: default;
+}
+.zamknij-zdjecie {
+  position: absolute;
+  top: var(--odstep-4);
+  right: var(--odstep-4);
+  color: #fff;
+  background: rgb(255 255 255 / .12);
+}
+.zamknij-zdjecie:hover { background: rgb(255 255 255 / .22); }
+
+/* Placeholder na czas odszyfrowywania zdjęcia albo nagrania. */
+.zalacznik-czeka {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  padding: var(--odstep-4) 0;
+  font-size: .8125rem;
+  color: var(--tekst-trzeci);
+}
+
+/* --- Uczestnicy i kod bezpieczeństwa ------------------------------------- */
+
+.sekcja-inspektora { display: flex; flex-direction: column; gap: var(--odstep-3); }
+.naglowek-sekcji {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .6875rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--tekst-trzeci);
+}
+
+.lista-osob { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.lista-osob li {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  font-size: .875rem;
+  padding: var(--odstep-2) 0;
+}
+.lista-osob .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Blokada osoby stoi przy niej; przygaszona, aż wiersz jest pod kursorem. */
+.ikonowy.maly { width: 1.9rem; height: 1.9rem; padding: 0; color: var(--tekst-trzeci); }
+.lista-osob li .ikonowy.maly { opacity: .6; transition: opacity .12s ease, color .12s ease; }
+.lista-osob li:hover .ikonowy.maly { opacity: 1; }
+.ikonowy.maly:hover { color: var(--alarm); background: var(--alarm-tlo); }
+
+/* Dodawanie osoby: pole + „dodaj" + „anuluj", jak „Nowy czat". */
+.dodaj-osobe { display: flex; gap: var(--odstep-2); align-items: center; }
+.dodaj-osobe input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--dotyk-ikona);
+  padding: 0 .7rem;
+  border: 1px solid var(--linia);
+  background: var(--pole);
+  border-radius: 10px;
+  font-size: .875rem;
+}
+
+/*
+ * Wybór czasu znikania: „chipy" — pigułki tinted akcentem, tak jak reszta
+ * wybranych stanów w tym systemie (gałąź aktywna, otwarty wiersz rozmowy).
+ */
+.wybor-znikania { display: flex; flex-wrap: wrap; gap: var(--odstep-2); }
+.chip {
+  padding: .3rem .7rem;
+  font-size: .8125rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--karta-hover);
+  color: var(--tekst-drugi);
+}
+.chip:hover { background: color-mix(in srgb, var(--tekst) 6%, var(--karta-hover)); }
+.chip.aktywny {
+  background: var(--akcent-tlo);
+  color: var(--akcent-tekst);
+}
+.chip.niszczacy-chip { background: var(--alarm-tlo); color: var(--alarm-tekst); }
+.chip.niszczacy-chip:hover { opacity: .86; }
+
+.wlasny-czas { display: flex; gap: var(--odstep-2); align-items: center; margin-top: var(--odstep-2); }
+.wlasny-czas input { width: 4rem; min-height: var(--dotyk-ikona); padding: 0 .5rem; border: 1px solid var(--linia); background: var(--pole); border-radius: 10px; }
+.wlasny-czas select { flex: 1; min-width: 0; min-height: var(--dotyk-ikona); padding: 0 .5rem; border: 1px solid var(--linia); background: var(--pole); border-radius: 10px; color: var(--tekst); }
+.wlasny-czas .glowny { flex: none; }
+
+/* Opuszczenie grupy: za linią, na dole panelu — jak strefa kasowania konta. */
+.strefa-opuszczenia {
+  margin-top: var(--odstep-3);
+  padding-top: var(--odstep-4);
+  border-top: 1px solid var(--linia);
+}
+.strefa-opuszczenia .niszczacy { width: 100%; justify-content: center; }
+
+/* Lista zablokowanych w panelu konta. */
+.lista-zablokowanych { list-style: none; margin: var(--odstep-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.lista-zablokowanych li { display: flex; align-items: center; gap: var(--odstep-3); font-size: .875rem; }
+.lista-zablokowanych .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.safety-kod {
+  display: block;
+  background: var(--wglebienie);
+  border: 1px solid var(--linia);
+  color: var(--akcent-tekst);
+  padding: var(--odstep-4);
+  border-radius: var(--promien-s);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .9375rem;
+  letter-spacing: .04em;
+  line-height: 1.7;
+  word-spacing: .35em;
+  text-align: center;
+}
+
+/* --- Rozmowa A/V --------------------------------------------------------- */
+
+/*
+ * Rozmowa jest OSOBNYM EKRANEM, nie paskiem doklejonym nad wiadomościami.
+ *
+ * Pasek stawiał obok siebie dwie rzeczy o zupełnie różnej pilności: rozmowę,
+ * która dzieje się teraz, i historię, która poczeka. Miejsca na ekranie
+ * dostawała ta druga, bo jest jej po prostu więcej — a przyciski rozmowy,
+ * z „Rozłącz" włącznie, ściskały się w jednym rzędzie u góry. Przy otwartej
+ * klawiaturze potrafiły wyjechać poza widok razem z całym wątkiem.
+ *
+ * Ekran bierze całą wysokość widoku (nie `100dvh` — patrz `okno.ts`) i sam
+ * dokłada sobie wcięcia bezpieczne, bo nie leży już w środku powłoki, która
+ * by to za niego zrobiła.
+ */
+.ekran-rozmowy {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  background: var(--tlo);
+  padding:
+    max(var(--odstep-4), var(--bezpiecznie-gora))
+    max(var(--odstep-4), var(--bezpiecznie-prawo))
+    max(var(--odstep-4), var(--bezpiecznie-dol))
+    max(var(--odstep-4), var(--bezpiecznie-lewo));
+}
+
+.rozmowa-naglowek {
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-3);
+  flex: none;
+  font-size: .875rem;
+  color: var(--akcent);
+}
+.rozmowa-stan { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rozmowa-stan strong { color: var(--tekst); }
+.rozmowa-stan .czas { font-size: .6875rem; color: var(--tekst-drugi); font-variant-numeric: tabular-nums; }
+
+/*
+ * Przyciski na dole, w zasięgu kciuka, i wyraźnie większe niż w pasku.
+ *
+ * `margin-top: auto` dosuwa je do krawędzi niezależnie od tego, ile miejsca
+ * zajęły kafelki — jedna osoba w rozmowie głosowej to jeden mały kafelek,
+ * a przyciski i tak mają być tam, gdzie zawsze.
+ */
+.rozmowa-przyciski {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--odstep-4);
+  flex: none;
+  margin-top: auto;
+  padding-top: var(--odstep-3);
+  flex-wrap: wrap;
+  /* Zawsze nad kaflami — pas na wypadek, gdyby kafel jednak coś wypuścił. */
+  position: relative;
+  z-index: 1;
+  background: var(--tlo);
+}
+.rozmowa-przyciski button.ikonowy {
+  width: 3.25rem;
+  height: 3.25rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+.rozmowa-przyciski button.rozlacz {
+  width: 3.25rem;
+  height: 3.25rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--alarm);
+  color: #fff;
+}
+.rozmowa-przyciski button.rozlacz:hover { opacity: .86; }
+
+/*
+ * Ekran dzwonienia: karta na środku, tło przygaszone i rozmyte.
+ *
+ * To jeszcze nie rozmowa, tylko pytanie „odebrać?" — więc nie zabiera całego
+ * ekranu na czerń. `backdrop-filter` rozmywa to, co było pod spodem (wątek,
+ * lista), zostawiając kontekst; `-webkit-` obok, bo Safari na iOS wciąż go
+ * wymaga.
+ */
+.ekran-rozmowy.dzwoni {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  background: rgb(0 0 0 / .45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.panel-dzwonienia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-6);
+  width: min(21rem, 100%);
+  padding: var(--odstep-7) var(--odstep-5);
+  background: var(--karta);
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-l);
+  box-shadow: 0 24px 64px rgb(0 0 0 / .5);
+}
+.rozmowa-kto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-3);
+}
+.rozmowa-kto strong { font-size: 1.375rem; }
+.rozmowa-podpis { color: var(--tekst-drugi); font-size: .875rem; }
+.awatar.duzy { width: 5rem; height: 5rem; font-size: 2rem; }
+
+/* Trzy okrągłe przyciski z podpisem pod spodem. */
+.dzwoni-akcje {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--odstep-5);
+}
+.akcja-dzwonienia {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--odstep-2);
+  font-size: .75rem;
+  color: var(--tekst-drugi);
+}
+button.okragly {
+  width: 3.5rem;
+  height: 3.5rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+button.okragly.przyjmij { background: var(--akcent); color: #fff; }
+button.okragly.przyjmij:hover { opacity: .86; }
+button.okragly.niszczacy { background: var(--alarm); color: #fff; }
+button.okragly.niszczacy:hover { opacity: .86; }
+
+/*
+ * Siatka kafelków: ja i rozmówcy, każdy z nazwą i drogą połączenia.
+ *
+ * Liczba kolumn idzie z liczby kafelków, a nie z `auto-fit`. `auto-fit` przy
+ * dwóch osobach dawał dwa kafelki obok siebie na monitorze i dwa pod sobą na
+ * telefonie — czyli układ zmieniający się od szerokości okna, a nie od tego,
+ * ile osób rozmawia. Przy dwóch kafelkach chcemy jednej decyzji: obok siebie
+ * tam, gdzie jest szeroko, i pod sobą tam, gdzie wysoko.
+ */
+.siatka-kafelkow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--odstep-2);
+  /* Bierze miejsce, które zostało po nagłówku i przyciskach — na osobnym
+     ekranie obraz ma być duży, a nie wysokości paska. `min-height: 0` musi
+     tu być, bo bez niego siatka rozpycha rodzica zamiast się w nim zmieścić. */
+  flex: 1;
+  min-height: 0;
   /*
    * Ogon — wyłącznie przy OSTATNIM dymku bloku.
    *
@@ -763,7 +2175,312 @@
     background: var(--babel);
     border-bottom-right-radius: 16px 14px;
   }
-  .wiadomosci li.ogon:not(.wlasna)::after { left: -11px; border-bottom-right-radius: 12px; }
+}
+
+.kafelek {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--linia);
+  border-radius: var(--promien-m);
+  background: var(--wglebienie);
+}
+
+/*
+ * Kafelek z obrazem dostaje linię akcentu.
+ *
+ * To jedyne miejsce w aplikacji, w którym akcent jest jednocześnie obrysem
+ * i poświatą — bo jedyne, w którym „to jest teraz na żywo" jest dosłowną
+ * prawdą, a nie sposobem zwrócenia uwagi. Na czerni cyjanowy włos świeci sam
+ * z siebie i nie potrzebuje niczego więcej.
+ */
+.kafelek.z-obrazem {
+  border-color: color-mix(in srgb, var(--akcent) 55%, transparent);
+  background: #000;
+}
+
+.obraz-kafelka {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Element wideo stoi zawsze — niesie dźwięk. Bez obrazu jest przezroczysty
+     i pokazuje awatar spod spodu, zamiast czarnego prostokąta. */
+  opacity: 0;
+  transition: opacity var(--wolno);
+}
+.kafelek.z-obrazem .obraz-kafelka { opacity: 1; }
+
+/* Odbicie lustrzane własnego podglądu — tak, jak wygląda się w lustrze. */
+.obraz-kafelka.odbity { transform: scaleX(-1); }
+
+/*
+ * Podpis leży NA obrazie, na gradiencie.
+ *
+ * Pod kafelkiem zabierałby wysokość, której na telefonie przy czterech
+ * kafelkach nie ma. Gradient, a nie pasek — pasek odcinałby dół obrazu prostą
+ * krawędzią i wyglądał jak druga ramka.
+ */
+.podpis-kafelka {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+  padding: var(--odstep-4) var(--odstep-3) var(--odstep-3);
+  background: linear-gradient(transparent, rgb(0 0 0 / .72));
+  color: #fff;
+  font-size: .75rem;
+}
+.podpis-kafelka .kto {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+/* Etykieta drogi na gradiencie potrzebuje własnego kontrastu — token tekstu
+   drugiego jest dobrany do tła aplikacji, nie do zdjęcia pod spodem. */
+.podpis-kafelka .tryb {
+  border-color: rgb(255 255 255 / .35);
+  color: rgb(255 255 255 / .85);
+}
+.podpis-kafelka .tryb.uwaga { border-color: var(--alarm); color: var(--alarm); }
+
+/* Bez obrazu podpis nie ma czego przykrywać — gradient byłby cieniem znikąd. */
+.kafelek:not(.z-obrazem) .podpis-kafelka {
+  background: none;
+  color: var(--tekst-drugi);
+}
+.kafelek:not(.z-obrazem) .podpis-kafelka .tryb {
+  border-color: var(--linia);
+  color: var(--tekst-drugi);
+}
+
+/*
+ * `.przychodzaca` zniknęła — dzwonienie jest ekranem (`.ekran-rozmowy.dzwoni`),
+ * a nie kartą wciśniętą między nagłówek wątku a wiadomości. Karta w środku
+ * wątku znaczyła, że telefon dzwoni tylko wtedy, gdy patrzy się akurat na tę
+ * jedną rozmowę.
+ */
+
+/*
+ * Rozwinięta karta odbioru ma własne przewijanie i własny sufit wysokości.
+ *
+ * Powłoka czatu ma twardą wysokość widoku, więc karta bez sufitu nie
+ * przewinęłaby się — ścisnęłaby wątek do zera i to on zniknąłby z ekranu.
+ */
+.zaproszenie-rozwiniete {
+  flex: none;
+  max-height: min(70%, 34rem);
+  overflow-y: auto;
+  max-width: 34rem;
+  width: 100%;
+}
+
+/* --- Konto --------------------------------------------------------------- */
+
+/*
+ * Panel konta: siatka, nie stos.
+ *
+ * Karty konta są krótkie — ustawione jedna pod drugą zostawiały pustą prawą
+ * połowę i kazały przewijać po rzeczy, które mieszczą się obok siebie.
+ */
+.naglowek-konta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-1);
+  margin-bottom: var(--odstep-2);
+}
+
+.siatka-konta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 24rem));
+  gap: var(--odstep-6);
+  align-items: start;
+}
+
+.tozsamosc { display: flex; align-items: center; gap: var(--odstep-4); }
+.tozsamosc > span { display: flex; flex-direction: column; min-width: 0; }
+
+/* Stan urządzenia: etykieta po lewej, wartość po prawej — czyta się rzutem oka. */
+.stan-konta { margin: 0; display: flex; flex-direction: column; gap: var(--odstep-2); }
+.stan-konta > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--odstep-3);
+}
+.stan-konta dt { color: var(--tekst-drugi); font-size: .8125rem; }
+.stan-konta dd {
+  margin: 0;
+  color: var(--tekst);
+  font-size: .8125rem;
+  display: flex;
+  align-items: center;
+  gap: var(--odstep-2);
+}
+.stan-konta dd.uwaga, .stan-konta dd.uwaga .ikona { color: var(--alarm); }
+.stan-konta dd .ikona { color: var(--akcent); }
+
+/*
+ * Strefa kasowania: za linią i na dole, osobno od reszty.
+ *
+ * Nieodwracalne obok odwracalnego to zaproszenie do pomyłki — a tej pomyłki nie
+ * da się cofnąć, bo historii nie ma nigdzie indziej.
+ */
+.strefa-kasowania {
+  display: flex;
+  flex-direction: column;
+  gap: var(--odstep-3);
+  margin-top: var(--odstep-8);
+  padding-top: var(--odstep-6);
+  border-top: 1px solid var(--linia);
+}
+.strefa-kasowania button { align-self: flex-start; }
+
+/*
+ * Przełącznik — pigułka iOS, nie kwadratowy checkbox.
+ *
+ * Zostaje prawdziwym `<input type="checkbox">` (obsługa klawiatury, czytnika
+ * ekranu i stanu „nieokreślony" za darmo); `appearance: none` zdejmuje tylko
+ * WYGLĄD systemowego pola, nie jego zachowanie. Kciuk to pseudoelement — jeden
+ * suwak, nie dwa osobne `div`-y, które trzeba by synchronizować ręcznie.
+ * Zielony jest stały w obu motywach i niezależny od akcentu, tak jak przełącznik
+ * na Androidzie (`Nocturne.kt`, `przelWl`).
+ */
+.przelacznik {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--odstep-3);
+  color: var(--tekst);
+  font-size: .9375rem;
+  cursor: pointer;
+  min-height: var(--dotyk-ikona);
+}
+.przelacznik input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 51px;
+  height: 31px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--karta-hover);
+  cursor: pointer;
+  transition: background-color var(--szybko);
+}
+.przelacznik input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .2);
+  transition: transform var(--szybko);
+}
+.przelacznik input:checked { background: var(--przelacznik-wl); }
+.przelacznik input:checked::before { transform: translateX(20px); }
+
+/* --- Wybór motywu -------------------------------------------------------- */
+
+/*
+ * Trzy stany w jednym pasku, nie przełącznik dwustanowy.
+ *
+ * „Jasny / ciemny" bez trzeciej opcji znaczy, że wybór raz podjęty przestaje
+ * słuchać systemu — telefon przełączony wieczorem na ciemny zostawia aplikację
+ * jasną. „Za systemem" musi więc być osobnym, widocznym stanem.
+ */
+.wybor-motywu {
+  display: flex;
+  gap: 2px;
+  background: var(--karta-hover);
+  border-radius: var(--promien-m);
+  padding: 2px;
+}
+.wybor-motywu button {
+  flex: 1;
+  /* Bez dolnej granicy przełącznik postawiony obok rosnącego tytułu ściska się
+     do trzech kresek — w nagłówku wejścia dokładnie tak się działo. */
+  min-width: 2.5rem;
+  min-height: 2rem;
+  padding: 0;
+  background: transparent;
+  border-radius: var(--promien-s);
+  color: var(--tekst-drugi);
+}
+.wybor-motywu button:hover { background: transparent; color: var(--akcent-tekst); }
+/* Aktywny segment: pigułka uniesiona cieniem nad wspólnym torem — jak
+   segmented control na telefonie, nie obrys akcentu. */
+.wybor-motywu button.aktywny {
+  background: var(--segment);
+  color: var(--akcent-tekst);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .18);
+}
+.wybor-motywu button.aktywny:hover { background: var(--segment); }
+
+/* Etykieta i przełącznik w jednym wierszu — jak „Język" w Koncie. */
+.wiersz-jezyka { display: flex; align-items: center; gap: var(--odstep-4); }
+.wiersz-jezyka span { flex: 1; }
+.wiersz-jezyka .wybor-motywu { flex: none; }
+.wiersz-jezyka .wybor-motywu button { min-width: 3.5rem; }
+
+/* --- Wybór akcentu -------------------------------------------------------- */
+
+/*
+ * Osiem próbek, jedna decyzja. Wybrana dostaje obwódkę koloru tekstu z prześwitem
+ * do tła karty w środku — pierścień, nie ptaszek na plamie, bo ptaszek na
+ * jasnym akcencie (pomarańcz, róż) sam ginie w kontraście.
+ */
+.paleta-akcentow { display: flex; flex-wrap: wrap; gap: var(--odstep-4); }
+.probka-akcentu {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  min-height: 0;
+  cursor: pointer;
+}
+.probka-akcentu:hover { opacity: .8; }
+.probka-akcentu.wybrana {
+  border: 2px solid var(--tekst);
+  box-shadow: 0 0 0 2px var(--karta) inset;
+}
+.probka-akcentu.wybrana:hover { opacity: 1; }
+
+/* --- Kody QR i podgląd aparatu ------------------------------------------- */
+
+.kod-qr {
+  /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu
+     drugiego urządzenia bez przewijania. */
+  width: 100%;
+  max-width: 15rem;
+  height: auto;
+  align-self: center;
+  border-radius: var(--promien-s);
+  /* Kod musi mieć białe tło niezależnie od motywu — czytniki opierają się na
+     kontraście modułów, a nie na tym, co uznaliśmy za tło aplikacji. */
+  background: #fff;
+  padding: var(--odstep-3);
+}
+
+.sekret-recznie summary {
+  color: var(--tekst-drugi);
+  font-size: .8125rem;
+  cursor: pointer;
+}
 
   .wiadomosci li.ogon.wlasna::before {
     right: -7px;

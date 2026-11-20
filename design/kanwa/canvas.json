@@ -4,12 +4,12 @@
     { "id": "elementy", "name": "Elementy" }
   ],
   "artboards": [
-    { "file": "Lista.dc.html", "page": "ekrany", "title": "Lista — ciemny", "x": 0, "y": 0, "w": 390, "h": 844 },
-    { "file": "Main.dc.html", "page": "ekrany", "title": "Wątek — ciemny", "x": 470, "y": 0, "w": 390, "h": 844 },
-    { "file": "ListaJasna.dc.html", "page": "ekrany", "title": "Lista — jasny", "x": 940, "y": 0, "w": 390, "h": 844 },
-    { "file": "WatekJasny.dc.html", "page": "ekrany", "title": "Wątek — jasny", "x": 1410, "y": 0, "w": 390, "h": 844 },
-    { "file": "Desktop.dc.html", "page": "ekrany", "title": "Desktop 1440", "x": 0, "y": 1000, "w": 1440, "h": 900 },
-    { "file": "Elementy.dc.html", "page": "elementy", "title": "Arkusz elementów", "x": 0, "y": 0, "w": 1100, "h": 920 }
+    { "file": "ListaJasna.dc.html", "page": "ekrany", "title": "Lista — jasny (domyślny)", "x": 0, "y": 0, "w": 390, "h": 844 },
+    { "file": "WatekJasny.dc.html", "page": "ekrany", "title": "Wątek — jasny (domyślny)", "x": 470, "y": 0, "w": 390, "h": 844 },
+    { "file": "Lista.dc.html", "page": "ekrany", "title": "Lista — ciemny", "x": 940, "y": 0, "w": 390, "h": 844 },
+    { "file": "Main.dc.html", "page": "ekrany", "title": "Wątek — ciemny", "x": 1410, "y": 0, "w": 390, "h": 844 },
+    { "file": "Desktop.dc.html", "page": "ekrany", "title": "Desktop 1440 — ciemny", "x": 0, "y": 1000, "w": 1440, "h": 900 },
+    { "file": "Elementy.dc.html", "page": "elementy", "title": "Arkusz elementów", "x": 0, "y": 0, "w": 1100, "h": 1340 }
   ],
   "annotations": [
     {
@@ -18,23 +18,31 @@
       "x": 1880,
       "y": 0,
       "w": 300,
-      "text": "Kierunek\n\nDymek zalany kolorem, pełny promień 18 px, ogon tylko przy ostatnim dymku bloku. Godzina wychodzi z dymka na środkowy rozdzielacz („Dziś 08:42\"), a stan wysyłki schodzi pod ostatni własny dymek.\n\nWłasny dymek to jedyna plama akcentu — pozostałe akcje zostają linią, tak jak w Nocturne."
+      "text": "Kierunek\n\nNocturne w wariancie „Mekamb Mobile\". Akcent jest WYPEŁNIENIEM, nie linią: akcja główna to plama koloru, znacznik nieprzeczytanych jest zalany, przełączniki są iOS-owe, a wybrany wiersz i aktywna zakładka to pigułki podbarwione akcentem. To świadome odwrócenie poprzedniej reguły tej kanwy („pozostałe akcje zostają linią\") — telefon poszedł pierwszy (Nocturne.kt), web za nim, bo to ma być jeden produkt, a nie dwa.\n\nMotyw jasny jest DOMYŚLNY na obu klientach; ciemny jest dla tych, którzy go chcą. Dlatego jasne ekrany stoją na kanwie pierwsze.\n\nDymek przetrwał restyling bez zmian: jeden promień 18 px, ciąg jednej strony trzyma ODSTĘP (2 px w środku ciągu, --odstep-3 między ciągami), a zamyka go OGON TYLKO PRZY OSTATNIM dymku. Godziny w dymku nie ma — mówi ją wyśrodkowany rozdzielacz („Dziś 08:42\"), stawiany przy zmianie dnia i po godzinie ciszy. Stan wysyłki to SŁOWO pod ostatnim własnym dymkiem („Dostarczono\", „Przeczytano\"), a nie ptaszek."
     },
     {
       "id": "kolory",
       "page": "ekrany",
       "x": 1880,
-      "y": 300,
+      "y": 340,
       "w": 300,
-      "text": "Kolory\n\nAkcent zostaje markowy cyjan, ale zalany dymek potrzebuje ciemniejszego stopnia: #0E7490 z białym tekstem daje 5,36:1. Markowe #06B6D4 dałoby 2,43:1 — nieczytelne."
+      "text": "Kolory\n\nMarkowego cyjanu już nie ma — ani #06B6D4, ani przyciemnionego #0E7490. Akcent to para systemowa iOS: #007AFF w jasnym i #0A84FF w ciemnym, jaśniejszy, bo na czerni ten pierwszy wypada matowo. Ten sam kolor niesie --babel-wlasny, więc własny dymek zmienia się razem z motywem; dawna reguła „jeden odcień w obu motywach\" odeszła wraz z cyjanem.\n\nAkcent jest WYBOREM UŻYTKOWNIKA: osiem próbek, te same po obu stronach (PALETA_AKCENTOW w web/src/lib/akcent.ts, enum Akcent w Nocturne.kt). Jeden klik podmienia akcent, własny dymek i znacznik naraz.\n\nPod białym tekstem oba klienty zalewają przyciemnionym odcieniem — `fill` w akcent.ts, `wypelnienie` w Nocturne.kt (zieleń #34C759 → #19702F) — bo żywa próbka nie dochodzi do 4,5:1. Próbka zostaje kolorem kafelka w selektorze i niczym więcej.\n\nTokeny są ROLAMI (--tekst-drugi, --linia, --babel-wlasny), nigdy stopniami rampy: przy dwóch motywach „600\" nie znaczy nic stałego."
     },
     {
       "id": "siatka",
       "page": "ekrany",
       "x": 1880,
-      "y": 560,
+      "y": 760,
       "w": 300,
-      "text": "Odstępy\n\n2 px między dymkami tego samego bloku, 8–10 px między blokami. Pola dotyku 34–48 px; wiersz listy 68 px z awatarem 48 px."
+      "text": "Miary\n\nPromienie są ROZDZIELONE i to jest sedno: --promien-pole 10 px (pole tekstowe) kontra --promien-przycisk 12 px (przycisk). Przy wspólnej wartości pole i stojący obok przycisk czytały się jako jedna kontrolka. Dymek zostaje przy 18 px (--promien-babel), wiersz listy i karta przy 14 px.\n\nOdstępy: 2 px między dymkami tego samego ciągu, --odstep-3 między ciągami. Pola dotyku 44 px (ikona) i 48 px (przycisk z etykietą); wiersz listy 68 px z awatarem 48 px, bez kreski pod spodem — rozmowy rozdziela odstęp, nie linijka."
+    },
+    {
+      "id": "stan",
+      "page": "ekrany",
+      "x": 1880,
+      "y": 1080,
+      "w": 300,
+      "text": "Stan kanwy\n\nWszystkie sześć artboardów przemalowano na aktualny język klienta webowego (źródło: web/src/styles.css). Co jest zrobione, czego kanwa nadal NIE pokazuje i dlaczego — opisuje STAN.md w tym katalogu. Zajrzyj tam, zanim cokolwiek dorysujesz."
     }
   ],
   "launch": { "view": "canvas", "page": "ekrany" }

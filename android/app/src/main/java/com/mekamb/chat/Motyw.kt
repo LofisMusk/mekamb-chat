@@ -97,8 +97,7 @@ object Motyw {
      *
      * Ten sam plik co motyw i akcent — kolejne ustawienie wyglądu, które musi
      * działać od pierwszego ekranu, jeszcze przed odblokowaniem `Vault`.
-     * Domyślnie angielski — główny język projektu; polski jest wyborem
-     * w ustawieniach i na ekranie powitania.
+     * Domyślnie polski, jak reszta aplikacji.
      */
     private const val KLUCZ_JEZYK = "jezyk"
 
@@ -106,7 +105,7 @@ object Motyw {
         val zapisane = context
             .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
             .getString(KLUCZ_JEZYK, null)
-        return Jezyk.entries.firstOrNull { it.name == zapisane } ?: Jezyk.EN
+        return Jezyk.entries.firstOrNull { it.name == zapisane } ?: Jezyk.PL
     }
 
     fun zapiszJezyk(context: Context, jezyk: Jezyk) {

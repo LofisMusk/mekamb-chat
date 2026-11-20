@@ -88,10 +88,45 @@ data class KoloryNocturne(
     /** Pierścień fokusu i obrys pola z fokusem. */
     val pierscien: Color,
 
-    /** Akcja główna, dymek własny, znacznik nieprzeczytanych. */
-    val glowny: Color,
-    /** Tekst i ikony na [glowny]. */
-    val glownyTekst: Color,
+    /**
+     * Akcent jako WYPEŁNIENIE — i tylko jako wypełnienie.
+     *
+     * Leży pod białą treścią (akcja główna, znak firmowy, przycisk wysyłki,
+     * kropka nieprzeczytanych), więc musi być ciemny w obu motywach. Na farbę
+     * — ikonę, etykietę, obrys na neutralnym tle — jest [akcentTekst]; wzięcie
+     * stąd koloru na ikonę daje ciemną plamę na czerni.
+     */
+    val akcent: Color,
+    /**
+     * Akcent jako FARBA na neutralnym tle: tekst, ikona, obrys kontrolki.
+     *
+     * Rozwiązuje się per motyw (patrz [Akcent.farba]), bo musi kontrastować z
+     * tłem, a nie z białym tekstem. To NIE jest kolor wypełnienia.
+     */
+    val akcentTekst: Color,
+    /** Delikatna poświata akcentu: tło chipów, ostrzeżeń, awatara połączenia. */
+    val akcentTlo: Color,
+
+    /** Dymek własnej wiadomości — wypełniony akcentem. */
+    val babelWlasny: Color,
+    /** Tekst we własnym dymku. */
+    val babelWlasnyTekst: Color,
+    /** Godzina i stan wysyłki we własnym dymku. */
+    val babelWlasnyMeta: Color,
+    /** Dymek rozmówcy — neutralna szarość. */
+    val babel: Color,
+
+    /** Kółko awatara — neutralna szarość z białą literą. */
+    val awatar: Color,
+    /** Biały kciuk/segment wybrany. */
+    val segment: Color,
+
+    /** Znacznik nieprzeczytanych — wypełniony akcentem. */
+    val znacznik: Color,
+    val znacznikTekst: Color,
+
+    /** Przełącznik iOS w stanie włączonym — zieleń systemowa. */
+    val przelacznikWl: Color,
 
     /** Błąd, akcja niszcząca — jako tekst albo obrys, nie plama. */
     val alarm: Color,
@@ -179,27 +214,59 @@ val CIEMNE = KoloryNocturne(
 )
 
 /**
- * Wygląd akcji głównej — preferencja użytkownika.
+ * Kolory akcentu do wyboru — ten sam zestaw co `PALETA_AKCENTOW` w webie
+ * (`web/src/lib/akcent.ts`). Osiem kolorów, jedna paleta dla obu platform.
  *
- * # Dlaczego „Neutralny" jest pierwszy i domyślny
+ * # Dlaczego dwa odcienie, a nie jeden
  *
- * Specyfikacja pozwala Androidowi zachować wybór koloru jako preferencję, ale
- * domyślny jest neutralny: świeża instalacja ma wyglądać jak web na telefonie.
- * [NEUTRALNY] nie ma własnej próbki — zostawia `glowny` z motywu, czyli prawie
- * czerń w jasnym i prawie biel w ciemnym. Kolorowe warianty podstawiają się pod
- * `glowny` i dostają biały tekst; wszystko inne (linie, tła, tekst) zostaje
- * neutralne, więc kolor dalej znaczy tylko „akcja główna i moje dymki".
+ * `probka` to żywy odcień — i tylko tyle: kolor kafelka w selektorze, gdzie nic
+ * na nim nie leży. Pod BIAŁYM tekstem ta sama próbka jest nieczytelna: zieleń
+ * `#34C759` daje 2,22:1, pomarańcz 2,20:1, malina 3,52:1, turkus 2,12:1 —
+ * wszystkie poniżej progu 4,5:1 dla zwykłego tekstu. Przez długi czas telefon
+ * zalewał akcje i własne dymki właśnie próbką, więc na tych czterech akcentach
+ * biały tekst na przycisku i we własnym dymku był po prostu za jasny.
+ *
+ * Dlatego jest `wypelnienie`: ten sam odcień przyciemniony dokładnie tyle, żeby
+ * biały tekst na nim czytał się bez mrużenia oczu. Wartości są przepisane 1:1 z
+ * pola `fill` w webie — gdyby każda platforma dobierała je sobie sama, ta sama
+ * rozmowa miałaby dwa różne kolory dymka.
+ *
+ * Wyjątek jest jeden i świadomy: `NIEBIESKI` to systemowy błękit iOS, ten sam w
+ * obu polach. Pod białym daje 4,02:1, czyli nie dociąga do 4,5:1 — ale jest
+ * domyślnym akcentem obu klientów i tym, co ludzie znają z natywnego
+ * komunikatora. Przyciemnienie go jest decyzją projektową dla obu klientów
+ * naraz, nie lokalną poprawką; [KontrastAkcentuTest] przypina go asercją, żeby
+ * ten wyjątek był widoczny, a nie milczący.
+ *
+ * `tintJasny` to poświata pod chipem w motywie jasnym. W ciemnym poświatę
+ * liczymy z półprzezroczystej próbki — jeden odcień w tokenach zamiast ośmiu
+ * osobnych ciemnych tintów.
  */
-enum class Akcent(val probka: Color?) {
-    NEUTRALNY(null),
-    NIEBIESKI(Color(0xFF007AFF)),
-    ZIELONY(Color(0xFF34C759)),
-    POMARANCZOWY(Color(0xFFFF9500)),
-    MALINOWY(Color(0xFFFF375F)),
-    FIOLETOWY(Color(0xFFAF52DE)),
-    INDYGO(Color(0xFF5856D6)),
-    TURKUSOWY(Color(0xFF00C7BE)),
-    GRAFITOWY(Color(0xFF8E8E93)),
+enum class Akcent(val probka: Color, val wypelnienie: Color, private val tintJasny: Color) {
+    NIEBIESKI(Color(0xFF007AFF), Color(0xFF007AFF), Color(0xFFE8F1FF)),
+    ZIELONY(Color(0xFF34C759), Color(0xFF19702F), Color(0xFFDCF1E2)),
+    POMARANCZOWY(Color(0xFFFF9500), Color(0xFFB35900), Color(0xFFFFF1E0)),
+    MALINOWY(Color(0xFFFF375F), Color(0xFFD6274F), Color(0xFFFFE9ED)),
+    FIOLETOWY(Color(0xFFAF52DE), Color(0xFF9A3FC7), Color(0xFFF6EAFC)),
+    INDYGO(Color(0xFF5856D6), Color(0xFF5856D6), Color(0xFFECECFB)),
+    TURKUSOWY(Color(0xFF00C7BE), Color(0xFF0A7A73), Color(0xFFE0F6F5)),
+    GRAFITOWY(Color(0xFF8E8E93), Color(0xFF5E5E63), Color(0xFFEEEEF0));
+
+    /** Poświata akcentu (tło chipa) dla danego motywu. */
+    fun tlo(jasny: Boolean): Color = if (jasny) tintJasny else probka.copy(alpha = 0.22f)
+
+    /**
+     * Akcent jako farba na neutralnym tle: tekst, ikona, obrys.
+     *
+     * Odwrotnie niż [wypelnienie], które musi być ciemne zawsze (bo leży pod
+     * białym tekstem), farba musi kontrastować z TŁEM — a tło zmienia się z
+     * motywem. Na jasnym potrzebny jest odcień ciemny, na czarnym żywy: żywa
+     * zieleń na białej karcie to 1,99:1, a ta sama przyciemniona na czerni
+     * 3,40:1. Jeden odcień w obu motywach przegrywa w którymś z nich, więc ta
+     * rola rozwiązuje się per motyw — tak samo jak każda inna rola w
+     * [KoloryNocturne].
+     */
+    fun farba(jasny: Boolean): Color = if (jasny) wypelnienie else probka
 }
 
 /**
@@ -423,16 +490,13 @@ fun MotywNocturne(
     }
 
     val bazowe = if (jasny) JASNE else CIEMNE
-    val kolory = akcent.probka
-        ?.let { bazowe.copy(glowny = it, glownyTekst = Color.White) }
-        ?: bazowe
-
-    val kontekst = LocalContext.current
-    val ograniczonyRuch = remember(kontekst) {
-        runCatching {
-            Settings.Global.getFloat(kontekst.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-        }.getOrDefault(false)
-    }
+    val kolory = bazowe.copy(
+        akcent = akcent.wypelnienie,
+        akcentTekst = akcent.farba(jasny),
+        akcentTlo = akcent.tlo(jasny),
+        babelWlasny = akcent.wypelnienie,
+        znacznik = akcent.wypelnienie,
+    )
 
     CompositionLocalProvider(
         LokalneKolory provides kolory,

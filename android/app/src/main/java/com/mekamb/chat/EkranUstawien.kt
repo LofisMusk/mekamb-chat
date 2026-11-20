@@ -81,7 +81,18 @@ fun EkranUstawien(
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Karta {
-                NaglowekKarty(t("Wygląd", "Appearance"), if (Nocturne.kolory.jasny) Ikony.Slonce else Ikony.Ksiezyc)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(
+                        imageVector = if (Nocturne.kolory.jasny) Ikony.Slonce else Ikony.Ksiezyc,
+                        contentDescription = null,
+                        tint = Nocturne.kolory.akcentTekst,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(t("Wygląd", "Appearance"), style = MaterialTheme.typography.labelLarge)
+                }
 
                 WyborMotywuUI(wybrany = wyborMotywu, onWybor = onMotyw)
 
@@ -98,6 +109,18 @@ fun EkranUstawien(
 
                 Text(
                     t("Język", "Language"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                KontrolkaSegmentowa(
+                    opcje = Jezyk.entries,
+                    wybrana = jezyk,
+                    etykieta = { it.etykieta },
+                    onWybor = onJezyk,
+                )
+
+                Text(
+                    t("Kolor akcentu", "Accent colour"),
                     style = MaterialTheme.typography.labelMedium,
                     color = Nocturne.kolory.tekstDrugi,
                 )
@@ -135,13 +158,19 @@ fun EkranUstawien(
              * zgodziliśmy się rozmawiać.
              */
             Karta {
-                NaglowekKarty(t("Nazwa wyświetlana", "Display name"), Ikony.Konto)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(Ikony.Konto, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
+                    Text(t("Nazwa wyświetlana", "Display name"), style = MaterialTheme.typography.labelLarge)
+                }
 
                 var nick by remember(stan.mojNick) { mutableStateOf(stan.mojNick) }
                 val zmienione = nick.trim() != stan.mojNick.trim()
 
                 Pole(t("Nazwa wyświetlana", "Display name"), nick, { nick = it })
-                PrzyciskObrys(t("Zapisz", "Save"), wlaczony = zmienione) { model.zmienMojNick(nick.trim()) }
+                PrzyciskDrugi(t("Zapisz", "Save"), wlaczony = zmienione) { model.zmienMojNick(nick.trim()) }
 
                 Text(
                     t(
@@ -162,7 +191,18 @@ fun EkranUstawien(
               naraz, więc miejscem są ustawienia, a nie pojedynczy wątek.
             */
             Karta {
-                NaglowekKarty(t("Potwierdzenia odczytu", "Read receipts"), Ikony.Dostarczone)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(
+                        Ikony.Dostarczone,
+                        contentDescription = null,
+                        tint = Nocturne.kolory.akcentTekst,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(t("Potwierdzenia odczytu", "Read receipts"), style = MaterialTheme.typography.labelLarge)
+                }
 
                 Przelacznik(
                     etykieta = t("Wysyłaj potwierdzenia odczytu", "Send read receipts"),
@@ -198,7 +238,18 @@ fun EkranUstawien(
             */
             if (stan.zablokowani.isNotEmpty()) {
                 Karta {
-                    NaglowekKarty(t("Zablokowani", "Blocked"), Ikony.Blokuj)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                    ) {
+                        Icon(
+                            Ikony.Blokuj,
+                            contentDescription = null,
+                            tint = Nocturne.kolory.akcentTekst,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(t("Zablokowani", "Blocked"), style = MaterialTheme.typography.labelLarge)
+                    }
 
                     Text(
                         t(
@@ -224,7 +275,7 @@ fun EkranUstawien(
                                 style = MaterialTheme.typography.bodyLarge,
                                 modifier = Modifier.weight(1f),
                             )
-                            PrzyciskObrys(t("Odblokuj", "Unblock"), pelnaSzerokosc = false) { model.odblokuj(osoba) }
+                            TextButton(onClick = { model.odblokuj(osoba) }) { Text(t("Odblokuj", "Unblock")) }
                         }
                     }
                 }
@@ -233,7 +284,18 @@ fun EkranUstawien(
             KopiaZapasowa(model)
 
             Karta {
-                NaglowekKarty(t("Powiadomienia push", "Push notifications"), Ikony.Dzwonek, dopisek = t("niedostępne", "unavailable"))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(Ikony.Dzwonek, null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(16.dp))
+                    Text(t("Powiadomienia push", "Push notifications"), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        t("niedostępne", "unavailable"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Nocturne.kolory.tekstTrzeci,
+                    )
+                }
                 // Sama informacja, że push nie działa — bo ona zmienia
                 // zachowanie: o nowej wiadomości dowiesz się dopiero po
                 // otwarciu aplikacji. Obietnice o przyszłym kształcie ładunku
@@ -244,6 +306,54 @@ fun EkranUstawien(
                             "aplikacji.",
                         "This build doesn't have them. You'll learn about a new message only " +
                             "after opening the app.",
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+            }
+
+            Karta {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+                ) {
+                    Icon(
+                        imageVector = when (stan.trybPolaczenia) {
+                            DeliveryMode.DIRECT -> Ikony.Bezposrednio
+                            DeliveryMode.MAILBOX -> Ikony.PrzezSerwer
+                            null -> Ikony.BrakSieci
+                        },
+                        contentDescription = null,
+                        tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcentTekst,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(t("Droga dostarczania", "Delivery path"), style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        when (stan.trybPolaczenia) {
+                            DeliveryMode.DIRECT -> t("bezpośrednio", "direct")
+                            DeliveryMode.MAILBOX -> t("przez serwer", "via server")
+                            null -> t("brak połączenia", "no connection")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Nocturne.kolory.tekstDrugi,
+                    )
+                }
+                Text(
+                    t(
+                        "Nie da się jej wybrać — klient zawsze najpierw próbuje wprost, a na " +
+                            "skrzynkę spada dopiero, gdy nie przebije NAT-u.",
+                        "You can't pick it — the client always tries direct first and falls " +
+                            "back to the mailbox only when it can't punch through NAT.",
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                Text(
+                    t(
+                        "Bezpośrednio: media idą wprost, więc rozmówca zna Twój adres IP. " +
+                            "Przez serwer: adres zna serwer.",
+                        "Direct: media goes straight through, so your contact sees your IP. " +
+                            "Via server: the server sees it.",
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Nocturne.kolory.tekstDrugi,
@@ -339,7 +449,13 @@ private fun KopiaZapasowa(model: ChatViewModel) {
     }
 
     Karta {
-        NaglowekKarty(t("Kopia rozmów", "Chat backup"), Ikony.Klucz)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
+        ) {
+            Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
+            Text(t("Kopia rozmów", "Chat backup"), style = MaterialTheme.typography.labelLarge)
+        }
 
         Text(
             t(
@@ -352,11 +468,11 @@ private fun KopiaZapasowa(model: ChatViewModel) {
             color = Nocturne.kolory.tekstDrugi,
         )
 
-        PrzyciskObrys(t("Eksportuj rozmowy", "Export chats"), wlaczony = !pracuje) {
+        PrzyciskDrugi(t("Eksportuj rozmowy", "Export chats"), wlaczony = !pracuje) {
             komunikat = null
             dialog = TrybKopii.EKSPORT
         }
-        PrzyciskObrys(t("Importuj rozmowy", "Import chats"), wlaczony = !pracuje) {
+        PrzyciskDrugi(t("Importuj rozmowy", "Import chats"), wlaczony = !pracuje) {
             komunikat = null
             wczytaj.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
         }
@@ -444,29 +560,40 @@ private fun DialogHaslaKopii(
     onAnuluj: () -> Unit,
     onZatwierdz: () -> Unit,
 ) {
-    DialogPotwierdzenia(
-        tytul = if (tryb == TrybKopii.EKSPORT) t("Hasło do kopii", "Backup password") else t("Hasło pliku", "File password"),
-        potwierdz = if (tryb == TrybKopii.EKSPORT) t("Eksportuj", "Export") else t("Importuj", "Import"),
-        onPotwierdz = onZatwierdz,
-        onAnuluj = onAnuluj,
-        wlaczony = haslo.isNotEmpty(),
-    ) {
-        Text(
-            if (tryb == TrybKopii.EKSPORT) {
-                t(
-                    "Ustaw hasło, którym zaszyfrujemy plik. Bez niego kopii nikt nie otworzy — " +
-                        "łącznie z Tobą, jeśli je zapomnisz.",
-                    "Set a password we'll encrypt the file with. Without it no one opens " +
-                        "the backup — including you, if you forget it.",
+    AlertDialog(
+        onDismissRequest = onAnuluj,
+        title = {
+            Text(if (tryb == TrybKopii.EKSPORT) t("Hasło do kopii", "Backup password") else t("Hasło pliku", "File password"))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
+                Text(
+                    if (tryb == TrybKopii.EKSPORT) {
+                        t(
+                            "Ustaw hasło, którym zaszyfrujemy plik. Bez niego kopii nikt nie otworzy — " +
+                                "łącznie z Tobą, jeśli je zapomnisz.",
+                            "Set a password we'll encrypt the file with. Without it no one opens " +
+                                "the backup — including you, if you forget it.",
+                        )
+                    } else {
+                        t(
+                            "Podaj hasło, którym ten plik zaszyfrowano przy eksporcie.",
+                            "Enter the password this file was encrypted with on export.",
+                        )
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Nocturne.kolory.tekstDrugi,
                 )
-            } else {
-                t(
-                    "Podaj hasło, którym ten plik zaszyfrowano przy eksporcie.",
-                    "Enter the password this file was encrypted with on export.",
-                )
-            },
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Pole(t("Hasło", "Password"), haslo, onHaslo, haslo = true)
-    }
+                Pole(t("Hasło", "Password"), haslo, onHaslo, haslo = true)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onZatwierdz, enabled = haslo.isNotEmpty()) {
+                Text(if (tryb == TrybKopii.EKSPORT) t("Eksportuj", "Export") else t("Importuj", "Import"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onAnuluj) { Text(t("Anuluj", "Cancel")) }
+        },
+    )
 }

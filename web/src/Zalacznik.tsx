@@ -1,7 +1,17 @@
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 
 import { Ikona, type NazwaIkony } from "./Ikony";
+import { Migotanie } from "./Wspolne";
 import type { Messenger, ReceivedAttachment } from "./lib/messenger";
+
+/*
+ * Przycisk pliku w dymku bierze kolor z tekstu dymka (`currentColor`), a nie
+ * z tokenów: ten sam składnik stoi w dymku `glowny` i w `wglebienie`, więc obrys
+ * w `linia` znikałby w jednym z nich.
+ */
+const klasyPliku =
+  "inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md border border-current/25 px-2.5 py-1.5 text-meta text-current no-underline transition-colors hover:bg-current/10 disabled:cursor-default disabled:opacity-60";
 
 /**
  * Załącznik w rozmowie.
@@ -73,17 +83,25 @@ export function Zalacznik({
 
   if (!url) {
     if (media) {
-      return (
-        <span className="zalacznik-czeka">
-          <Ikona nazwa={pobiera ? "zegar" : "niepowodzenie"} rozmiar={14} />
-          {pobiera ? "Odszyfrowuję…" : "nie udało się odszyfrować"}
+      // Prostokąt na miejscu zdjęcia, a nie sam napis: wątek nie skacze, kiedy
+      // obraz w końcu się pojawi.
+      return pobiera ? (
+        <Migotanie
+          className="zalacznik-media h-44 w-60 max-w-full rounded-[14px]"
+          opis="Odszyfrowuję…"
+        />
+      ) : (
+        <span className="flex items-center gap-1.5 px-1 py-1 text-meta opacity-80">
+          <Ikona nazwa="niepowodzenie" rozmiar={14} />
+          nie udało się odszyfrować
         </span>
       );
     }
 
     return (
       <button
-        className="zalacznik-pobierz"
+        type="button"
+        className={klasyPliku}
         disabled={pobiera}
         onClick={async () => {
           setPobiera(true);
@@ -97,7 +115,7 @@ export function Zalacznik({
         }}
       >
         <Ikona nazwa={pobiera ? "zegar" : piktogram} rozmiar={14} />
-        {pobiera ? "Odszyfrowuję…" : `${nazwa} · ${rozmiarMb} MB`}
+        <span className="truncate">{pobiera ? "Odszyfrowuję…" : `${nazwa} · ${rozmiarMb} MB`}</span>
       </button>
     );
   }
@@ -109,23 +127,22 @@ export function Zalacznik({
       <>
         <button
           type="button"
-          className="zalacznik-obraz"
+          className="zalacznik-media block cursor-zoom-in rounded-[14px] transition-[filter] duration-150 hover:brightness-[1.04]"
           onClick={() => setNaPelnym(true)}
           aria-label={`Powiększ zdjęcie: ${nazwa}`}
-          title="Powiększ"
         >
           <img className="zalacznik" src={url} alt={nazwa} />
         </button>
-        {naPelnym && <Pelnoekranowy url={url} nazwa={nazwa} onZamknij={() => setNaPelnym(false)} />}
+        <Pelnoekranowy url={url} nazwa={nazwa} otwarty={naPelnym} onZmiana={setNaPelnym} />
       </>
     );
   }
-  if (wideo) return <video className="zalacznik" src={url} controls playsInline />;
+  if (wideo) return <video className="zalacznik zalacznik-media" src={url} controls playsInline />;
 
   return (
-    <a className="zalacznik-pobierz" href={url} download={zalacznik.fileName ?? "zalacznik"}>
+    <a className={klasyPliku} href={url} download={zalacznik.fileName ?? "zalacznik"}>
       <Ikona nazwa="pobierz" rozmiar={14} />
-      Pobierz {nazwa}
+      <span className="truncate">Pobierz {nazwa}</span>
     </a>
   );
 }
@@ -144,39 +161,43 @@ export function Zalacznik({
 function Pelnoekranowy({
   url,
   nazwa,
-  onZamknij,
+  otwarty,
+  onZmiana,
 }: {
   url: string;
   nazwa: string;
-  onZamknij: () => void;
+  otwarty: boolean;
+  onZmiana: (otwarty: boolean) => void;
 }) {
-  useEffect(() => {
-    const naKlawisz = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onZamknij();
-    };
-    window.addEventListener("keydown", naKlawisz);
-    return () => window.removeEventListener("keydown", naKlawisz);
-  }, [onZamknij]);
-
+  // Dialog Radix, nie własna nakładka: pułapka fokusu, `Escape` i powrót
+  // fokusu do miniatury przychodzą razem z nim. Tło jest czarne w obu motywach
+  // — zdjęcie ogląda się na czerni, nie na kolorze aplikacji.
   return (
-    <div
-      className="nakladka-zdjecia"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Zdjęcie: ${nazwa}`}
-      onClick={onZamknij}
-    >
-      <button
-        type="button"
-        className="ikonowy zamknij-zdjecie"
-        aria-label="Zamknij"
-        onClick={onZamknij}
-      >
-        <Ikona nazwa="zamknij" rozmiar={20} />
-      </button>
-      {/* Klik w samo zdjęcie NIE zamyka — inaczej próba przyjrzenia się
-          szczegółowi wyrzucałaby z podglądu. Zamyka tło i krzyżyk. */}
-      <img className="zdjecie-pelne" src={url} alt={nazwa} onClick={(e) => e.stopPropagation()} />
-    </div>
+    <DialogPrimitive.Root open={otwarty} onOpenChange={onZmiana}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-black/88 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center p-4 outline-none md:p-10 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
+          onClick={() => onZmiana(false)}
+        >
+          <DialogPrimitive.Title className="tylko-dla-czytnika">Zdjęcie: {nazwa}</DialogPrimitive.Title>
+          <DialogPrimitive.Close
+            className="absolute top-[max(16px,var(--bezpiecznie-gora))] right-4 grid size-10 cursor-pointer place-items-center rounded-full bg-white/12 text-white transition-colors hover:bg-white/22"
+            aria-label="Zamknij"
+          >
+            <Ikona nazwa="zamknij" rozmiar={20} />
+          </DialogPrimitive.Close>
+          {/* Klik w samo zdjęcie NIE zamyka — inaczej próba przyjrzenia się
+              szczegółowi wyrzucałaby z podglądu. Zamyka tło i krzyżyk. */}
+          <img
+            className="max-h-full max-w-full cursor-default rounded-sm object-contain"
+            src={url}
+            alt={nazwa}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

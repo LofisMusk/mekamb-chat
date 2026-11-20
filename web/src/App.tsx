@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Czat } from "./Czat";
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
-import { PasekBledu, WyborMotywuUI, ZnakMarki } from "./Wspolne";
+import { Migotanie, WyborMotywuUI, WzorKropek, ZnakMarki } from "./Wspolne";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
 import {
   confirmRegistration,
   loginStart,
@@ -88,7 +91,6 @@ const TYTULY: Partial<Record<Ekran["nazwa"], { pl: string; en: string }>> = {
 
 export function App() {
   const [ekran, setEkran] = useState<Ekran>({ nazwa: "ladowanie" });
-  const [blad, setBlad] = useState<string | null>(null);
   const [trwaly, setTrwaly] = useState(true);
 
   /*
@@ -126,7 +128,7 @@ export function App() {
       });
 
       if (start.nazwa !== "sesja") {
-        if (start.blad) setBlad(start.blad);
+        if (start.blad) pokazBlad(start.blad);
         setEkran({ nazwa: start.nazwa });
         return;
       }
@@ -141,13 +143,13 @@ export function App() {
         // Sieć mogła paść między odświeżeniem a rejestracją urządzenia.
         // Ekran logowania jest tu bezpiecznym miejscem powrotu — ale z powodem
         // wypisanym wprost, bo inaczej wygląda to na wylogowanie bez przyczyny.
-        setBlad(`Nie udało się przywrócić sesji (${opisBledu(e)}). Zaloguj się ponownie.`);
+        pokazBlad(`Nie udało się przywrócić sesji (${opisBledu(e)}). Zaloguj się ponownie.`);
         setEkran({ nazwa: "logowanie" });
       }
     })();
   }, []);
 
-  const zglosBlad = (e: unknown) => setBlad(opisBledu(e));
+  const zglosBlad = useCallback((e: unknown) => pokazBlad(opisBledu(e)), []);
 
   /*
    * Cofanie się z ekranów, do których się wchodzi.
@@ -167,9 +169,12 @@ export function App() {
           // Wyjście stąd ma cenę i użytkownik musi ją poznać: konto już
           // istnieje, ale bez potwierdzenia jest bezużyteczne, a jego nazwy
           // nie da się zająć drugi raz (serwer odpowiada „nazwa jest zajęta").
-          setBlad(
+          // Stały identyfikator: w trybie ścisłym React woła tę funkcję dwa
+          // razy, a komunikat ma się pokazać raz.
+          pokazBlad(
             "Konto zostało założone, ale niepotwierdzone — bez kodu z authenticatora nie da " +
               "się na nie zalogować, a jego nazwa pozostaje zajęta.",
+            "niepotwierdzone",
           );
           return { nazwa: "logowanie" };
 
@@ -192,126 +197,147 @@ export function App() {
   if (ekran.nazwa === "czat") {
     return (
       <main className="aplikacja">
-        {blad && <PasekBledu tekst={blad} onZamknij={() => setBlad(null)} />}
-
         <Czat messenger={ekran.messenger} onBlad={zglosBlad} />
       </main>
     );
   }
 
+  const tytul = TYTULY[ekran.nazwa];
+
   return (
-    <main className="aplikacja">
-      <header className="naglowek-wejscia">
-        <ZnakMarki />
-        {/*
-          Pod nazwą nie ma już podtytułu o szyfrowaniu.
+    <main className="wejscie">
+      {/* Faktura tła, nie obrazek — patrz `WzorKropek`. */}
+      <WzorKropek />
 
-          „Szyfrowanie end-to-end. Serwer nie widzi treści." było obietnicą,
-          po której przeczytaniu nikt nie mógł zrobić niczego inaczej — a stało
-          na najbardziej eksponowanym miejscu ekranu wejścia. Zdania, które
-          zostały w aplikacji, mówią o KONSEKWENCJACH: że historii nie da się
-          odzyskać, że rozmówca zna adres IP, że kto zobaczy kod, przejmie konto.
-        */}
-        <span className="tresc">
-          <h1>mekamb</h1>
-        </span>
-        <WyborMotywuUI />
-      </header>
-
-      {!trwaly && <OstrzezenieOTrwalosci onOdswiez={() => void isPersistent().then(setTrwaly)} />}
-      {blad && <PasekBledu tekst={blad} onZamknij={() => setBlad(null)} />}
-
-      {wEkranieZPowrotem && (
-        <div className="pasek-ekranu">
-          <button className="ikonowy" aria-label="Wróć" onClick={() => history.back()}>
-            <Ikona nazwa="wstecz" rozmiar={18} />
-          </button>
-          <span className="tytul-ekranu">
-            <h2>{TYTULY[ekran.nazwa]?.pl}</h2>
-            <span className="podtytul-en">{TYTULY[ekran.nazwa]?.en}</span>
-          </span>
+      <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col">
+        <div className="flex justify-end">
+          <WyborMotywuUI />
         </div>
-      )}
 
-      {ekran.nazwa === "ladowanie" && (
-        <div className="karta">
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="zegar" rozmiar={14} />
-            Wczytywanie…
-          </p>
-        </div>
-      )}
-
-      {ekran.nazwa === "powitanie" && (
-        <div className="karta">
-          <button className="glowny" onClick={() => setEkran({ nazwa: "rejestracja" })}>
-            <Ikona nazwa="dodaj" rozmiar={16} />
-            Załóż konto · Create account
-          </button>
-          <button onClick={() => setEkran({ nazwa: "logowanie" })}>Mam już konto · Sign in</button>
-          <PrzyciskPasskey
-            onBlad={zglosBlad}
-            onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
-          />
-        </div>
-      )}
-
-      {ekran.nazwa === "rejestracja" && (
-        <FormularzRejestracji
-          onBlad={zglosBlad}
-          onGotowe={(username, wynik) => setEkran({ nazwa: "potwierdzenie", username, ...wynik })}
-        />
-      )}
-
-      {ekran.nazwa === "potwierdzenie" && (
-        <PotwierdzenieTotp
-          username={ekran.username}
-          totpSecret={ekran.totpSecret}
-          otpauthUri={ekran.otpauthUri}
-          onBlad={zglosBlad}
-          onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
-        />
-      )}
-
-      {ekran.nazwa === "logowanie" && (
-        <>
-          <FormularzLogowania
-            onBlad={zglosBlad}
-            onGotowe={(username, sesja) => setEkran({ nazwa: "drugi-skladnik", username, sesja })}
-          />
-
+        <div className="flex flex-1 flex-col justify-center gap-6 py-8">
           {/*
-            Passkey także tutaj, nie tylko na powitaniu.
+            Pod nazwą nie ma podtytułu o szyfrowaniu.
 
-            Powitanie widzi się raz — potem urządzenie ma już konto w skarbcu
-            i aplikacja startuje wprost na logowaniu. Passkey stał więc na
-            ekranie, do którego stały użytkownik nigdy nie wraca: kto raz się
-            zalogował, nie miał go już nigdy zobaczyć. Na iPhonie, gdzie sesja
-            i tak nie przeżywała zamknięcia aplikacji, znaczyło to hasło i kod
-            TOTP przy każdym uruchomieniu.
+            „Szyfrowanie end-to-end. Serwer nie widzi treści." było obietnicą,
+            po której przeczytaniu nikt nie mógł zrobić niczego inaczej — a stało
+            na najbardziej eksponowanym miejscu ekranu wejścia. Zdania, które
+            zostały w aplikacji, mówią o KONSEKWENCJACH: że historii nie da się
+            odzyskać, że rozmówca zna adres IP, że kto zobaczy kod, przejmie konto.
           */}
-          <div className="karta">
-            <PrzyciskPasskey
+          <header className="flex flex-col items-center gap-3 text-center">
+            <ZnakMarki className="size-12 rounded-lg" />
+            <h1 className="text-powitanie">mekamb</h1>
+          </header>
+
+          {!trwaly && <OstrzezenieOTrwalosci onOdswiez={() => void isPersistent().then(setTrwaly)} />}
+
+          {wEkranieZPowrotem && tytul && (
+            <div className="-mb-2 flex items-center gap-2">
+              <Button variant="ghost" size="icon" aria-label="Wróć" onClick={() => history.back()}>
+                <Ikona nazwa="wstecz" rozmiar={18} />
+              </Button>
+              <span className="flex min-w-0 flex-col">
+                <h2 className="text-tytul">{tytul.pl}</h2>
+                <span className="text-podpis text-tekst-trzeci">{tytul.en}</span>
+              </span>
+            </div>
+          )}
+
+          {ekran.nazwa === "ladowanie" && (
+            <div className="karta" aria-busy="true">
+              <Migotanie className="h-10" opis="Wczytywanie…" />
+              <Migotanie className="h-10 opacity-70" opis="" />
+            </div>
+          )}
+
+          {ekran.nazwa === "powitanie" && (
+            <div className="karta">
+              <Button onClick={() => setEkran({ nazwa: "rejestracja" })}>
+                <Ikona nazwa="dodaj" rozmiar={16} />
+                Załóż konto · Create account
+              </Button>
+              <Button variant="outline" onClick={() => setEkran({ nazwa: "logowanie" })}>
+                Mam już konto · Sign in
+              </Button>
+              <PrzyciskPasskey
+                wariant="ghost"
+                onBlad={zglosBlad}
+                onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
+              />
+            </div>
+          )}
+
+          {ekran.nazwa === "rejestracja" && (
+            <FormularzRejestracji
+              onBlad={zglosBlad}
+              onGotowe={(username, wynik) => setEkran({ nazwa: "potwierdzenie", username, ...wynik })}
+            />
+          )}
+
+          {ekran.nazwa === "potwierdzenie" && (
+            <PotwierdzenieTotp
+              username={ekran.username}
+              totpSecret={ekran.totpSecret}
+              otpauthUri={ekran.otpauthUri}
               onBlad={zglosBlad}
               onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
             />
-            <button onClick={() => setEkran({ nazwa: "powitanie" })}>
-              Nie mam jeszcze konta · Create account
-            </button>
-          </div>
-        </>
-      )}
+          )}
 
-      {ekran.nazwa === "drugi-skladnik" && (
-        <DrugiSkladnik
-          username={ekran.username}
-          sesja={ekran.sesja}
-          onBlad={zglosBlad}
-          onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
-        />
-      )}
+          {ekran.nazwa === "logowanie" && (
+            <>
+              <FormularzLogowania
+                onBlad={zglosBlad}
+                onGotowe={(username, sesja) => setEkran({ nazwa: "drugi-skladnik", username, sesja })}
+              />
+
+              {/*
+                Passkey także tutaj, nie tylko na powitaniu.
+
+                Powitanie widzi się raz — potem urządzenie ma już konto w skarbcu
+                i aplikacja startuje wprost na logowaniu. Passkey stał więc na
+                ekranie, do którego stały użytkownik nigdy nie wraca: kto raz się
+                zalogował, nie miał go już nigdy zobaczyć. Na iPhonie, gdzie sesja
+                i tak nie przeżywała zamknięcia aplikacji, znaczyło to hasło i kod
+                TOTP przy każdym uruchomieniu.
+              */}
+              <div className="flex flex-col gap-2">
+                <PrzyciskPasskey
+                  wariant="outline"
+                  onBlad={zglosBlad}
+                  onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
+                />
+                <Button variant="ghost" onClick={() => setEkran({ nazwa: "powitanie" })}>
+                  Nie mam jeszcze konta · Create account
+                </Button>
+              </div>
+            </>
+          )}
+
+          {ekran.nazwa === "drugi-skladnik" && (
+            <DrugiSkladnik
+              username={ekran.username}
+              sesja={ekran.sesja}
+              onBlad={zglosBlad}
+              onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
+            />
+          )}
+        </div>
+      </div>
     </main>
   );
+}
+
+/**
+ * Komunikat o błędzie jako powiadomienie chwilowe (Sonner).
+ *
+ * Wcześniej był to pasek nad treścią, który przesuwał cały ekran w dół
+ * w chwili, w której coś poszło źle — razem z polem, w które akurat się
+ * pisało. Powiadomienie leży NAD układem i niczego nie przesuwa; znika samo,
+ * a najechanie kursorem je zatrzymuje, więc dłuższe da się doczytać.
+ */
+function pokazBlad(tekst: string, id?: string) {
+  toast.error(tekst, { id, duration: tekst.length > 90 ? 9000 : 6000 });
 }
 
 /**
@@ -323,22 +349,28 @@ export function App() {
 function OstrzezenieOTrwalosci({ onOdswiez }: { onOdswiez: () => void }) {
   const zainstalowana = isInstalled();
 
+  // Kolor `ostrzezenie` tylko na ikonie i obrysie: to stan, który wymaga
+  // reakcji, ale nie błąd — plama koloru krzyczałaby głośniej niż alarm.
   return (
-    <section className="ostrzezenie">
-      <strong>
-        <Ikona nazwa="ostrzezenie" rozmiar={14} /> Twoje dane mogą zostać skasowane przez system.
+    <section className="karta border-ostrzezenie/40">
+      <strong className="flex items-start gap-2">
+        <span className="mt-0.5 text-ostrzezenie">
+          <Ikona nazwa="ostrzezenie" rozmiar={16} />
+        </span>
+        Twoje dane mogą zostać skasowane przez system.
       </strong>
-      <p>
+      <p className="wskazowka">
         Historia rozmów jest wyłącznie na tym urządzeniu — serwer jej nie ma, więc nikt jej nie
         odtworzy.
       </p>
       {!zainstalowana ? (
-        <p>
+        <p className="wskazowka">
           Na iPhonie: otwórz w Safari, wybierz <em>Udostępnij → Dodaj do ekranu głównego</em>,
           a potem uruchom aplikację z ikony. Bez tego iOS nie pozwala zabezpieczyć danych.
         </p>
       ) : (
-        <button
+        <Button
+          variant="outline"
           onClick={async () => {
             // Na iOS `persist()` przechodzi dopiero po zgodzie na powiadomienia.
             if ("Notification" in window) await Notification.requestPermission();
@@ -348,7 +380,7 @@ function OstrzezenieOTrwalosci({ onOdswiez }: { onOdswiez: () => void }) {
         >
           <Ikona nazwa="tarcza" rozmiar={16} />
           Zabezpiecz dane na tym urządzeniu
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -409,7 +441,7 @@ function FormularzRejestracji({
     >
       <label>
         Nazwa użytkownika · Username
-        <input
+        <Input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -420,7 +452,7 @@ function FormularzRejestracji({
 
       <label>
         Hasło · Password
-        <input
+        <Input
           type="password"
           value={haslo}
           onChange={(e) => setHaslo(e.target.value)}
@@ -440,9 +472,9 @@ function FormularzRejestracji({
         przejdziesz dalej.
       </p>
 
-      <button className="glowny" disabled={pracuje}>
+      <Button type="submit" disabled={pracuje}>
         {pracuje ? "Zakładam…" : "Załóż konto · Create account"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -498,7 +530,8 @@ function PotwierdzenieTotp({
 
       <label>
         Kod z aplikacji · Code
-        <input
+        <Input
+          className="font-mono tracking-[0.2em]"
           value={kod}
           onChange={(e) => setKod(e.target.value)}
           inputMode="numeric"
@@ -507,7 +540,7 @@ function PotwierdzenieTotp({
         />
       </label>
 
-      <button className="glowny">Potwierdź · Confirm</button>
+      <Button type="submit">Potwierdź · Confirm</Button>
 
       <p className="wskazowka">
         Po potwierdzeniu ten kod jest już zużyty — do logowania poczekaj na następny.
@@ -544,7 +577,7 @@ function FormularzLogowania({
     >
       <label>
         Nazwa użytkownika · Username
-        <input
+        <Input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -554,7 +587,7 @@ function FormularzLogowania({
 
       <label>
         Hasło · Password
-        <input
+        <Input
           type="password"
           value={haslo}
           onChange={(e) => setHaslo(e.target.value)}
@@ -563,9 +596,9 @@ function FormularzLogowania({
         />
       </label>
 
-      <button className="glowny" disabled={pracuje}>
+      <Button type="submit" disabled={pracuje}>
         {pracuje ? "Sprawdzam…" : "Dalej · Continue"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -606,7 +639,8 @@ function DrugiSkladnik({
     >
       <label>
         Kod · Code
-        <input
+        <Input
+          className="font-mono tracking-[0.2em]"
           value={kod}
           onChange={(e) => setKod(e.target.value)}
           inputMode="numeric"
@@ -615,7 +649,7 @@ function DrugiSkladnik({
         />
       </label>
 
-      <button className="glowny">Zaloguj · Sign in</button>
+      <Button type="submit">Zaloguj · Sign in</Button>
     </form>
   );
 }
@@ -634,9 +668,11 @@ function DrugiSkladnik({
  * przycisku, który i tak zawsze zawiedzie.
  */
 function PrzyciskPasskey({
+  wariant,
   onGotowe,
   onBlad,
 }: {
+  wariant: "outline" | "ghost";
   onGotowe: (m: Messenger) => void;
   onBlad: (e: unknown) => void;
 }) {
@@ -645,7 +681,8 @@ function PrzyciskPasskey({
   if (!isPasskeySupported()) return null;
 
   return (
-    <button
+    <Button
+      variant={wariant}
       disabled={pracuje}
       onClick={async () => {
         setPracuje(true);
@@ -675,6 +712,6 @@ function PrzyciskPasskey({
     >
       <Ikona nazwa="blokada" rozmiar={16} />
       {pracuje ? "Loguję…" : "Zaloguj passkeyem · Passkey"}
-    </button>
+    </Button>
   );
 }

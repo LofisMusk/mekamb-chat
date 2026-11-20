@@ -15,11 +15,12 @@
  * świata — bo w chwili zapisu system był jeszcze jasny. Wybór użytkownika to
  * „idź za systemem", nie „bądź jasny".
  *
- * # Dlaczego domyślnie ciemny, a nie `auto`
+ * # Dlaczego domyślnie `auto`
  *
- * Bo Nocturne jest systemem ciemnym z założenia — wariant jasny dołożyliśmy dla
- * tych, którzy go potrzebują, a nie po to, żeby stał się domyślny na połowie
- * urządzeń. Kto chce iść za systemem, wybiera to jawnie.
+ * Nocturne było systemem ciemnym z założenia i dlatego startowało ciemne.
+ * System „Neutralny" (`docs/UI_NEUTRALNY.md`) ma dwie równorzędne palety — ta
+ * sama skala szarości odwrócona — więc nie ma powodu, żeby aplikacja kłóciła
+ * się z ustawieniem telefonu. Kto chce na sztywno, wybiera to jawnie.
  */
 
 /** Co użytkownik wybrał. */
@@ -32,23 +33,23 @@ const KLUCZ = "mekamb.motyw";
 
 /** Kolor `--tlo` obu motywów. Musi zgadzać się z `styles.css` — patrz test. */
 export const TLO: Record<Motyw, string> = {
-  ciemny: "#000000",
-  jasny: "#f9f7f8",
+  ciemny: "#0a0a0a",
+  jasny: "#ffffff",
 };
 
 function poprawny(wartosc: string | null): wartosc is WyborMotywu {
   return wartosc === "ciemny" || wartosc === "jasny" || wartosc === "auto";
 }
 
-/** Odczyt wyboru. Cokolwiek innego niż znana wartość znaczy „ciemny". */
+/** Odczyt wyboru. Cokolwiek innego niż znana wartość znaczy „za systemem". */
 export function wczytajWybor(magazyn: Pick<Storage, "getItem"> = localStorage): WyborMotywu {
   try {
     const zapisane = magazyn.getItem(KLUCZ);
-    return poprawny(zapisane) ? zapisane : "ciemny";
+    return poprawny(zapisane) ? zapisane : "auto";
   } catch {
     // Prywatne okno bez dostępu do magazynu. Motyw jest ustawieniem
     // kosmetycznym — brak zapisu nie może wywrócić startu aplikacji.
-    return "ciemny";
+    return "auto";
   }
 }
 

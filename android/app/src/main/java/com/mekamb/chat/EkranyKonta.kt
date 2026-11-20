@@ -1,6 +1,14 @@
 package com.mekamb.chat
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,9 +63,9 @@ fun EkranKonta(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Odstep.l),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            Text(t("Ustawienia", "Settings"), style = MaterialTheme.typography.displaySmall)
+            NaglowekEkranu(t("Ustawienia", "Settings"), Modifier.padding(top = Odstep.s))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -83,21 +91,24 @@ fun EkranKonta(
             // nikt nie odzyska i że historia jest tylko tutaj — stoi niżej,
             // przy akcjach, których dotyczy.
 
-            Karta {
+            // Menu bez wewnętrznego odstępu karty: wiersze same niosą margines,
+            // żeby tło „pod palcem" sięgało krawędzi karty, a nie kończyło się
+            // w pół drogi.
+            KartaMenu {
                 WierszMenu(
                     ikona = Ikony.Odcisk,
                     tytul = t("Kody bezpieczeństwa", "Safety numbers"),
                     opis = t("Do porównania z rozmówcą poza aplikacją", "To compare with your contact outside the app"),
                     onClick = onUczestnicy,
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
+                Linia(Modifier.padding(start = 52.dp))
                 WierszMenu(
                     ikona = Ikony.Dzwonek,
                     tytul = t("Wygląd i powiadomienia", "Appearance and notifications"),
                     opis = t("Motyw, język, powiadomienia", "Theme, language, notifications"),
                     onClick = onUstawienia,
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Nocturne.kolory.linia))
+                Linia(Modifier.padding(start = 52.dp))
                 WierszMenu(
                     ikona = Ikony.Ostrzezenie,
                     tytul = t("Zgłoś błąd", "Report a problem"),
@@ -107,13 +118,7 @@ fun EkranKonta(
             }
 
             Karta {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-                ) {
-                    Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                    Text(t("Gdy stracisz to urządzenie", "If you lose this device"), style = MaterialTheme.typography.labelLarge)
-                }
+                NaglowekKarty(t("Gdy stracisz to urządzenie", "If you lose this device"), Ikony.Klucz)
                 // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
                 // po nim można zrobić coś inaczej — sparować drugie urządzenie
                 // zawczasu, żeby konto nie zależało od jednego telefonu.
@@ -137,7 +142,7 @@ fun EkranKonta(
                     "Chat history is only here. Once deleted it can't be recovered.",
                 ),
                 style = MaterialTheme.typography.bodySmall,
-                color = Nocturne.kolory.tekstTrzeci,
+                color = Nocturne.kolory.tekstDrugi,
             )
 
             Spacer(Modifier.height(Odstep.l))
@@ -147,7 +152,21 @@ fun EkranKonta(
     }
 }
 
-/** Wiersz menu: ikona, tytuł, opis. */
+/** Karta na wiersze menu — bez wewnętrznego odstępu, z obrysem `linia`. */
+@Composable
+private fun KartaMenu(zawartosc: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val ksztalt = RoundedCornerShape(Promien.m)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ksztalt)
+            .background(Nocturne.kolory.karta, ksztalt)
+            .border(1.dp, Nocturne.kolory.linia, ksztalt),
+        content = zawartosc,
+    )
+}
+
+/** Wiersz menu: ikona, tytuł, opis, strzałka. Pod palcem tło `wglebienie`. */
 @Composable
 private fun WierszMenu(
     ikona: ImageVector,
@@ -155,19 +174,33 @@ private fun WierszMenu(
     opis: String,
     onClick: () -> Unit,
 ) {
+    val zrodlo = remember { MutableInteractionSource() }
+    val wcisniety by zrodlo.collectIsPressedAsState()
+    val tlo by animateColorAsState(
+        if (wcisniety) Nocturne.kolory.wglebienie else Color.Transparent,
+        tween(Ruch.STAN_MS, easing = Ruch.krzywa),
+        label = "wiersz-menu",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(tlo)
             .defaultMinSize(minHeight = Dotyk.kontrolka)
-            .clickable(onClick = onClick)
-            .padding(vertical = Odstep.s),
+            .clickable(interactionSource = zrodlo, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = Odstep.l, vertical = Odstep.m),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
+        horizontalArrangement = Arrangement.spacedBy(Odstep.m),
     ) {
-        Icon(ikona, null, tint = Nocturne.kolory.akcent, modifier = Modifier.size(20.dp))
-        Column(Modifier.weight(1f)) {
+        Box(
+            Modifier.size(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(ikona, null, tint = Nocturne.kolory.tekst, modifier = Modifier.size(20.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(tytul, style = MaterialTheme.typography.bodyLarge)
             Text(opis, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
         }
+        Icon(Ikony.Naprzod, null, tint = Nocturne.kolory.tekstDrugi, modifier = Modifier.size(16.dp))
     }
 }

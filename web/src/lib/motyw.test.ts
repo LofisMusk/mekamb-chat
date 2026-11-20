@@ -95,11 +95,12 @@ describe("zapamiętany wybór", () => {
     expect(wczytajWybor(magazyn("auto"))).toBe("auto");
   });
 
-  it("cokolwiek innego znaczy ciemny", () => {
+  it("cokolwiek innego znaczy „za systemem”", () => {
     // Wartość spoza zbioru bierze się z ręcznej edycji albo starszego wydania.
-    // Ciemny jest domyślny w tym systemie, więc to bezpieczny powrót.
-    expect(wczytajWybor(magazyn(null))).toBe("ciemny");
-    expect(wczytajWybor(magazyn("niebieski"))).toBe("ciemny");
+    // W systemie z dwiema równorzędnymi paletami bezpiecznym powrotem jest
+    // ustawienie telefonu, nie jedna z palet narzucona na ślepo.
+    expect(wczytajWybor(magazyn(null))).toBe("auto");
+    expect(wczytajWybor(magazyn("niebieski"))).toBe("auto");
   });
 
   it("brak dostępu do magazynu nie wywraca startu", () => {
@@ -114,7 +115,7 @@ describe("zapamiętany wybór", () => {
       },
     };
 
-    expect(wczytajWybor(rzucajacy)).toBe("ciemny");
+    expect(wczytajWybor(rzucajacy)).toBe("auto");
     expect(() => zapiszWybor("jasny", rzucajacy)).not.toThrow();
   });
 });

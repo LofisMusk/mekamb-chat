@@ -64,42 +64,42 @@ fun EkranPowitania(
     onJezyk: (Jezyk) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = Odstep.xl),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-            verticalAlignment = Alignment.CenterVertically,
+    Box(modifier.fillMaxSize()) {
+        // Faktura, nie temat: kropki w `linia`, gasnące ku brzegom.
+        TloKropek(Modifier.matchParentSize())
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Odstep.l, vertical = Odstep.xl),
+            verticalArrangement = Arrangement.Center,
         ) {
             OdznakaMarki()
-            Text("mekamb", style = MaterialTheme.typography.titleLarge)
-        }
+            Spacer(Modifier.size(Odstep.l))
+            Text("mekamb", style = MaterialTheme.typography.displaySmall)
 
-        if (WERSJA_TESTOWA) {
+            if (WERSJA_TESTOWA) {
+                Spacer(Modifier.size(Odstep.xl))
+                BannerTestowy()
+            }
+
             Spacer(Modifier.size(Odstep.xl))
-            BannerTestowy()
-        }
-
-        Spacer(Modifier.size(Odstep.xxl))
-        // Przyciski wejścia: akcja główna wypełniona z „+", reszta neutralna —
-        // dokładnie jak w projekcie „Mekamb Mobile". Passkey pokazujemy tylko,
-        // gdy urządzenie ma czym go obsłużyć, żeby nie było martwej kontrolki.
-        Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
-            PrzyciskGlowny(t("Załóż konto", "Create account"), ikona = Ikony.Dodaj) {
-                model.pokaz(Ekran.REJESTRACJA)
+            // Jedna akcja główna — założenie konta. „Mam już konto" jest
+            // obrysowane: dwie plamy obok siebie nie mówiłyby, od czego zacząć.
+            Column(verticalArrangement = Arrangement.spacedBy(Odstep.s)) {
+                PrzyciskGlowny(t("Załóż konto", "Create account"), ikona = Ikony.Dodaj) {
+                    model.pokaz(Ekran.REJESTRACJA)
+                }
+                PrzyciskObrys(t("Mam już konto", "I already have an account")) {
+                    model.pokaz(Ekran.LOGOWANIE)
+                }
             }
-            PrzyciskDrugi(t("Mam już konto", "I already have an account")) {
-                model.pokaz(Ekran.LOGOWANIE)
-            }
-        }
 
-        Spacer(Modifier.size(Odstep.xl))
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PrzelacznikJezyka(jezyk, onJezyk)
+            Spacer(Modifier.size(Odstep.xl))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                PrzelacznikJezyka(jezyk, onJezyk)
+            }
         }
     }
 }
@@ -107,40 +107,20 @@ fun EkranPowitania(
 /**
  * Kompaktowy przełącznik PL/EN.
  *
- * Wąska pigułka wyśrodkowana na dole powitania, jak w projekcie — a nie
- * [KontrolkaSegmentowa] na całą szerokość, która jest do ustawień. Ten sam
- * język tokenów (tor `karta2`, kciuk `segment`), tylko węższy.
+ * Ten sam segment co w ustawieniach, tylko o stałej szerokości — na powitaniu
+ * nie jest pytaniem do rozstrzygnięcia, tylko furtką dla kogoś, kto nie czyta
+ * po polsku.
  */
 @Composable
 fun PrzelacznikJezyka(jezyk: Jezyk, onJezyk: (Jezyk) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .background(Nocturne.kolory.karta2, RoundedCornerShape(9.dp))
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        for (opcja in Jezyk.entries) {
-            val aktywna = opcja == jezyk
-            val ksztalt = RoundedCornerShape(7.dp)
-            Box(
-                modifier = Modifier
-                    .width(56.dp)
-                    .height(32.dp)
-                    .then(
-                        if (aktywna) Modifier.background(Nocturne.kolory.segment, ksztalt)
-                        else Modifier,
-                    )
-                    .clickable { onJezyk(opcja) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    opcja.etykieta,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (aktywna) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
-                )
-            }
-        }
-    }
+    KontrolkaSegmentowa(
+        opcje = Jezyk.entries,
+        wybrana = jezyk,
+        etykieta = { it.etykieta },
+        onWybor = onJezyk,
+        modifier = modifier,
+        szerokoscSegmentu = 56.dp,
+    )
 }
 
 /**
@@ -166,7 +146,7 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         PasekZPowrotem(t("Nowe konto", "New account")) { model.pokaz(Ekran.POWITANIE) }
 
         Column(
-            modifier = Modifier.padding(horizontal = Odstep.xl),
+            modifier = Modifier.padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
             if (WERSJA_TESTOWA) {
@@ -184,7 +164,7 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.size(Odstep.l))
-        Column(modifier = Modifier.padding(horizontal = Odstep.xl)) {
+        Column(modifier = Modifier.padding(horizontal = Odstep.l)) {
         Wskazowka(
             t(
                 "Hasło nie opuszcza tego urządzenia (OPAQUE). Serwer nigdy go nie zobaczy — " +
@@ -210,7 +190,7 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.size(Odstep.s))
-        PrzyciskCichy(t("Mam już konto", "I already have an account")) { model.pokaz(Ekran.LOGOWANIE) }
+        PrzyciskDuch(t("Mam już konto", "I already have an account")) { model.pokaz(Ekran.LOGOWANIE) }
         }
     }
 }
@@ -242,7 +222,7 @@ private fun SilaHasla(haslo: String) {
                     .weight(1f)
                     .height(3.dp)
                     .background(
-                        if (i < wypelnione) Nocturne.kolory.akcent else Nocturne.kolory.linia,
+                        if (i < wypelnione) Nocturne.kolory.glowny else Nocturne.kolory.wglebienieMocne,
                         RoundedCornerShape(2.dp),
                     ),
             )
@@ -250,12 +230,12 @@ private fun SilaHasla(haslo: String) {
 
         Text(
             text = if (haslo.length >= MINIMUM_HASLA) {
-                "wystarczy"
+                t("wystarczy", "long enough")
             } else {
-                "min. $MINIMUM_HASLA znaków"
+                t("min. $MINIMUM_HASLA znaków", "min. $MINIMUM_HASLA characters")
             },
             style = MaterialTheme.typography.labelSmall,
-            color = if (haslo.length >= MINIMUM_HASLA) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
+            color = if (haslo.length >= MINIMUM_HASLA) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
         )
     }
 }
@@ -277,11 +257,11 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(horizontal = Odstep.xl),
+            .padding(horizontal = Odstep.l),
         verticalArrangement = Arrangement.Center,
     ) {
         OdznakaMarki()
-        Spacer(Modifier.size(Odstep.m))
+        Spacer(Modifier.size(Odstep.l))
         NaglowekEkranu(t("Logowanie", "Sign in"))
 
         if (WERSJA_TESTOWA) {
@@ -290,7 +270,7 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.size(Odstep.xl))
-        Column(verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Odstep.m)) {
             Pole(
                 t("Nazwa użytkownika", "Username"), username, { username = it },
                 typAutofill = ContentType.Username,
@@ -317,7 +297,7 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
         // inaczej niż przez odinstalowanie aplikacji. Powitanie prowadzi do
         // wszystkich trzech dróg wejścia, więc wystarczy do niego wrócić.
         Spacer(Modifier.size(Odstep.s))
-        PrzyciskCichy(t("Nie mam jeszcze konta", "I don't have an account yet")) { model.pokaz(Ekran.POWITANIE) }
+        PrzyciskDuch(t("Nie mam jeszcze konta", "I don't have an account yet")) { model.pokaz(Ekran.POWITANIE) }
     }
 }
 
@@ -335,7 +315,7 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .imePadding()
-                .padding(horizontal = Odstep.xl),
+                .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
             Pole(t("Sześć cyfr", "Six digits"), kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
@@ -360,9 +340,10 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
 }
 
 /**
- * Pasek z powrotem i tytułem w wybranym języku.
+ * Pasek z powrotem i tytułem 17/600.
  *
- * Wysokość celu dotyku 44 dp z projektu — powyżej minimum Androida.
+ * Strzałka jest „duchem" 44×44 — powrót nie jest akcją główną ekranu, więc nie
+ * może z nią konkurować.
  */
 @Composable
 fun PasekZPowrotem(
@@ -371,13 +352,11 @@ fun PasekZPowrotem(
     onWstecz: () -> Unit,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = Odstep.m),
+        modifier = modifier.fillMaxWidth().padding(horizontal = Odstep.xs, vertical = Odstep.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {
-        IconButton(onClick = onWstecz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-            Icon(Ikony.Wstecz, contentDescription = t("Wróć", "Back"), tint = Nocturne.kolory.tekst)
-        }
+        PrzyciskIkona(Ikony.Wstecz, t("Wróć", "Back"), onWstecz)
         Text(tytul, style = MaterialTheme.typography.titleMedium)
     }
 }

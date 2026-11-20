@@ -13,7 +13,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -101,10 +104,12 @@ class MainActivity : ComponentActivity() {
                                 jezyk = it
                                 Motyw.zapiszJezyk(this, it)
                             },
+                            // Bez wspólnego marginesu: każdy ekran sam trzyma 16 dp od
+                            // krawędzi, bo wiersze listy, nagłówki i tło „pod palcem"
+                            // mają sięgać krawędzi ekranu, a treść — nie.
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(wciecia)
-                                .padding(Odstep.ekran),
+                                .padding(wciecia),
                         )
                     }
                 }
@@ -352,13 +357,27 @@ private fun Zawartosc(
         model.pokaz(Ekran.POWITANIE)
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Odstep.l)) {
-        // Znak i droga dostarczania dopiero po zalogowaniu. Ekrany wejścia mają
+    // Ukryta informacja — model nie ma jej czyszczenia (zmienia ją dopiero
+    // przejście między ekranami), więc zamknięcie toastu pamiętamy tutaj.
+    var ukrytaInformacja by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(stan.informacja) { if (stan.informacja == null) ukrytaInformacja = null }
+
+    // Rozmowa i rozmowa A/V mają własne nagłówki, w których droga dostarczania
+    // już stoi (podtytuł wątku, podpis siatki) — drugi raz nad nimi byłby szumem.
+    val wWatku = stan.zalogowany && (
+        stan.rozmowaAV.isNotEmpty() || stan.przychodzacaRozmowa != null ||
+            (stan.groupId != null && wRozmowie && !wGlebi && galaz == Galaz.ROZMOWY)
+        )
+
+    Box(modifier = modifier) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Droga dostarczania dopiero po zalogowaniu. Ekrany wejścia mają
         // własne nagłówki, a tryb połączenia nic tam jeszcze nie znaczy.
-        if (stan.zalogowany) {
+        if (stan.zalogowany && !wWatku) {
             Row(
+                modifier = Modifier.padding(horizontal = Odstep.l, vertical = Odstep.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
                     imageVector = when (stan.trybPolaczenia) {
@@ -367,27 +386,19 @@ private fun Zawartosc(
                         null -> Ikony.BrakSieci
                     },
                     contentDescription = null,
-                    tint = if (stan.trybPolaczenia == null) Nocturne.kolory.tekstTrzeci else Nocturne.kolory.akcent,
-                    modifier = Modifier.size(16.dp),
+                    tint = Nocturne.kolory.tekstDrugi,
+                    modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = when (stan.trybPolaczenia) {
-                        DeliveryMode.DIRECT -> "bezpośrednio — rozmówca zna Twój adres IP"
-                        DeliveryMode.MAILBOX -> "przez serwer"
-                        null -> "brak połączenia"
+                        DeliveryMode.DIRECT -> t("bezpośrednio — rozmówca zna Twój adres IP", "direct — your contact sees your IP address")
+                        DeliveryMode.MAILBOX -> t("przez serwer", "via server")
+                        null -> t("brak połączenia", "no connection")
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = Nocturne.kolory.tekstDrugi,
                 )
             }
-        }
-
-        stan.blad?.let { komunikat ->
-            PasekBledu(komunikat, onZamknij = { model.wyczyscBlad() })
-        }
-
-        stan.informacja?.let { komunikat ->
-            Karta { Text(komunikat, style = MaterialTheme.typography.bodySmall) }
         }
 
         when {
@@ -480,6 +491,33 @@ private fun Zawartosc(
             else -> EkranPowitania(model, jezyk = jezyk, onJezyk = onJezyk)
         }
     }
+
+        /*
+         * Toasty u góry, nad treścią — błąd i informacja, każdy w swoim miejscu.
+         *
+         * Wcześniej oba były paskami wstawionymi w kolumnę nad ekranem, więc
+         * pojawienie się błędu przesuwało cały ekran w dół pod palcem. Nakładka
+         * niczego nie przesuwa.
+         */
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = Odstep.l, vertical = Odstep.s),
+            verticalArrangement = Arrangement.spacedBy(Odstep.s),
+        ) {
+            MiejsceToastu(
+                komunikat = stan.blad,
+                rodzaj = RodzajToastu.BLAD,
+                onZamknij = { model.wyczyscBlad() },
+            )
+            MiejsceToastu(
+                komunikat = stan.informacja?.takeIf { it != ukrytaInformacja },
+                rodzaj = RodzajToastu.INFORMACJA,
+                onZamknij = { ukrytaInformacja = stan.informacja },
+            )
+        }
+    }
 }
 
 @Composable
@@ -496,7 +534,8 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .imePadding(),
+            .imePadding()
+            .padding(horizontal = Odstep.l, vertical = Odstep.m),
         verticalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
         NaglowekEkranu(t("Drugi składnik", "Second factor"))
@@ -506,17 +545,17 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
         // a przepisanie sekretu działa zawsze i jest ostatnią deską ratunku.
         stan.otpauthUri?.let { uri ->
             Text(
-                "Zeskanuj aplikacją authenticator:",
+                t("Zeskanuj aplikacją authenticator:", "Scan with your authenticator app:"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Nocturne.kolory.tekstDrugi,
             )
             KodQr(
                 tresc = uri,
-                opis = "Kod QR do dodania konta w aplikacji authenticator",
+                opis = t("Kod QR do dodania konta w aplikacji authenticator", "QR code to add the account to your authenticator app"),
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
 
-            PrzyciskDrugi("Otwórz w aplikacji na tym telefonie") {
+            PrzyciskObrys(t("Otwórz w aplikacji na tym telefonie", "Open in an app on this phone")) {
                 runCatching {
                     kontekst.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
                 }
@@ -525,17 +564,24 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
 
         stan.sekretTotp?.let { sekret ->
             Text(
-                "Albo wpisz ten sekret ręcznie:",
+                t("Albo wpisz ten sekret ręcznie:", "Or enter this secret manually:"),
                 style = MaterialTheme.typography.labelMedium,
                 color = Nocturne.kolory.tekstDrugi,
             )
-            Karta { Text(sekret, style = MaterialTheme.typography.bodyMedium) }
+            Text(
+                sekret,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Nocturne.kolory.wglebienie, RoundedCornerShape(Promien.s))
+                    .padding(Odstep.m),
+            )
         }
 
-        Pole("Kod z authenticatora · Code", kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
+        Pole(t("Kod z authenticatora", "Authenticator code"), kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
 
         PrzyciskGlowny(
-            if (stanZajety(model)) "Potwierdzam…" else "Potwierdź · Confirm",
+            if (stanZajety(model)) t("Potwierdzam…", "Confirming…") else t("Potwierdź", "Confirm"),
             wlaczony = !stanZajety(model) && kod.length == 6,
         ) {
             model.potwierdzRejestracje(kod)

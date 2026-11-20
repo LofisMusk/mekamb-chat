@@ -72,8 +72,9 @@ import {
 import { odczytWlaczony, ustawOdczyt } from "./lib/ustawienia";
 import { useWstecz } from "./lib/nawigacja";
 import { createPasskey, getPasskey, isPasskeySupported } from "./lib/passkey";
-import { type StanPolaczenia, polaczZeSkrzynka } from "./lib/polaczenie";
+import { polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
+import { Polecenia } from "./Polecenia";
 import { isPersistent, loadHistory, wipe } from "./lib/vault";
 import { ulozWatek } from "./lib/watek";
 import { exportBackup, importBackup } from "./wasm/mekamb_wasm";
@@ -137,25 +138,12 @@ interface WLocie {
   blad: boolean;
 }
 
-/** Jak stan sieci brzmi i wygląda. Jedno miejsce, bo pojawia się w trzech. */
-function opisSieci(stan: StanPolaczenia): { ikona: NazwaIkony; tekst: string; uwaga: boolean } {
-  switch (stan) {
-    case "polaczone":
-      return { ikona: "przezSerwer", tekst: "przez serwer", uwaga: false };
-    case "laczenie":
-      return { ikona: "zegar", tekst: "łączę…", uwaga: false };
-    case "rozlaczone":
-      return { ikona: "brakSieci", tekst: "brak połączenia — ponawiam", uwaga: true };
-  }
-}
-
 export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: unknown) => void }) {
   const [wiadomosci, setWiadomosci] = useState<Wiadomosc[]>([]);
   const [tresc, setTresc] = useState("");
   const [rozmowca, setRozmowca] = useState("");
   const [groupId, setGroupId] = useState<Uint8Array | null>(null);
   const [sygnalRozmowy, setSygnalRozmowy] = useState<SygnalRozmowy | null>(null);
-  const [stanSieci, setStanSieci] = useState<StanPolaczenia>("laczenie");
 
   /**
    * Czy rozmowy z dysku są już otwarte w rdzeniu.
@@ -167,6 +155,18 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [rozmowyOtwarte, setRozmowyOtwarte] = useState(false);
   const [galaz, setGalaz] = useState<Galaz>("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
+   const [poleceniaOtwarte, setPoleceniaOtwarte] = useState(false);
+
+   useEffect(() => {
+     function skrot(e: KeyboardEvent) {
+       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+         e.preventDefault();
+         setPoleceniaOtwarte((p) => !p);
+       }
+     }
+     document.addEventListener("keydown", skrot);
+     return () => document.removeEventListener("keydown", skrot);
+   }, []);
   const [szukane, setSzukane] = useState("");
 
   /*
@@ -865,7 +865,6 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     const polaczenie = polaczZeSkrzynka({
       otworz: () => api.connectInbox(messenger.account.userId, messenger.accessToken),
       naRamke: (ramka, potwierdz) => void obsluzKoperte(ramka, potwierdz),
-      naStan: setStanSieci,
     });
 
     return () => polaczenie.zamknij();
@@ -1361,13 +1360,31 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       */}
       {ekranRozmowy}
 
+      <Polecenia
+        otwarte={poleceniaOtwarte}
+        rozmowy={widoczne.map((p) => ({
+          id: kluczRozmowy(p.groupId),
+          nazwa: nazwaPozycji(p),
+          ostatnia: p.ostatnia?.tresc || "",
+        }))}
+        onSelectRozmowe={(id) => {
+          // Find the conversation by key and open it
+          const pozycja = rozmowy.find((p) => kluczRozmowy(p.groupId) === id);
+          if (pozycja) {
+            otworzRozmowe(pozycja.groupId);
+            setRozmowca(nazwaPozycji(pozycja));
+          }
+          setPoleceniaOtwarte(false);
+        }}
+        onZamknij={() => setPoleceniaOtwarte(false)}
+      />
+
       {!rozmowaNaEkranie && (
         <>
           <Nawigacja
             galaz={galaz}
             onGalaz={setGalaz}
             nieprzeczytane={nieprzeczytane}
-            stanSieci={stanSieci}
           />
 
           {galaz === "rozmowy" && (
@@ -1426,7 +1443,6 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
             setWLocie={setWLocie}
             tresc={tresc}
             setTresc={setTresc}
-            stanSieci={stanSieci}
             // Dzwonimy z otwartego wątku, więc rozmowa toczy się w JEGO grupie.
             // Bez tego ekran rozmowy zostałby przy grupie z poprzedniego
             // połączenia przychodzącego.
@@ -1443,7 +1459,6 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
         {galaz === "konto" && (
           <Konto
             messenger={messenger}
-            stanSieci={stanSieci}
             trwaly={trwaly}
             odczyt={odczyt}
             mojNick={mojNick}
@@ -1503,19 +1518,16 @@ function Nawigacja({
   galaz,
   onGalaz,
   nieprzeczytane,
-  stanSieci,
 }: {
   galaz: Galaz;
   onGalaz: (g: Galaz) => void;
   nieprzeczytane: number;
-  stanSieci: StanPolaczenia;
 }) {
   const galezie: { klucz: Galaz; ikona: NazwaIkony; etykieta: string }[] = [
     { klucz: "rozmowy", ikona: "rozmowy", etykieta: "Rozmowy" },
     { klucz: "konto", ikona: "konto", etykieta: "Konto" },
   ];
 
-  const siec = opisSieci(stanSieci);
 
   return (
     <nav className="sidebar" aria-label="Nawigacja">
@@ -1540,16 +1552,6 @@ function Nawigacja({
       ))}
 
       <div className="stopka-sidebara">
-        {/* Stan połączenia jest tu istotny, nie ozdobny: przy zerwanej sieci
-            wiadomości nie przychodzą, a użytkownik ma prawo wiedzieć dlaczego. */}
-        <span
-          className={siec.uwaga ? "tryb uwaga" : "tryb"}
-          title="Wiadomości idą przez serwer — nie da się inaczej w przeglądarce."
-        >
-          <Ikona nazwa={siec.ikona} rozmiar={13} />
-          {siec.tekst}
-        </span>
-
         <WyborMotywuUI />
       </div>
     </nav>
@@ -1986,7 +1988,6 @@ function Watek({
   setWLocie,
   tresc,
   setTresc,
-  stanSieci,
   setZadanieRozmowy,
   inspektorOtwarty,
   setInspektorOtwarty,
@@ -2002,7 +2003,6 @@ function Watek({
   setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>;
   tresc: string;
   setTresc: (t: string) => void;
-  stanSieci: StanPolaczenia;
   setZadanieRozmowy: (z: ZadanieRozmowy) => void;
   inspektorOtwarty: boolean;
   setInspektorOtwarty: (o: boolean | ((o: boolean) => boolean)) => void;
@@ -2010,7 +2010,6 @@ function Watek({
 }) {
   const lista = useRef<HTMLOListElement | null>(null);
   const pole = useRef<HTMLTextAreaElement | null>(null);
-  const siec = opisSieci(stanSieci);
 
   /*
    * Wiadomości w locie idą przez ten sam układ co reszta.
@@ -2110,12 +2109,6 @@ function Watek({
 
           <span className="pasek-tozsamosc">
             <span className="pasek-nazwa">{rozmowca}</span>
-            {/* Droga dostarczania przy nazwie, nie w ustawieniach: „przez serwer"
-                to zdanie o tym, kto widzi metadane. */}
-            <span className={siec.uwaga ? "pasek-meta uwaga" : "pasek-meta"}>
-              <Ikona nazwa={siec.ikona} rozmiar={12} />
-              {siec.tekst}
-            </span>
           </span>
         </span>
 
@@ -2890,7 +2883,6 @@ function KopiaRozmow({ onBlad }: { onBlad: (e: unknown) => void }) {
 
 function Konto({
   messenger,
-  stanSieci,
   trwaly,
   odczyt,
   mojNick,
@@ -2902,7 +2894,6 @@ function Konto({
   onBlad,
 }: {
   messenger: Messenger;
-  stanSieci: StanPolaczenia;
   trwaly: boolean;
   odczyt: boolean;
   mojNick: string;
@@ -2913,7 +2904,6 @@ function Konto({
   onOdczyt: (wlaczony: boolean) => void;
   onBlad: (e: unknown) => void;
 }) {
-  const siec = opisSieci(stanSieci);
   // Pole nicku trzymane lokalnie — zapisujemy dopiero, gdy pole traci fokus
   // albo na Enter, żeby nie rozsyłać metadany po każdym naciśnięciu klawisza.
   const [nickPole, setNickPole] = useState(mojNick);
@@ -2984,18 +2974,6 @@ function Konto({
             i wtedy trzeba je przeczytać.
           */}
           <dl className="stan-konta">
-            <div>
-              <dt>Wiadomości</dt>
-              <dd className={siec.uwaga ? "uwaga" : undefined}>
-                <Ikona nazwa={siec.ikona} rozmiar={13} />
-                {stanSieci === "polaczone"
-                  ? "dochodzą"
-                  : stanSieci === "laczenie"
-                    ? "łączę…"
-                    : "brak połączenia"}
-              </dd>
-            </div>
-
             {!trwaly && (
               <div>
                 <dt>Pamięć</dt>

@@ -47,6 +47,15 @@ class WatekTest {
     }
 
     @Test
+    fun `angielski interfejs ma angielskie slowa i miesiace`() {
+        // Nazwa miesiąca idzie za językiem interfejsu, nie za telefonem —
+        // inaczej angielski interfejs pisałby „14 marca".
+        assertEquals("Today", etykietaDnia(teraz - 3 * 60 * 60 * 1000L, teraz, Jezyk.EN))
+        assertEquals("Yesterday", etykietaDnia(poludnie(2026, 8, 9), teraz, Jezyk.EN))
+        assertTrue(etykietaDnia(poludnie(2026, 3, 14), teraz, Jezyk.EN).contains("March"))
+    }
+
+    @Test
     fun `kazdy dzien dostaje jeden rozdzielacz`() {
         val uklad = ulozWatek(
             listOf(
@@ -57,8 +66,8 @@ class WatekTest {
             teraz,
         )
 
-        assertEquals(2, uklad.count { it is PozycjaWatku.Dzien })
-        assertTrue(uklad.first() is PozycjaWatku.Dzien)
+        assertEquals(2, uklad.count { it is PozycjaWatku.Rozdzielacz })
+        assertTrue(uklad.first() is PozycjaWatku.Rozdzielacz)
     }
 
     @Test
@@ -113,5 +122,75 @@ class WatekTest {
         val uklad = ulozWatek(listOf(wiadomosc(start), wiadomosc(start)), teraz)
 
         assertEquals(uklad.size, uklad.map { it.klucz }.toSet().size)
+    }
+
+    @Test
+    fun `godzina ciszy stawia rozdzielacz w srodku dnia`() {
+        // Godzina wyszła z dymka — pytanie „o której" wraca po przerwie,
+        // a nie przy każdym zdaniu.
+        val start = poludnie(2026, 8, 10, 9)
+        val uklad = ulozWatek(
+            listOf(
+                wiadomosc(start),
+                wiadomosc(start + 60_000),
+                wiadomosc(start + 60_000 + PRZERWA_ROZDZIELACZA_MS),
+            ),
+            teraz,
+        )
+
+        assertEquals(2, uklad.count { it is PozycjaWatku.Rozdzielacz })
+        assertTrue(uklad[3] is PozycjaWatku.Rozdzielacz)
+        assertEquals(uklad.size, uklad.map { it.klucz }.toSet().size)
+    }
+
+    @Test
+    fun `ogon ma tylko ostatni dymek bloku`() {
+        // Ogon przy każdym dymku serii rozbija ją na osobne wypowiedzi.
+        val start = poludnie(2026, 8, 10, 9)
+        val dymki = ulozWatek(
+            listOf(
+                wiadomosc(start),
+                wiadomosc(start + 10_000),
+                wiadomosc(start + 20_000),
+                wiadomosc(start + 30_000, "ja", wlasna = true),
+            ),
+            teraz,
+        ).filterIsInstance<PozycjaWatku.Dymek>()
+
+        assertEquals(listOf(false, false, true, true), dymki.map { it.ogon })
+    }
+
+    @Test
+    fun `stan wysylki tylko pod ostatnia wlasna`() {
+        val start = poludnie(2026, 8, 10, 9)
+        val dymki = ulozWatek(
+            listOf(
+                wiadomosc(start, "ja", wlasna = true),
+                wiadomosc(start + 10_000, "ja", wlasna = true),
+                wiadomosc(start + 20_000, "ola"),
+            ),
+            teraz,
+        ).filterIsInstance<PozycjaWatku.Dymek>()
+
+        assertEquals(listOf(false, true, false), dymki.map { it.ostatniaWlasna })
+    }
+
+    @Test
+    fun `slad rozmowy nie skleja sie z dymkami`() {
+        // Ślad stoi na środku; sklejony z dymkiem nad nim zabierałby mu ogon.
+        val start = poludnie(2026, 8, 10, 9)
+        val slad = wiadomosc(start + 10_000, "ja", wlasna = true).copy(
+            rozmowa = ZapisRozmowy(wideo = false, wychodzaca = true, sekundy = 30),
+        )
+        val dymki = ulozWatek(
+            listOf(wiadomosc(start, "ja", wlasna = true), slad),
+            teraz,
+        ).filterIsInstance<PozycjaWatku.Dymek>()
+
+        assertTrue(dymki[0].ogon)
+        assertFalse(dymki[1].ciag)
+        // Ślad nie jest wiadomością, więc stan wysyłki zostaje pod dymkiem.
+        assertTrue(dymki[0].ostatniaWlasna)
+        assertFalse(dymki[1].ostatniaWlasna)
     }
 }

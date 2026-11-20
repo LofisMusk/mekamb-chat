@@ -1,8 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+// Krój z własnego originu, nie z Google Fonts: CSP nie wpuszcza zewnętrznych
+// fontów, a zapytanie do obcego serwera przy każdym starcie mówiłoby mu, kto
+// i kiedy otwiera komunikator. Paczka dzieli krój na zakresy znaków, więc
+// przeglądarka pobiera tylko te, których strona naprawdę używa.
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
+
 import { App } from "./App";
 import { Awaria } from "./Awaria";
+import { Toaster } from "./components/ui/sonner";
+import { TooltipProvider } from "./components/ui/tooltip";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -10,7 +19,14 @@ createRoot(document.getElementById("root")!).render(
     {/* Zapora na zewnątrz aplikacji: awaria w środku ma dać komunikat,
         a nie puste, ciemne tło — patrz `Awaria.tsx`. */}
     <Awaria>
-      <App />
+      {/* Jeden dostawca podpowiedzi na całą aplikację: przejście kursorem
+          z ikony na ikonę pokazuje następną od razu, bez ponownego czekania. */}
+      <TooltipProvider delayDuration={400} skipDelayDuration={200}>
+        <App />
+      </TooltipProvider>
+      {/* Poza aplikacją, żeby komunikat zgłoszony przy starcie — zanim powstał
+          którykolwiek ekran — miał już gdzie się pokazać. */}
+      <Toaster />
     </Awaria>
   </StrictMode>,
 );

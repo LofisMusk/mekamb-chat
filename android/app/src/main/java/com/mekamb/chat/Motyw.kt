@@ -15,8 +15,10 @@ import android.content.Context
  *
  * # Dlaczego domyślnie jasny
  *
- * Odsłona „Mekamb Mobile" jest systemem jasnym z założenia (iOS) — projekt
- * startuje na motywie jasnym. Ciemny i „za systemem" są do wyboru jawnego.
+ * Tak startowały dotychczasowe wydania i zmiana systemu wizualnego na
+ * „Neutralny" tego nie rusza — kto nic nie wybierał, nie powinien po
+ * aktualizacji obudzić się w innym motywie. Ciemny i „za systemem" są do
+ * wyboru jawnego.
  *
  * # Dlaczego osobne `SharedPreferences`, a nie `Vault`
  *
@@ -64,7 +66,7 @@ object Motyw {
     }
 
     /**
-     * Wybrany kolor akcentu.
+     * Wybrany wygląd akcji głównej — domyślnie [Akcent.NEUTRALNY].
      *
      * Ten sam plik `SharedPreferences` co motyw — oba są ustawieniami wyglądu,
      * nie tajemnicą, więc nie idą do szyfrowanego `Vault`, który trzeba by
@@ -76,7 +78,10 @@ object Motyw {
         val zapisane = context
             .getSharedPreferences(PLIK, Context.MODE_PRIVATE)
             .getString(KLUCZ_AKCENT, null)
-        return Akcent.entries.firstOrNull { it.name == zapisane } ?: Akcent.NIEBIESKI
+        // Brak zapisu znaczy „nikt jeszcze nie wybierał", więc dostaje domyślny
+        // wygląd systemu — neutralny. Kto wybrał kolor jawnie, ma go zapisanego
+        // i zostaje przy nim.
+        return Akcent.entries.firstOrNull { it.name == zapisane } ?: Akcent.NEUTRALNY
     }
 
     fun zapiszAkcent(context: Context, akcent: Akcent) {

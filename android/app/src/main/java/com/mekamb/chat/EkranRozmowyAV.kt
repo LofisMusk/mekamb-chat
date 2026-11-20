@@ -95,7 +95,7 @@ fun EkranRozmowyAV(
     }
 
     Column(
-        modifier = modifier.fillMaxSize().background(Nocturne.kolory.wglebienie),
+        modifier = modifier.fillMaxSize().background(Nocturne.kolory.tlo),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(Odstep.l)) {
@@ -152,7 +152,7 @@ fun EkranRozmowyAV(
                     "\"Via relay\" — the TURN server sees it.",
             ),
             style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.kolory.tekstTrzeci,
+            color = Nocturne.kolory.tekstDrugi,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.xl, vertical = Odstep.l),
         )
@@ -251,9 +251,9 @@ private fun Kafelek(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(Promien.l))
             .background(Nocturne.kolory.wglebienie)
-            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(12.dp)),
+            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(Promien.l)),
     ) {
         Awatar(opis.nazwa, rozmiar = 56.dp, modifier = Modifier.align(Alignment.Center))
 
@@ -343,6 +343,14 @@ private fun PodgladWideo(
     }
 }
 
+/**
+ * Przycisk rozmowy — okrąg 56 dp.
+ *
+ * Włączone (mikrofon, obraz) to obrys; wyłączone — wklęsłe tło
+ * `wglebienie-mocne`, jak przycisk, który został wciśnięty i tak zostaje.
+ * „Zakończ" niesie alarm jako obrys i ikonę, nie plamę — tak jak każda akcja
+ * niszcząca w tym systemie.
+ */
 @Composable
 private fun PrzyciskRozmowy(
     ikona: ImageVector,
@@ -351,10 +359,14 @@ private fun PrzyciskRozmowy(
     alarmowy: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val k = Nocturne.kolory
     val obrys = when {
-        alarmowy -> Nocturne.kolory.alarm
-        wlaczony -> Nocturne.kolory.akcent
-        else -> Nocturne.kolory.liniaMocna
+        alarmowy -> k.alarm.copy(alpha = 0.5f)
+        else -> k.liniaMocna
+    }
+    val tlo = when {
+        alarmowy || wlaczony -> androidx.compose.ui.graphics.Color.Transparent
+        else -> k.wglebienieMocne
     }
 
     // 56 dp, wyraźnie powyżej minimum: w rozmowie trafia się w te przyciski
@@ -363,6 +375,7 @@ private fun PrzyciskRozmowy(
         modifier = Modifier
             .size(56.dp)
             .clip(CircleShape)
+            .background(tlo, CircleShape)
             .border(1.dp, obrys, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -371,9 +384,9 @@ private fun PrzyciskRozmowy(
             ikona,
             contentDescription = opis,
             tint = when {
-                alarmowy -> Nocturne.kolory.alarm
-                wlaczony -> Nocturne.kolory.akcentTekst
-                else -> Nocturne.kolory.tekstTrzeci
+                alarmowy -> k.alarm
+                wlaczony -> k.tekst
+                else -> k.tekstDrugi
             },
             modifier = Modifier.size(22.dp),
         )
@@ -394,7 +407,7 @@ fun EkranPrzychodzacejRozmowy(
     onOdrzuc: () -> Unit,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(Odstep.xl),
+        modifier = modifier.fillMaxSize().padding(horizontal = Odstep.l, vertical = Odstep.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -402,7 +415,7 @@ fun EkranPrzychodzacejRozmowy(
 
         Text(
             od,
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(top = Odstep.l),
         )
         Text(
@@ -413,11 +426,11 @@ fun EkranPrzychodzacejRozmowy(
 
         Column(
             modifier = Modifier.fillMaxWidth().padding(top = Odstep.xxl),
-            verticalArrangement = Arrangement.spacedBy(Odstep.m),
+            verticalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             PrzyciskGlowny(t("Odbierz z obrazem", "Answer with video")) { onOdbierz(true) }
-            PrzyciskDrugi(t("Odbierz głosowo", "Answer with voice")) { onOdbierz(false) }
-            PrzyciskCichy(t("Odrzuć", "Decline")) { onOdrzuc() }
+            PrzyciskObrys(t("Odbierz głosowo", "Answer with voice")) { onOdbierz(false) }
+            PrzyciskDuch(t("Odrzuć", "Decline")) { onOdrzuc() }
         }
     }
 }

@@ -76,22 +76,14 @@ fun EkranZgloszenia(
         PasekZPowrotem(t("Zgłoś błąd", "Report a problem"), onWstecz = onWstecz)
 
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Odstep.l, end = Odstep.l, bottom = Odstep.xl),
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Karta {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-                ) {
-                    Icon(
-                        Ikony.Ostrzezenie,
-                        contentDescription = null,
-                        tint = Nocturne.kolory.akcent,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Text(t("Zgłoszenie jest publiczne", "Reports are public"), style = MaterialTheme.typography.labelLarge)
-                }
+                NaglowekKarty(t("Zgłoszenie jest publiczne", "Reports are public"), Ikony.Ostrzezenie)
 
                 Text(
                     t(

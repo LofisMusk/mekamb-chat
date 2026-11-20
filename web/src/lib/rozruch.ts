@@ -1,4 +1,5 @@
 import type { Account } from "./vault";
+import { t } from "./jezyk";
 
 /**
  * Wybór ekranu pokazywanego po uruchomieniu aplikacji.
@@ -59,10 +60,27 @@ export interface ZrodlaRozruchu {
 // w środek zdania diagnostycznego („Serwer jest nieosiągalny (…)"), gdzie
 // druga wiadomość o połączeniu byłaby masłem maślanym. Tłumaczymy tylko błędy
 // DOMENOWE, które inaczej wychodzą użytkownikowi surowym żargonem biblioteki.
-const TLUMACZENIA: { wzorzec: RegExp; tekst: string }[] = [
-  { wzorzec: /duplicate signature|already.*member|is already in the group/i, tekst: "Nie możesz napisać do samego siebie." },
-  { wzorzec: /nie ma zarejestrowanych urządzeń/i, tekst: "Nie znaleziono takiego użytkownika." },
-  { wzorzec: /wolnych key packages/i, tekst: "Ta osoba musi otworzyć aplikację, zanim ją dodasz." },
+// Wzorce łapią komunikat w OBU językach, bo `messenger.ts` rzuca go w języku
+// interfejsu; tekst jest getterem z tego samego powodu co etykiety znikania.
+const TLUMACZENIA: { wzorzec: RegExp; readonly tekst: string }[] = [
+  {
+    wzorzec: /duplicate signature|already.*member|is already in the group/i,
+    get tekst() {
+      return t("Nie możesz napisać do samego siebie.", "You can't message yourself.");
+    },
+  },
+  {
+    wzorzec: /nie ma zarejestrowanych urządzeń|has no registered devices/i,
+    get tekst() {
+      return t("Nie znaleziono takiego użytkownika.", "No such user found.");
+    },
+  },
+  {
+    wzorzec: /wolnych key packages|free key packages/i,
+    get tekst() {
+      return t("Ta osoba musi otworzyć aplikację, zanim ją dodasz.", "This person has to open the app before you can add them.");
+    },
+  },
 ];
 
 export function opisBledu(e: unknown): string {
@@ -84,7 +102,7 @@ export async function ustalRozruch({
     // Logowanie odtwarza to samo konto, więc jest bezpiecznym wyjściem.
     return {
       nazwa: "logowanie",
-      blad: `Nie udało się otworzyć magazynu na tym urządzeniu (${opisBledu(e)}). Zaloguj się ponownie.`,
+      blad: t(`Nie udało się otworzyć magazynu na tym urządzeniu (${opisBledu(e)}). Zaloguj się ponownie.`, `Couldn't open the storage on this device (${opisBledu(e)}). Please sign in again.`),
     };
   }
 
@@ -101,7 +119,7 @@ export async function ustalRozruch({
   } catch (e) {
     return {
       nazwa: "logowanie",
-      blad: `Serwer jest nieosiągalny (${opisBledu(e)}). Zaloguj się, gdy wróci połączenie.`,
+      blad: t(`Serwer jest nieosiągalny (${opisBledu(e)}). Zaloguj się, gdy wróci połączenie.`, `The server is unreachable (${opisBledu(e)}). Sign in when the connection is back.`),
     };
   }
 }

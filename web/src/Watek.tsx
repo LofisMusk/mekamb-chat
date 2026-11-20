@@ -12,6 +12,7 @@ import type { Wiadomosc, ZapisRozmowy } from "./lib/historia";
 import type { Messenger } from "./lib/messenger";
 import { opisStanu } from "./lib/potwierdzenia";
 import { ulozWatek } from "./lib/watek";
+import { t } from "./lib/jezyk";
 
 /**
  * Pełna data i godzina — do `title` dymka.
@@ -161,7 +162,7 @@ export function Watek({
           variant="ghost"
           size="icon"
           className="md:hidden"
-          aria-label="Wróć do listy rozmów"
+          aria-label={t("Wróć do listy rozmów", "Back to conversation list")}
           onClick={() => history.back()}
         >
           <Ikona nazwa="wstecz" rozmiar={20} />
@@ -173,7 +174,7 @@ export function Watek({
           type="button"
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-md py-1 pr-2 text-left"
           onClick={() => setSzczegolyOtwarte((o) => !o)}
-          aria-label={`${rozmowca} — szczegóły rozmowy`}
+          aria-label={t(`${rozmowca} — szczegóły rozmowy`, `${rozmowca} — conversation details`)}
         >
           <Awatar nazwa={rozmowca} rozmiar="md" />
           <span className="flex min-w-0 flex-col">
@@ -182,31 +183,31 @@ export function Watek({
         </button>
 
         <div className="flex shrink-0 items-center">
-          <Podpowiedz tresc="Zadzwoń">
+          <Podpowiedz tresc={t("Zadzwoń", "Call")}>
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Zadzwoń"
+              aria-label={t("Zadzwoń", "Call")}
               onClick={() => setZadanieRozmowy({ wideo: false, n: Date.now() })}
             >
               <Ikona nazwa="sluchawka" rozmiar={19} />
             </Button>
           </Podpowiedz>
-          <Podpowiedz tresc="Rozmowa z obrazem">
+          <Podpowiedz tresc={t("Rozmowa z obrazem", "Video call")}>
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Rozmowa z obrazem"
+              aria-label={t("Rozmowa z obrazem", "Video call")}
               onClick={() => setZadanieRozmowy({ wideo: true, n: Date.now() })}
             >
               <Ikona nazwa="kamera" rozmiar={19} />
             </Button>
           </Podpowiedz>
-          <Podpowiedz tresc="Uczestnicy i kod bezpieczeństwa">
+          <Podpowiedz tresc={t("Uczestnicy i kod bezpieczeństwa", "Participants and safety number")}>
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Uczestnicy i kod bezpieczeństwa"
+              aria-label={t("Uczestnicy i kod bezpieczeństwa", "Participants and safety number")}
               aria-pressed={szczegolyOtwarte}
               className="aria-pressed:bg-wglebienie"
               onClick={() => setSzczegolyOtwarte((o) => !o)}
@@ -233,7 +234,7 @@ export function Watek({
         {/* W `<ol>` wolno stać tylko elementom `<li>` — pusty stan też. */}
         {uklad.length === 0 && (
           <li className="pusto-watku">
-            <Pusto ikona="rozmowy" tytul="Tu jeszcze nic nie ma" wskazowka="Napisz pierwszy." />
+            <Pusto ikona="rozmowy" tytul={t("Tu jeszcze nic nie ma", "Nothing here yet")} wskazowka={t("Napisz pierwszy.", "Write the first message.")} />
           </li>
         )}
 
@@ -293,8 +294,8 @@ export function Watek({
               rows={1}
               value={tresc}
               onChange={(e) => setTresc(e.target.value)}
-              placeholder="Napisz wiadomość"
-              aria-label="Treść wiadomości"
+              placeholder={t("Napisz wiadomość", "Write a message")}
+              aria-label={t("Treść wiadomości", "Message text")}
               className="max-h-32 min-h-0 w-full flex-1 resize-none bg-transparent py-[9px] text-tresc leading-[1.4] text-tekst outline-none placeholder:text-tekst-trzeci"
               onPaste={(e) => {
                 /*
@@ -335,7 +336,7 @@ export function Watek({
           <button
             type="submit"
             disabled={!tresc.trim()}
-            aria-label="Wyślij"
+            aria-label={t("Wyślij", "Send")}
             className="relative mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-glowny text-glowny-tekst transition-[background-color,color] duration-150 after:absolute after:-inset-1 after:content-[''] hover:bg-glowny/88 disabled:cursor-default disabled:bg-wglebienie disabled:text-tekst-trzeci"
           >
             <Ikona nazwa="wyslij" rozmiar={18} />
@@ -345,7 +346,7 @@ export function Watek({
         {/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */}
         <p className="mt-1.5 flex items-center justify-center gap-1.5 text-center text-podpis text-tekst-trzeci md:justify-start md:pl-12">
           <Ikona nazwa="tarcza" rozmiar={12} />
-          Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia przed wysłaniem.
+          {t("Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia przed wysłaniem.", "We remove location and device data from photos and videos before sending.")}
         </p>
       </div>
     </div>
@@ -370,10 +371,10 @@ function ZdarzenieRozmowy({ wiadomosc, rozmowa }: { wiadomosc: Wiadomosc; rozmow
   // Nieodebrana wychodząca to „nikt nie odebrał", przychodząca — „nie odebrałeś".
   // To dwie różne rzeczy i tylko druga jest czymś, co się przegapiło.
   const opis = odbyta
-    ? `${rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa"} · ${trwanieRozmowy(rozmowa.sekundy ?? 0)}`
+    ? t(`${rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa"} · ${trwanieRozmowy(rozmowa.sekundy ?? 0)}`, `${rozmowa.wideo ? "Video call" : "Voice call"} · ${trwanieRozmowy(rozmowa.sekundy ?? 0)}`)
     : rozmowa.wychodzaca
-      ? "Nikt nie odebrał"
-      : `Nieodebrana rozmowa ${rozmowa.wideo ? "wideo" : "głosowa"}`;
+      ? t("Nikt nie odebrał", "Nobody answered")
+      : t(`Nieodebrana rozmowa ${rozmowa.wideo ? "wideo" : "głosowa"}`, `Missed ${rozmowa.wideo ? "video" : "voice"} call`);
 
   return (
     <li className={odbyta ? "zdarzenie" : "zdarzenie nieodebrane"}>
@@ -488,8 +489,8 @@ async function wyslijPlik(
   // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie metadanych,
   // szyfrowanie i wysyłka. Bez znacznika wygląda to jak zawieszenie.
   const id = crypto.randomUUID();
-  const nazwa = plik.name || "zdjęcie";
-  setWLocie((p) => [...p, { id, tresc: `wysyłam: ${nazwa}`, czas: Date.now(), blad: false }]);
+  const nazwa = plik.name || t("zdjęcie", "photo");
+  setWLocie((p) => [...p, { id, tresc: t(`wysyłam: ${nazwa}`, `sending: ${nazwa}`), czas: Date.now(), blad: false }]);
 
   try {
     const { stripped, messageId, zalacznik } = await messenger.sendFile(groupId, plik);
@@ -507,7 +508,7 @@ async function wyslijPlik(
       {
         id: messageId,
         autor: "Ty",
-        tresc: stripped ? "" : "nie udało się usunąć metadanych z tego pliku",
+        tresc: stripped ? "" : t("nie udało się usunąć metadanych z tego pliku", "couldn't strip metadata from this file"),
         czas: Date.now(),
         wlasna: true,
         zalacznik,
@@ -558,7 +559,7 @@ function DolaczPlik({
   onBlad: (e: unknown) => void;
 }) {
   return (
-    <Podpowiedz tresc="Dołącz zdjęcie lub wideo" strona="top">
+    <Podpowiedz tresc={t("Dołącz zdjęcie lub wideo", "Attach a photo or video")} strona="top">
       <label className="relative mb-0.5 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full text-tekst-drugi transition-colors duration-150 after:absolute after:-inset-1 after:content-[''] hover:bg-wglebienie hover:text-tekst has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-pierscien">
         <input
           type="file"
@@ -573,7 +574,7 @@ function DolaczPlik({
           }}
         />
         <Ikona nazwa="spinacz" rozmiar={20} />
-        <span className="tylko-dla-czytnika">Dołącz zdjęcie lub wideo</span>
+        <span className="tylko-dla-czytnika">{t("Dołącz zdjęcie lub wideo", "Attach a photo or video")}</span>
       </label>
     </Podpowiedz>
   );

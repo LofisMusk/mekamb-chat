@@ -1,4 +1,5 @@
 import type { Wiadomosc } from "./historia";
+import { t } from "./jezyk";
 
 /**
  * Układ wątku: rozdzielacze czasu i sklejanie wiadomości w bloki.
@@ -74,8 +75,8 @@ export function etykietaDnia(czas: number, teraz: number): string {
   const wczoraj = dzien(teraz - 24 * 60 * 60 * 1000);
   const kiedy = dzien(czas);
 
-  if (kiedy === dzis) return "Dziś";
-  if (kiedy === wczoraj) return "Wczoraj";
+  if (kiedy === dzis) return t("Dziś", "Today");
+  if (kiedy === wczoraj) return t("Wczoraj", "Yesterday");
 
   const format = new Date(czas).getFullYear() === new Date(teraz).getFullYear() ? DATA : DATA_Z_ROKIEM;
   return format.format(new Date(czas));

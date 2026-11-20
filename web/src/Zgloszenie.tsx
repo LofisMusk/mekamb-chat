@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Ikona } from "./Ikony";
 import { api } from "./lib/api";
+import { t } from "./lib/jezyk";
 
 /**
  * Zgłoszenie błędu — z konta prosto do issues na GitHubie.
@@ -80,7 +81,7 @@ export function ZglosBlad({ token }: { token: string }) {
 
       setWynik({
         udane: true,
-        tekst: numer ? `Wysłane — zgłoszenie nr ${numer}. Dziękujemy.` : "Wysłane. Dziękujemy.",
+        tekst: numer ? t(`Wysłane — zgłoszenie nr ${numer}. Dziękujemy.`, `Sent — report no. ${numer}. Thank you.`) : t("Wysłane. Dziękujemy.", "Sent. Thank you."),
       });
       setOpis("");
     } catch (err) {
@@ -88,7 +89,7 @@ export function ZglosBlad({ token }: { token: string }) {
       // opisu od nowa jest karą za cudzą usterkę.
       setWynik({
         udane: false,
-        tekst: err instanceof Error ? err.message : "Nie udało się wysłać.",
+        tekst: err instanceof Error ? err.message : t("Nie udało się wysłać.", "Couldn't send."),
       });
     } finally {
       setWysylam(false);
@@ -98,11 +99,11 @@ export function ZglosBlad({ token }: { token: string }) {
   if (!otwarte) {
     return (
       <div className="karta">
-        <strong>Coś nie działa?</strong>
-        <p className="wskazowka">Napisz nam o tym — poprawimy.</p>
+        <strong>{t("Coś nie działa?", "Something not working?")}</strong>
+        <p className="wskazowka">{t("Napisz nam o tym — poprawimy.", "Tell us about it — we'll fix it.")}</p>
         <button onClick={() => setOtwarte(true)}>
           <Ikona nazwa="ostrzezenie" rozmiar={16} />
-          Zgłoś błąd
+          {t("Zgłoś błąd", "Report a bug")}
         </button>
       </div>
     );
@@ -116,29 +117,27 @@ export function ZglosBlad({ token }: { token: string }) {
         void wyslij();
       }}
     >
-      <strong>Zgłoś błąd</strong>
+      <strong>{t("Zgłoś błąd", "Report a bug")}</strong>
 
       {/* Przed polem, nie po nim — patrz komentarz na górze pliku. */}
       <p className="wskazowka-ikona">
         <Ikona nazwa="info" rozmiar={14} />
-        Zgłoszenie trafia na publiczną stronę projektu, gdzie każdy może je
-        przeczytać. Nie wysyłamy Twojej nazwy ani niczego z rozmów — ale nie
-        wpisuj tu rzeczy, których nie chcesz pokazać.
+        {t("Zgłoszenie trafia na publiczną stronę projektu, gdzie każdy może je przeczytać. Nie wysyłamy Twojej nazwy ani niczego z rozmów — ale nie wpisuj tu rzeczy, których nie chcesz pokazać.", "Reports go to the project's public page, where anyone can read them. We don't send your name or anything from your conversations — but don't write anything here you don't want to show.")}
       </p>
 
       <label>
-        Co się stało?
+        {t("Co się stało?", "What happened?")}
         <textarea
           rows={4}
           value={opis}
           onChange={(e) => setOpis(e.target.value)}
-          placeholder="Np. aplikacja gaśnie, kiedy odbieram połączenie."
+          placeholder={t("Np. aplikacja gaśnie, kiedy odbieram połączenie.", "E.g. the app closes when I answer a call.")}
           required
         />
       </label>
 
       <label>
-        Urządzenie i przeglądarka
+        {t("Urządzenie i przeglądarka", "Device and browser")}
         <input value={kontekst} onChange={(e) => setKontekst(e.target.value)} />
       </label>
 
@@ -149,7 +148,7 @@ export function ZglosBlad({ token }: { token: string }) {
       <div className="rzad-przyciskow">
         <button className="glowny" disabled={!opis.trim() || wysylam}>
           <Ikona nazwa="wyslij" rozmiar={16} />
-          {wysylam ? "Wysyłam…" : "Wyślij"}
+          {wysylam ? t("Wysyłam…", "Sending…") : t("Wyślij", "Send")}
         </button>
         <button
           type="button"
@@ -158,7 +157,7 @@ export function ZglosBlad({ token }: { token: string }) {
             setWynik(null);
           }}
         >
-          Anuluj
+          {t("Anuluj", "Cancel")}
         </button>
       </div>
     </form>

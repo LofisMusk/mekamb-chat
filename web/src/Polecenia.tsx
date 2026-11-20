@@ -8,6 +8,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "cmdk";
+import { t } from "./lib/jezyk";
 
 interface RozmowaOption {
   id: string;
@@ -40,12 +41,12 @@ export function Polecenia({
   return (
     <CommandDialog open={otwarte} onOpenChange={(o: boolean) => !o && onZamknij()}>
       <CommandInput
-        placeholder="Szukaj rozmów..."
+        placeholder={t("Szukaj rozmów...", "Search conversations...")}
         value={query}
         onValueChange={setQuery}
       />
       <CommandList>
-        <CommandEmpty>Brak wyników.</CommandEmpty>
+        <CommandEmpty>{t("Brak wyników.", "No results.")}</CommandEmpty>
 
         {filtrowaneRozmowy.length > 0 && (
           <>
@@ -69,7 +70,7 @@ export function Polecenia({
 
         <CommandGroup heading="Nawigacja">
           <CommandItem onSelect={() => onZamknij()}>
-            Wróć do rozmów
+            {t("Wróć do rozmów", "Back to conversations")}
           </CommandItem>
         </CommandGroup>
       </CommandList>

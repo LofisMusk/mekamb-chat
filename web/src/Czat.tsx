@@ -1,34 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Ikona, type NazwaIkony } from "./Ikony";
+import { NowaGrupa, NowyCzat, PanelListy } from "./ListaRozmow";
+import { Polecenia } from "./Polecenia";
 import { Rozmowa, type SygnalRozmowy, type ZadanieRozmowy } from "./Rozmowa";
 import { Uczestnicy } from "./Uczestnicy";
-import { Zalacznik } from "./Zalacznik";
-import { Pusto, WyborMotywuUI, ZnakMarki } from "./Wspolne";
-import { Urzadzenia } from "./Parowanie";
-import { ZglosBlad } from "./Zgloszenie";
+import { Ustawienia } from "./Ustawienia";
+import { Watek } from "./Watek";
+import { Pusto, ZnakMarki, Znacznik } from "./Wspolne";
+import { Arkusz } from "./components/ui/arkusz";
+import { Button } from "./components/ui/button";
+import { cn } from "./components/ui/cn";
 import { api } from "./lib/api";
-import {
-  logout,
-  totpChangeConfirm,
-  totpChangeOptions,
-  totpChangeStartKodem,
-  totpChangeStartPasskeyem,
-  webauthnRegisterOptions,
-  webauthnRegisterVerify,
-} from "./lib/auth";
-import { KodQr } from "./KodQr";
 import {
   type PozycjaListy,
   type Wiadomosc,
-  type WynikScalania,
-  type ZapisRozmowy,
   dopiszWiadomosc,
   kluczRozmowy,
   listaRozmow,
   oznaczPrzeczytane,
   przytnijZnikajace,
-  scalHistorie,
   usunRozmowe,
   wczytajRozmowe,
   zapewnijRozmowe,
@@ -58,6 +49,7 @@ import {
   zainicjuj as zainicjujProsby,
   zapomnij as zapomnijProsbe,
 } from "./lib/prosby";
+import { t } from "./lib/jezyk";
 import { type LicznikProb, poNiepowodzeniu, poSukcesie } from "./lib/koperty";
 import { filtrujRozmowy } from "./lib/lista";
 import { type Messenger, type ReceivedMessage, idWiadomosci } from "./lib/messenger";
@@ -65,68 +57,15 @@ import {
   type StanWiadomosci,
   Zbieracz,
   losoweOpoznienie,
-  opisStanu,
   stanZPotwierdzenia,
   wyzszyStan,
 } from "./lib/potwierdzenia";
 import { odczytWlaczony, ustawOdczyt } from "./lib/ustawienia";
 import { useWstecz } from "./lib/nawigacja";
-import { createPasskey, getPasskey, isPasskeySupported } from "./lib/passkey";
 import { polaczZeSkrzynka } from "./lib/polaczenie";
 import { nazwaRozmowy, znajdzRozmowe1na1 } from "./lib/rozmowy";
-import { Polecenia } from "./Polecenia";
-import { isPersistent, loadHistory, wipe } from "./lib/vault";
-import { ulozWatek } from "./lib/watek";
-import { exportBackup, importBackup } from "./wasm/mekamb_wasm";
-
-/**
- * Godzina wiadomości — bez daty.
- *
- * Dzień rozdziela osobna etykieta w wątku; w dymku liczy się „o której",
- * a data powtarzana przy każdej wiadomości jest szumem.
- */
-const GODZINA = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-
-function godzina(czas: number): string {
-  return GODZINA.format(new Date(czas));
-}
-
-/**
- * Pełna data i godzina — do `title` dymka.
- *
- * Rozdzielacz mówi, kiedy zaczął się kawałek rozmowy; to mówi, kiedy padło
- * TO zdanie. Nie zajmuje ani jednego piksela, dopóki ktoś nie zapyta.
- */
-const PELNA_GODZINA = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-function pelnaGodzina(czas: number): string {
-  return PELNA_GODZINA.format(new Date(czas));
-}
-
-/**
- * Jak wiadomość brzmi na liście rozmów.
- *
- * Załącznik nie ma treści do zacytowania, a od kiedy własne zdjęcie jest
- * zdjęciem (a nie napisem „wysłano: kot.jpg"), wiersz listy zostawał pusty.
- * Rodzaj pliku mówi tyle, ile da się powiedzieć jednym słowem — nazwy pliku
- * świadomie nie pokazujemy, bo bywa nią data i model aparatu.
- */
-function zapowiedz(w: Wiadomosc): string {
-  if (w.rozmowa) {
-    if (w.rozmowa.sekundy === undefined) return "Nieodebrana rozmowa";
-    return w.rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa";
-  }
-
-  if (w.tresc) return w.tresc;
-  if (!w.zalacznik) return "";
-
-  if (w.zalacznik.mimeType.startsWith("image/")) return "Zdjęcie";
-  if (w.zalacznik.mimeType.startsWith("video/")) return "Nagranie";
-  return "Plik";
-}
+import { KOLUMNA_SZCZEGOLOW, useSzerokosc } from "./lib/szerokosc";
+import { isPersistent } from "./lib/vault";
 
 type Galaz = "rozmowy" | "konto";
 
@@ -156,6 +95,11 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
   const [galaz, setGalaz] = useState<Galaz>("rozmowy");
   const [rozmowy, setRozmowy] = useState<PozycjaListy[]>([]);
    const [poleceniaOtwarte, setPoleceniaOtwarte] = useState(false);
+  const [nowyCzat, setNowyCzat] = useState(false);
+  const [nowaGrupa, setNowaGrupa] = useState(false);
+  // Szczegóły jako kolumna tylko tam, gdzie zmieszczą się obok wątku;
+  // węższe okno dostaje je w arkuszu.
+  const szczegolyWKolumnie = useSzerokosc(KOLUMNA_SZCZEGOLOW);
 
    useEffect(() => {
      function skrot(e: KeyboardEvent) {
@@ -322,7 +266,7 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
       const etykieta = etykietaGrupy(pozycja.groupId);
       if (etykieta) return etykieta;
       // Grupa bez stanu MLS: zostaje surowa nazwa zapisana na dysku.
-      return pozycja.rozmowca || "rozmowa bez nazwy";
+      return pozycja.rozmowca || t("rozmowa bez nazwy", "unnamed conversation");
     },
     [etykietaGrupy],
   );
@@ -1345,8 +1289,15 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
     />
   );
 
+  const nazwaOtwartej = groupId ? etykietaGrupy(groupId) || rozmowca : "";
+
   return (
-    <div className={groupId && galaz === "rozmowy" ? "uklad rozmowa-otwarta" : "uklad"}>
+    <div
+      className="uklad"
+      data-galaz={galaz}
+      data-watek={groupId && galaz === "rozmowy" ? "otwarty" : undefined}
+      data-szczegoly={groupId && galaz === "rozmowy" && szczegolyWKolumnie && inspektorOtwarty ? "kolumna" : undefined}
+    >
       {/*
         Ekran rozmowy A/V zostaje PIERWSZYM dzieckiem tego samego korzenia,
         także w trakcie rozmowy. Wcześniej trwająca rozmowa zwracała osobny
@@ -1368,9 +1319,9 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
           ostatnia: p.ostatnia?.tresc || "",
         }))}
         onSelectRozmowe={(id) => {
-          // Find the conversation by key and open it
           const pozycja = rozmowy.find((p) => kluczRozmowy(p.groupId) === id);
           if (pozycja) {
+            setGalaz("rozmowy");
             otworzRozmowe(pozycja.groupId);
             setRozmowca(nazwaPozycji(pozycja));
           }
@@ -1381,140 +1332,183 @@ export function Czat({ messenger, onBlad }: { messenger: Messenger; onBlad: (e: 
 
       {!rozmowaNaEkranie && (
         <>
-          <Nawigacja
-            galaz={galaz}
-            onGalaz={setGalaz}
-            nieprzeczytane={nieprzeczytane}
-          />
+          <Szyna galaz={galaz} onGalaz={setGalaz} nieprzeczytane={nieprzeczytane} />
 
           {galaz === "rozmowy" && (
-        <PanelListy
-          rozmowy={widoczne}
-          prosby={prosby}
-          wszystkich={zaakceptowaneRozmowy.length}
-          szukane={szukane}
-          onSzukane={setSzukane}
-          nazwaPozycji={nazwaPozycji}
-          otwarta={groupId}
-          onNowyCzat={rozpocznijZ}
-          onNowaGrupa={utworzGrupe}
-          kontakty={kontakty}
-          nick={nick}
-          onPrzyjmij={przyjmijProsbe}
-          onOdrzuc={odrzucProsbe}
-          onOtworz={(pozycja) => {
-            otworzRozmowe(pozycja.groupId);
-            setRozmowca(nazwaPozycji(pozycja));
-          }}
-          onUsun={(pozycja) => {
-            // Usunięcie z listy zamyka też wątek, jeśli akurat jest otwarty —
-            // inaczej ekran zostałby przy rozmowie, której nie ma już na dysku.
-            if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
-              otworzRozmowe(null);
-            }
-            void zapomnijZnikanie(pozycja.groupId).then((z) => setZnikanie({ ...z }));
-            void zapomnijProsbe(pozycja.groupId)
-              .then(() => usunRozmowe(pozycja.groupId))
-              .then(() => listaRozmow())
-              .then(setRozmowy)
-              .catch((err) => onBlad(err));
-          }}
-        />
-      )}
+            <PanelListy
+              rozmowy={widoczne}
+              prosby={prosby}
+              wszystkich={zaakceptowaneRozmowy.length}
+              szukane={szukane}
+              onSzukane={setSzukane}
+              nazwaPozycji={nazwaPozycji}
+              otwarta={groupId}
+              onNowyCzat={() => setNowyCzat(true)}
+              onNowaGrupa={() => setNowaGrupa(true)}
+              onPrzyjmij={przyjmijProsbe}
+              onOdrzuc={odrzucProsbe}
+              onOtworz={(pozycja) => {
+                otworzRozmowe(pozycja.groupId);
+                setRozmowca(nazwaPozycji(pozycja));
+              }}
+              onUsun={(pozycja) => {
+                // Usunięcie z listy zamyka też wątek, jeśli akurat jest otwarty —
+                // inaczej ekran zostałby przy rozmowie, której nie ma już na dysku.
+                if (groupId && kluczRozmowy(groupId) === kluczRozmowy(pozycja.groupId)) {
+                  otworzRozmowe(null);
+                }
+                void zapomnijZnikanie(pozycja.groupId).then((z) => setZnikanie({ ...z }));
+                void zapomnijProsbe(pozycja.groupId)
+                  .then(() => usunRozmowe(pozycja.groupId))
+                  .then(() => listaRozmow())
+                  .then(setRozmowy)
+                  .catch((err) => onBlad(err));
+              }}
+            />
+          )}
 
-      <section className="ekran">
-        {galaz === "rozmowy" && !groupId && (
-          <Pusto
-            ikona="rozmowy"
-            tytul="Wybierz rozmowę"
-            wskazowka="Albo zacznij nową — „Nowy czat” wymaga tylko nazwy użytkownika."
-          />
-        )}
+          <main className="ekran">
+            {galaz === "rozmowy" && !groupId && (
+              <Pusto
+                ikona="rozmowy"
+                tytul={t("Wybierz rozmowę", "Pick a conversation")}
+                wskazowka={t(
+                  "Albo zacznij nową — „Nowy czat” wymaga tylko nazwy użytkownika.",
+                  "Or start a new one — “New chat” only needs a username.",
+                )}
+                className="flex-1"
+              />
+            )}
 
-        {galaz === "rozmowy" && groupId && (
-          <Watek
-            messenger={messenger}
-            groupId={groupId}
-            rozmowca={etykietaGrupy(groupId) || rozmowca}
-            nick={nick}
-            wiadomosci={wiadomosci}
-            wLocie={wLocie}
-            setWiadomosci={setWiadomosci}
-            setWLocie={setWLocie}
-            tresc={tresc}
-            setTresc={setTresc}
-            // Dzwonimy z otwartego wątku, więc rozmowa toczy się w JEGO grupie.
-            // Bez tego ekran rozmowy zostałby przy grupie z poprzedniego
-            // połączenia przychodzącego.
-            setZadanieRozmowy={(z) => {
-              setGrupaRozmowy(groupId);
-              setZadanieRozmowy(z);
-            }}
-            inspektorOtwarty={inspektorOtwarty}
-            setInspektorOtwarty={setInspektorOtwarty}
-            onBlad={onBlad}
-          />
-        )}
+            {galaz === "rozmowy" && groupId && (
+              <Watek
+                messenger={messenger}
+                groupId={groupId}
+                rozmowca={nazwaOtwartej}
+                nick={nick}
+                wiadomosci={wiadomosci}
+                wLocie={wLocie}
+                setWiadomosci={setWiadomosci}
+                setWLocie={setWLocie}
+                tresc={tresc}
+                setTresc={setTresc}
+                // Dzwonimy z otwartego wątku, więc rozmowa toczy się w JEGO grupie.
+                // Bez tego ekran rozmowy zostałby przy grupie z poprzedniego
+                // połączenia przychodzącego.
+                setZadanieRozmowy={(z) => {
+                  setGrupaRozmowy(groupId);
+                  setZadanieRozmowy(z);
+                }}
+                szczegolyOtwarte={inspektorOtwarty}
+                setSzczegolyOtwarte={setInspektorOtwarty}
+                onBlad={onBlad}
+              />
+            )}
 
-        {galaz === "konto" && (
-          <Konto
-            messenger={messenger}
-            trwaly={trwaly}
-            odczyt={odczyt}
-            mojNick={mojNick}
-            onNick={zmienMojNick}
-            zablokowani={zablokowani}
-            nick={nick}
-            onOdblokuj={(username) => void odblokuj(username)}
-            onOdczyt={(wlaczony) => {
-              ustawOdczyt(wlaczony);
-              setOdczyt(wlaczony);
-            }}
-            onBlad={onBlad}
-          />
-        )}
-      </section>
+            {galaz === "konto" && (
+              <Ustawienia
+                messenger={messenger}
+                trwaly={trwaly}
+                odczyt={odczyt}
+                mojNick={mojNick}
+                onNick={zmienMojNick}
+                zablokowani={zablokowani}
+                nick={nick}
+                onOdblokuj={(username) => void odblokuj(username)}
+                onOdczyt={(wlaczony) => {
+                  ustawOdczyt(wlaczony);
+                  setOdczyt(wlaczony);
+                }}
+                onBlad={onBlad}
+              />
+            )}
+          </main>
 
-      {galaz === "rozmowy" && groupId && (
-        <aside
-          className={inspektorOtwarty ? "inspektor otwarty" : "inspektor"}
-          aria-label="Uczestnicy i kod bezpieczeństwa"
-        >
-          <div className="pasek-ekranu">
-            <h2>Rozmowa</h2>
-            <button
-              className="ikonowy"
-              aria-label="Zamknij panel"
-              onClick={() => setInspektorOtwarty(false)}
+          {/*
+            Szczegóły rozmowy: na szerokim ekranie stała kolumna, na węższym
+            arkusz — ten sam komponent, inna oprawa. Kolumna wisi na atrybucie
+            `data-szczegoly` korzenia, żeby siatka wiedziała, że ma czwartą.
+          */}
+          {galaz === "rozmowy" && groupId && szczegolyWKolumnie && inspektorOtwarty && (
+            <aside className="szczegoly" aria-label={t("Szczegóły rozmowy", "Conversation details")}>
+              <div className="flex h-14 shrink-0 items-center justify-between border-b border-linia px-4">
+                <h2 className="text-tresc font-semibold tracking-[-0.01em]">{t("Rozmowa", "Conversation")}</h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("Zamknij panel", "Close panel")}
+                  onClick={() => setInspektorOtwarty(false)}
+                >
+                  <Ikona nazwa="zamknij" rozmiar={16} />
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">{szczegoly(groupId)}</div>
+            </aside>
+          )}
+
+          {galaz === "rozmowy" && groupId && !szczegolyWKolumnie && (
+            <Arkusz
+              otwarty={inspektorOtwarty}
+              onZmiana={setInspektorOtwarty}
+              tytul={nazwaOtwartej || t("Rozmowa", "Conversation")}
             >
-              <Ikona nazwa="zamknij" rozmiar={16} />
-            </button>
-          </div>
+              {szczegoly(groupId)}
+            </Arkusz>
+          )}
 
-          <Uczestnicy
-            messenger={messenger}
-            groupId={groupId}
-            nazwaGrupy={nazwyGrup[kluczRozmowy(groupId)] ?? ""}
-            onZmienNazweGrupy={(nazwa) => void zmienNazweGrupy(groupId, nazwa)}
-            nick={nick}
-            zablokowani={zablokowani}
-            onZablokuj={(username) => void zablokuj(username)}
-            onOdblokuj={(username) => void odblokuj(username)}
-            onDodajOsobe={(username) => dodajOsobe(groupId, username)}
-            onOpuscGrupe={() => void opuscGrupe(groupId)}
-            znikanieSekundy={znikanie[kluczRozmowy(groupId)] ?? null}
-            onZnikanie={(sekundy) => void zmienZnikanie(groupId, sekundy)}
+          <NowyCzat
+            otwarty={nowyCzat}
+            onZmiana={setNowyCzat}
+            onZacznij={(nazwa) => {
+              setNowyCzat(false);
+              void rozpocznijZ(nazwa);
+            }}
           />
-        </aside>
-      )}
+          <NowaGrupa
+            otwarty={nowaGrupa}
+            onZmiana={setNowaGrupa}
+            kontakty={kontakty}
+            nick={nick}
+            onUtworz={(osoby, nazwa) => {
+              setNowaGrupa(false);
+              void utworzGrupe(osoby, nazwa);
+            }}
+          />
         </>
       )}
     </div>
   );
+
+  /** Skład, nazwa grupy, blokady, znikanie i kod bezpieczeństwa otwartej rozmowy. */
+  function szczegoly(id: Uint8Array) {
+    return (
+      <Uczestnicy
+        messenger={messenger}
+        groupId={id}
+        nazwaGrupy={nazwyGrup[kluczRozmowy(id)] ?? ""}
+        onZmienNazweGrupy={(nazwa) => void zmienNazweGrupy(id, nazwa)}
+        nick={nick}
+        zablokowani={zablokowani}
+        onZablokuj={(username) => void zablokuj(username)}
+        onOdblokuj={(username) => void odblokuj(username)}
+        onDodajOsobe={(username) => dodajOsobe(id, username)}
+        onOpuscGrupe={() => void opuscGrupe(id)}
+        znikanieSekundy={znikanie[kluczRozmowy(id)] ?? null}
+        onZnikanie={(sekundy) => void zmienZnikanie(id, sekundy)}
+      />
+    );
+  }
 }
 
-/** Panel boczny — na wąskim ekranie ten sam kod ląduje na dole. */
-function Nawigacja({
+/**
+ * Szyna nawigacji: znak, Rozmowy, Ustawienia. Motyw i język są w ustawieniach —
+ * segment trzech przycisków nie mieści się w kolumnie szerokości ikony.
+ *
+ * Na desktopie wąska kolumna z ikonami; na telefonie arkusz stylów przenosi ją
+ * na dół jako pasek pod kciukiem. Aktywna gałąź to `tekst` na `wglebienie`,
+ * nieaktywna `tekst-drugi` — bez kolorowej pigułki, kolor jest dla stanów.
+ */
+function Szyna({
   galaz,
   onGalaz,
   nieprzeczytane,
@@ -1524,1808 +1518,35 @@ function Nawigacja({
   nieprzeczytane: number;
 }) {
   const galezie: { klucz: Galaz; ikona: NazwaIkony; etykieta: string }[] = [
-    { klucz: "rozmowy", ikona: "rozmowy", etykieta: "Rozmowy" },
-    { klucz: "konto", ikona: "konto", etykieta: "Konto" },
+    { klucz: "rozmowy", ikona: "rozmowy", etykieta: t("Rozmowy", "Chats") },
+    { klucz: "konto", ikona: "suwaki", etykieta: t("Ustawienia", "Settings") },
   ];
 
-
   return (
-    <nav className="sidebar" aria-label="Nawigacja">
-      <div className="marka">
-        <ZnakMarki />
-        <span>mekamb</span>
-      </div>
-
-      {galezie.map((g) => (
-        <button
-          key={g.klucz}
-          className={galaz === g.klucz ? "galaz aktywna" : "galaz"}
-          aria-current={galaz === g.klucz ? "page" : undefined}
-          onClick={() => onGalaz(g.klucz)}
-        >
-          <Ikona nazwa={g.ikona} rozmiar={18} />
-          {g.etykieta}
-          {g.klucz === "rozmowy" && nieprzeczytane > 0 && (
-            <span className="znacznik">{nieprzeczytane}</span>
-          )}
-        </button>
-      ))}
-
-      <div className="stopka-sidebara">
-        <WyborMotywuUI />
-      </div>
-    </nav>
-  );
-}
-
-function PanelListy({
-  rozmowy,
-  prosby,
-  wszystkich,
-  szukane,
-  onSzukane,
-  nazwaPozycji,
-  otwarta,
-  onNowyCzat,
-  onNowaGrupa,
-  kontakty,
-  nick,
-  onPrzyjmij,
-  onOdrzuc,
-  onOtworz,
-  onUsun,
-}: {
-  rozmowy: PozycjaListy[];
-  prosby: PozycjaListy[];
-  wszystkich: number;
-  szukane: string;
-  onSzukane: (s: string) => void;
-  nazwaPozycji: (p: PozycjaListy) => string;
-  otwarta: Uint8Array | null;
-  onNowyCzat: (nazwa: string) => void;
-  onNowaGrupa: (osoby: string[], nazwa: string) => void;
-  kontakty: string[];
-  nick: (username: string) => string;
-  onPrzyjmij: (p: PozycjaListy) => void;
-  onOdrzuc: (p: PozycjaListy) => void;
-  onOtworz: (p: PozycjaListy) => void;
-  onUsun: (p: PozycjaListy) => void;
-}) {
-  const kluczOtwartej = otwarta ? kluczRozmowy(otwarta) : null;
-
-  // Rozmowa czekająca na potwierdzenie usunięcia — jedno pytanie dla wszystkich
-  // dróg (gest, przycisk spod wiersza, kebab). Usuwamy dopiero po „Usuń".
-  const [doUsuniecia, setDoUsuniecia] = useState<PozycjaListy | null>(null);
-  // Który wiersz ma otwarte menu kebaba (po kluczu). Naraz najwyżej jeden.
-  const [menuKlucz, setMenuKlucz] = useState<string | null>(null);
-
-  // Który sposób rozpoczęcia rozmowy jest otwarty: pole „Nowy czat”, okno
-  // „Nowa grupa", albo żaden.
-  const [zaczyn, setZaczyn] = useState<"czat" | "grupa" | null>(null);
-  const [nowaNazwa, setNowaNazwa] = useState("");
-
-  return (
-    <aside className="panel-listy" aria-label="Lista rozmów">
-      <div className="panel-listy-naglowek">
-        <h2>Rozmowy</h2>
-      </div>
-
-      {/*
-        Dwa wejścia zamiast zakładki Kontakty: „Nowy czat” (nazwa użytkownika →
-        rozmowa jeden na jeden) i „Nowa grupa" (wybór osób). To akcje, więc
-        zostają OBRYSOWANE — reguła Nocturne: akcent jest linią, nie plamą.
-      */}
-      <div className="zaczyn-rozmowy">
-        {zaczyn === "czat" ? (
-          <form
-            className="nowy-czat"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (nowaNazwa.trim()) {
-                onNowyCzat(nowaNazwa.trim());
-                setNowaNazwa("");
-                setZaczyn(null);
-              }
-            }}
-          >
-            <input
-              autoFocus
-              value={nowaNazwa}
-              onChange={(e) => setNowaNazwa(e.target.value)}
-              placeholder="Nazwa użytkownika"
-              aria-label="Nazwa użytkownika, z którym zacząć rozmowę"
-            />
-            <button className="ikonowy glowny" disabled={!nowaNazwa.trim()} aria-label="Zacznij">
-              <Ikona nazwa="wyslij" rozmiar={16} />
-            </button>
-            <button
-              type="button"
-              className="ikonowy"
-              aria-label="Anuluj"
-              onClick={() => {
-                setNowaNazwa("");
-                setZaczyn(null);
-              }}
-            >
-              <Ikona nazwa="zamknij" rozmiar={16} />
-            </button>
-          </form>
-        ) : (
-          <button className="glowny" onClick={() => setZaczyn("czat")}>
-            <Ikona nazwa="dodaj" rozmiar={16} />
-            Nowy czat
-          </button>
-        )}
-
-        <button className="grupa-przycisk" onClick={() => setZaczyn("grupa")}>
-          <Ikona nazwa="osoby" rozmiar={16} />
-          Nowa grupa
-        </button>
-      </div>
-
-      {zaczyn === "grupa" && (
-        <NowaGrupa
-          kontakty={kontakty}
-          nick={nick}
-          onAnuluj={() => setZaczyn(null)}
-          onUtworz={(osoby, nazwa) => {
-            setZaczyn(null);
-            onNowaGrupa(osoby, nazwa);
-          }}
-        />
-      )}
-
-      {/* Prośby — nad rozmowami, zwijane, z licznikiem. Osobno, żeby nieproszona
-          rozmowa nigdy nie mieszała się z prawdziwymi. */}
-      {prosby.length > 0 && (
-        <Prosby prosby={prosby} nazwaPozycji={nazwaPozycji} onPrzyjmij={onPrzyjmij} onOdrzuc={onOdrzuc} />
-      )}
-
-      {/* Szukanie pojawia się dopiero, gdy jest w czym szukać — pole nad pustą
-          listą jest obietnicą bez pokrycia. */}
-      {wszystkich > 0 && (
-        <div className="szukanie">
-          <Ikona nazwa="szukaj" rozmiar={15} />
-          <input
-            type="search"
-            value={szukane}
-            onChange={(e) => onSzukane(e.target.value)}
-            placeholder="Szukaj"
-            aria-label="Szukaj rozmowy"
-          />
-        </div>
-      )}
-
-      {wszystkich === 0 ? (
-        prosby.length > 0 ? null : (
-          <Pusto
-            ikona="rozmowy"
-            tytul="Nie masz jeszcze żadnej rozmowy"
-            wskazowka="Zacznij od „Nowy czat” — wystarczy nazwa użytkownika."
-          />
-        )
-      ) : rozmowy.length === 0 ? (
-        <Pusto ikona="szukaj" tytul="Nic nie pasuje" wskazowka="Szukamy po nazwie i po ostatniej wiadomości." />
-      ) : (
-        <ul className="lista-rozmow">
-          {rozmowy.map((pozycja) => {
-            const klucz = kluczRozmowy(pozycja.groupId);
-
-            return (
-              <WierszRozmowy
-                key={klucz}
-                pozycja={pozycja}
-                nazwa={nazwaPozycji(pozycja)}
-                otwarta={klucz === kluczOtwartej}
-                menuOtwarte={klucz === menuKlucz}
-                onMenu={() => setMenuKlucz((biezacy) => (biezacy === klucz ? null : klucz))}
-                onOtworz={() => onOtworz(pozycja)}
-                // Każda droga usuwania prowadzi przez potwierdzenie, nie kasuje wprost.
-                onUsun={() => {
-                  setMenuKlucz(null);
-                  setDoUsuniecia(pozycja);
-                }}
-              />
-            );
-          })}
-        </ul>
-      )}
-
-      {doUsuniecia && (
-        <PotwierdzenieUsuniecia
-          nazwa={nazwaPozycji(doUsuniecia)}
-          onAnuluj={() => setDoUsuniecia(null)}
-          onUsun={() => {
-            const cel = doUsuniecia;
-            setDoUsuniecia(null);
-            onUsun(cel);
-          }}
-        />
-      )}
-
-    </aside>
-  );
-}
-
-/**
- * Wiersz listy rozmów z gestem „przeciągnij w lewo, żeby usunąć".
- *
- * # Dlaczego gest, a nie widoczny przycisk
- *
- * Kasowanie jest nieodwracalne (historia jest tylko tutaj), więc nie ma być
- * pod ręką na jedno dotknięcie obok „otwórz". Gest wymaga świadomego ruchu,
- * a przycisk „Usuń" spod spodu daje jeszcze chwilę na wycofanie się — puszczenie
- * palca przed progiem cofa wiersz na miejsce.
- *
- * Gest liczy się jako poziomy dopiero, gdy przesunięcie w bok wyraźnie wygrywa
- * z pionowym; inaczej każde przewinięcie listy kciukiem odsłaniałoby kosze.
- */
-function WierszRozmowy({
-  pozycja,
-  nazwa,
-  otwarta,
-  menuOtwarte,
-  onMenu,
-  onOtworz,
-  onUsun,
-}: {
-  pozycja: PozycjaListy;
-  nazwa: string;
-  otwarta: boolean;
-  menuOtwarte: boolean;
-  onMenu: () => void;
-  onOtworz: () => void;
-  onUsun: () => void;
-}) {
-  // Ile odsłonić pod wierszem i od którego progu puszczenie palca kasuje.
-  const SZEROKOSC_AKCJI = 88;
-  const PROG_USUNIECIA = 64;
-
-  const [przesuniecie, setPrzesuniecie] = useState(0);
-  const [odsloniete, setOdsloniete] = useState(false);
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const kierunek = useRef<"nieznany" | "poziomy" | "pionowy">("nieznany");
-
-  const zakonczGest = () => {
-    // Za progiem kasujemy; bliżej — chowamy albo zostawiamy odsłonięty przycisk.
-    if (przesuniecie <= -PROG_USUNIECIA) {
-      onUsun();
-      setPrzesuniecie(0);
-      setOdsloniete(false);
-    } else if (przesuniecie <= -SZEROKOSC_AKCJI / 2) {
-      setPrzesuniecie(-SZEROKOSC_AKCJI);
-      setOdsloniete(true);
-    } else {
-      setPrzesuniecie(0);
-      setOdsloniete(false);
-    }
-    start.current = null;
-    kierunek.current = "nieznany";
-  };
-
-  const odslania = przesuniecie !== 0 || odsloniete;
-
-  return (
-    <li
-      className={["pozycja-rozmowy", odslania ? "odslania" : "", menuOtwarte ? "menu-otwarte" : ""]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <button
-        type="button"
-        className="wiersz-usun"
-        aria-label={`Usuń rozmowę z ${nazwa}`}
-        onClick={onUsun}
-        tabIndex={odsloniete ? 0 : -1}
-      >
-        <Ikona nazwa="kosz" rozmiar={20} />
-        <span>Usuń</span>
-      </button>
-
-      <button
-        className={otwarta ? "wiersz-rozmowy otwarta" : "wiersz-rozmowy"}
-        style={{
-          transform: `translateX(${przesuniecie}px)`,
-          transition: start.current ? "none" : "transform .18s ease",
-        }}
-        onClick={() => {
-          // Odsłonięty kosz przechwytuje dotknięcie na schowanie, a nie na
-          // wejście do rozmowy — inaczej „cofnięcie" gestu otwierałoby wątek.
-          if (odsloniete) {
-            setPrzesuniecie(0);
-            setOdsloniete(false);
-            return;
-          }
-          onOtworz();
-        }}
-        onTouchStart={(e) => {
-          const t = e.touches[0];
-          if (!t) return;
-          start.current = { x: t.clientX, y: t.clientY };
-          kierunek.current = "nieznany";
-        }}
-        onTouchMove={(e) => {
-          const t = e.touches[0];
-          if (!start.current || !t) return;
-          const dx = t.clientX - start.current.x;
-          const dy = t.clientY - start.current.y;
-
-          if (kierunek.current === "nieznany") {
-            if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-            // Pionowy gest zostaje przewijaniem listy — wiersza nie ruszamy.
-            kierunek.current = Math.abs(dx) > Math.abs(dy) ? "poziomy" : "pionowy";
-          }
-          if (kierunek.current !== "poziomy") return;
-
-          const bazowe = odsloniete ? -SZEROKOSC_AKCJI : 0;
-          // Tylko w lewo, z lekkim oporem za odsłoniętą szerokością.
-          setPrzesuniecie(Math.max(-SZEROKOSC_AKCJI - 24, Math.min(0, bazowe + dx)));
-        }}
-        onTouchEnd={zakonczGest}
-        onTouchCancel={zakonczGest}
-      >
-        <span className="awatar" aria-hidden="true">
-          {nazwa.slice(0, 1)}
-        </span>
-
-        <span className="wiersz-tresc">
-          <span className="wiersz-gora">
-            <span className="wiersz-nazwa">{nazwa}</span>
-            {pozycja.ostatnia && <span className="wiersz-czas">{godzina(pozycja.ostatnia.czas)}</span>}
-          </span>
-
-          <span className="wiersz-ostatnia">
-            {pozycja.ostatnia?.zalacznik && <Ikona nazwa="spinacz" rozmiar={13} />}
-            <span className="tekst">
-              {pozycja.ostatnia
-                ? (pozycja.ostatnia.wlasna ? "Ty: " : "") + zapowiedz(pozycja.ostatnia)
-                : "brak wiadomości"}
-            </span>
-          </span>
-        </span>
-
-        {pozycja.nieprzeczytane > 0 && <span className="znacznik">{pozycja.nieprzeczytane}</span>}
-      </button>
-
-      {/*
-        Kebab i jego menu — droga do usunięcia na desktopie, gdzie gestu nie ma.
-        Kebab jest rodzeństwem wiersza (a nie dzieckiem), bo przycisk w przycisku
-        jest niepoprawny. Menu zamyka klik obok (`zaslona-menu`) albo wybór akcji.
-      */}
-      <button
-        type="button"
-        className={menuOtwarte ? "wiersz-kebab aktywny" : "wiersz-kebab"}
-        aria-label={`Więcej — rozmowa z ${nazwa}`}
-        aria-haspopup="menu"
-        aria-expanded={menuOtwarte}
-        onClick={onMenu}
-      >
-        <Ikona nazwa="wiecej" rozmiar={18} />
-      </button>
-
-      {menuOtwarte && (
-        <>
+    <nav className="szyna" aria-label={t("Nawigacja", "Navigation")}>
+      <ZnakMarki className="mb-3 hidden size-8 md:block" />
+      {galezie.map((g) => {
+        const aktywna = galaz === g.klucz;
+        return (
           <button
+            key={g.klucz}
             type="button"
-            className="zaslona-menu"
-            aria-label="Zamknij menu"
-            onClick={onMenu}
-          />
-          <div className="menu-rozmowy" role="menu">
-            <button type="button" role="menuitem" onClick={onUsun}>
-              <Ikona nazwa="kosz" rozmiar={16} />
-              Usuń rozmowę
-            </button>
-          </div>
-        </>
-      )}
-    </li>
-  );
-}
-
-/**
- * Modal potwierdzający usunięcie rozmowy.
- *
- * Kasowanie jest nieodwracalne — historia żyje wyłącznie na tym urządzeniu —
- * więc żadna droga (gest, przycisk, kebab) nie usuwa wprost; wszystkie kończą
- * tutaj. `Escape` i klik w tło znaczą „anuluj", bo bezpieczniejsza odpowiedź
- * ma być tą łatwą.
- */
-function PotwierdzenieUsuniecia({
-  nazwa,
-  onAnuluj,
-  onUsun,
-}: {
-  nazwa: string;
-  onAnuluj: () => void;
-  onUsun: () => void;
-}) {
-  useEffect(() => {
-    const naKlawisz = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onAnuluj();
-    };
-    window.addEventListener("keydown", naKlawisz);
-    return () => window.removeEventListener("keydown", naKlawisz);
-  }, [onAnuluj]);
-
-  return (
-    <div
-      className="nakladka-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Usunąć rozmowę z ${nazwa}`}
-      onClick={onAnuluj}
-    >
-      <div className="modal-karta" onClick={(e) => e.stopPropagation()}>
-        <h3>Usunąć rozmowę z {nazwa}?</h3>
-        <p>
-          Historia tej rozmowy jest tylko na tym urządzeniu — serwer jej nie ma,
-          więc po usunięciu nikt jej nie odtworzy.
-        </p>
-        <div className="modal-przyciski">
-          <button type="button" onClick={onAnuluj}>
-            Anuluj
-          </button>
-          <button type="button" className="niszczacy" onClick={onUsun} autoFocus>
-            <Ikona nazwa="kosz" rozmiar={16} />
-            Usuń
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Otwarta rozmowa: nagłówek, wiadomości, pole pisania. */
-function Watek({
-  messenger,
-  groupId,
-  rozmowca,
-  nick,
-  wiadomosci,
-  wLocie,
-  setWiadomosci,
-  setWLocie,
-  tresc,
-  setTresc,
-  setZadanieRozmowy,
-  inspektorOtwarty,
-  setInspektorOtwarty,
-  onBlad,
-}: {
-  messenger: Messenger;
-  groupId: Uint8Array;
-  rozmowca: string;
-  nick: (username: string) => string;
-  wiadomosci: Wiadomosc[];
-  wLocie: WLocie[];
-  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>;
-  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>;
-  tresc: string;
-  setTresc: (t: string) => void;
-  setZadanieRozmowy: (z: ZadanieRozmowy) => void;
-  inspektorOtwarty: boolean;
-  setInspektorOtwarty: (o: boolean | ((o: boolean) => boolean)) => void;
-  onBlad: (e: unknown) => void;
-}) {
-  const lista = useRef<HTMLOListElement | null>(null);
-  const pole = useRef<HTMLTextAreaElement | null>(null);
-
-  /*
-   * Wiadomości w locie idą przez ten sam układ co reszta.
-   *
-   * Rysowane osobno pod listą wypadały spod rozdzielacza dnia i nie sklejały
-   * się z poprzednim dymkiem — wysłanie wiadomości rozbijało blok, który po
-   * potwierdzeniu z powrotem się zrastał. Widać było skok.
-   */
-  const wszystkie = useMemo(
-    () => [
-      ...wiadomosci,
-      ...wLocie.map((w) => ({ id: w.id, autor: "Ty", tresc: w.tresc, czas: w.czas, wlasna: true })),
-    ],
-    [wiadomosci, wLocie],
-  );
-
-  const stanyWysylki = useMemo(() => new Map(wLocie.map((w) => [w.id, w])), [wLocie]);
-  const uklad = useMemo(() => ulozWatek(wszystkie, Date.now()), [wszystkie]);
-
-  /*
-   * Zjazd na dół po nowej wiadomości.
-   *
-   * Tylko wtedy, gdy użytkownik już był na dole. Przewijanie do dołu komuś,
-   * kto czyta starszą część rozmowy, wyrywa mu tekst sprzed oczu — a nowa
-   * wiadomość i tak zostanie zauważona, bo lista ma znacznik.
-   */
-  const naDole = useRef(true);
-  useEffect(() => {
-    const el = lista.current;
-    if (el && naDole.current) el.scrollTop = el.scrollHeight;
-  }, [uklad.length]);
-
-  // Pole rośnie z treścią. Wysokość zerujemy przed odczytem `scrollHeight`,
-  // bo inaczej pole raz urośnięte nigdy już nie zmaleje.
-  useEffect(() => {
-    const el = pole.current;
-    if (!el) return;
-
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [tresc]);
-
-  const wyslij = async () => {
-    if (!tresc.trim()) return;
-
-    // Wiadomość pojawia się natychmiast ze znacznikiem „wysyłam". Wcześniej
-    // przez cały czas wysyłki — a przy nieudanej próbie bezpośredniej to kilka
-    // sekund — nie działo się nic i nie było wiadomo, czy cokolwiek poszło.
-    //
-    // Identyfikator „w locie" jest tymczasowy i służy tylko do znalezienia tego
-    // dymka po powrocie z wysyłki. Do historii trafia identyfikator Z RDZENIA:
-    // potwierdzenia drugiej strony wskazują wiadomości właśnie po nim, więc
-    // zapisanie własnego UUID-a znaczyłoby ptaszek, który nigdy się nie zmieni.
-    const id = crypto.randomUUID();
-    const wyslana = tresc;
-    setWLocie((p) => [...p, { id, tresc: wyslana, czas: Date.now(), blad: false }]);
-    setTresc("");
-
-    try {
-      const messageId = await messenger.sendText(groupId, wyslana);
-
-      setWiadomosci((p) => [
-        ...p,
-        { id: messageId, autor: "Ty", tresc: wyslana, czas: Date.now(), wlasna: true },
-      ]);
-      setWLocie((p) => p.filter((w) => w.id !== id));
-    } catch (err) {
-      // Zostaje w locie, oznaczona jako nieudana. Treść nie przepada:
-      // zawiodła sieć, nie użytkownik.
-      setWLocie((p) => p.map((w) => (w.id === id ? { ...w, blad: true } : w)));
-      onBlad(err);
-    }
-  };
-
-  return (
-    <div className="watek">
-      <header className="pasek-watku">
-        {/* Na wąskim ekranie rozmowa zajmuje cały widok, więc bez tego nie ma
-            jak wrócić do listy. Na szerokim lista stoi obok i strzałka jest
-            zbędna — chowa ją arkusz stylów. */}
-        <button
-          className="ikonowy wstecz"
-          aria-label="Wróć do listy rozmów"
-          onClick={() => history.back()}
-        >
-          <Ikona nazwa="wstecz" rozmiar={18} />
-        </button>
-
-        {/* Awatar i nazwa w jednym pudełku, bo na wąskim ekranie stają
-            w kolumnie na środku paska, a na szerokim obok siebie po lewej.
-            Rozstrzyga o tym arkusz stylów — tu jest tylko to, co niezmienne:
-            że to jedna rzecz, „z kim rozmawiam". */}
-        <span className="pasek-kto">
-          <span className="awatar" aria-hidden="true">
-            {rozmowca.slice(0, 1)}
-          </span>
-
-          <span className="pasek-tozsamosc">
-            <span className="pasek-nazwa">{rozmowca}</span>
-          </span>
-        </span>
-
-        <div className="akcje-watku">
-          <button
-            className="ikonowy"
-            title="Zadzwoń"
-            onClick={() => setZadanieRozmowy({ wideo: false, n: Date.now() })}
-          >
-            <Ikona nazwa="sluchawka" rozmiar={18} etykieta="Zadzwoń" />
-          </button>
-          <button
-            className="ikonowy"
-            title="Rozmowa z obrazem"
-            onClick={() => setZadanieRozmowy({ wideo: true, n: Date.now() })}
-          >
-            <Ikona nazwa="kamera" rozmiar={18} etykieta="Rozmowa z obrazem" />
-          </button>
-          <button
-            className={inspektorOtwarty ? "ikonowy aktywny" : "ikonowy"}
-            title="Uczestnicy i kod bezpieczeństwa"
-            aria-pressed={inspektorOtwarty}
-            onClick={() => setInspektorOtwarty((o) => !o)}
-          >
-            <Ikona nazwa="osoby" rozmiar={18} etykieta="Uczestnicy i kod bezpieczeństwa" />
-          </button>
-        </div>
-      </header>
-
-      {/* Rozmowy A/V tu NIE MA — jest osobnym ekranem ponad układem (`Czat`).
-          Ślad po niej idzie do tej samej listy co wiadomości: rozmowa
-          i wiadomość dzieją się w tej samej osi czasu i mają się w niej
-          przeplatać. */}
-
-      <ol
-        className="wiadomosci"
-        ref={lista}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          naDole.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-        }}
-      >
-        {/* W `<ol>` wolno stać tylko elementom `<li>` — pusty stan też. */}
-        {uklad.length === 0 && (
-          <li className="pusto-watku">
-            <Pusto ikona="rozmowy" tytul="Tu jeszcze nic nie ma" wskazowka="Napisz pierwszy." />
-          </li>
-        )}
-
-        {uklad.map((pozycja) =>
-          pozycja.rodzaj === "rozdzielacz" ? (
-            /* Dzień wytłuszczony, godzina zwykła — jedno zdanie, nie dwie
-               etykiety. Godziny nie ma już w dymkach, więc to jedyne miejsce
-               w wątku, które odpowiada na pytanie „kiedy". */
-            <li key={pozycja.klucz} className="rozdzielacz">
-              <strong>{pozycja.etykieta}</strong> {godzina(pozycja.czas)}
-            </li>
-          ) : (
-            pozycja.wiadomosc.rozmowa ? (
-              <ZdarzenieRozmowy
-                key={pozycja.klucz}
-                wiadomosc={pozycja.wiadomosc}
-                rozmowa={pozycja.wiadomosc.rozmowa}
-              />
-            ) : (
-              <Dymek
-                key={pozycja.klucz}
-                messenger={messenger}
-                wiadomosc={pozycja.wiadomosc}
-                nick={nick}
-                ciag={pozycja.ciag}
-                ogon={pozycja.ogon}
-                ostatniaWlasna={pozycja.ostatniaWlasna}
-                stan={stanyWysylki.get(pozycja.wiadomosc.id)}
-                onBlad={onBlad}
-              />
-            )
-          ),
-        )}
-      </ol>
-
-      <form
-        className="pisanie"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void wyslij();
-        }}
-      >
-        <DolaczPlik
-          messenger={messenger}
-          groupId={groupId}
-          setWiadomosci={setWiadomosci}
-          setWLocie={setWLocie}
-          onBlad={onBlad}
-        />
-
-        {/*
-          Pole i strzałka są JEDNYM przedmiotem.
-          Przycisk stojący obok pola czyta się jak osobna kontrolka, którą
-          trzeba znaleźć; wsunięty w prawy koniec pola jest końcem tej samej
-          czynności — dopisujesz zdanie i wypychasz je tym samym gestem.
-        */}
-        <div className="pole-pisania">
-        <textarea
-          ref={pole}
-          rows={1}
-          value={tresc}
-          onChange={(e) => setTresc(e.target.value)}
-          placeholder="Napisz wiadomość"
-          aria-label="Treść wiadomości"
-          onPaste={(e) => {
-            /*
-             * Wklejone zdjęcie ląduje w wiadomości, nie w polu tekstowym.
-             *
-             * Zrzut ekranu albo skopiowany obraz trafia do schowka jako plik —
-             * wcześniej `paste` nie robił z nim nic (pole tekstowe ignoruje
-             * pliki), więc gest, który wszędzie indziej „wkleja obrazek",
-             * tutaj po cichu przepadał. Sam tekst zostawiamy polu: `preventDefault`
-             * tylko wtedy, gdy naprawdę mamy obraz do wysłania.
-             */
-            const plik = obrazZeSchowka(e.clipboardData);
-            if (!plik) return;
-            e.preventDefault();
-            void wyslijPlik(messenger, groupId, plik, setWiadomosci, setWLocie, onBlad);
-          }}
-          onKeyDown={(e) => {
-            /*
-             * Enter wysyła, Shift+Enter łamie wiersz.
-             *
-             * Odwrotnie niż w formularzu, bo to pole rozmowy: wysłanie jest tu
-             * czynnością wykonywaną co kilkanaście sekund, a nowy akapit —
-             * rzadko. Wymuszanie kliknięcia w przycisk przy każdej wiadomości
-             * jest kosztem płaconym setki razy dziennie.
-             */
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void wyslij();
-            }
-          }}
-        />
-
-        <button className="wyslij" disabled={!tresc.trim()} title="Wyślij">
-          <Ikona nazwa="wyslij" rozmiar={18} etykieta="Wyślij" />
-        </button>
-        </div>
-      </form>
-
-      {/* Obietnica przed wysłaniem, nie po. Po fakcie nie daje już wyboru. */}
-      <p className="wskazowka-plik">
-        <Ikona nazwa="tarcza" rozmiar={12} />
-        Ze zdjęć i nagrań usuwamy lokalizację oraz dane urządzenia przed wysłaniem.
-      </p>
-    </div>
-  );
-}
-
-/**
- * Ślad po rozmowie A/V w wątku.
- *
- * # Dlaczego to nie jest dymek
- *
- * Bo nikt tego nie powiedział. Dymek — z bokiem, ogonkiem i godziną przy
- * własnej krawędzi — mówi „ta osoba napisała to zdanie". Rozmowa się wydarzyła,
- * a nie została wysłana, więc stoi na środku, tak samo jak rozdzielacz dnia.
- *
- * Ikona jest DOKŁADNIE ta, którą się w tę rozmowę weszło: słuchawka przy
- * głosowej, kamera przy wideo. Inny piktogram w podsumowaniu niż na przycisku
- * kazałby się domyślać, że to o tym samym.
- */
-function ZdarzenieRozmowy({
-  wiadomosc,
-  rozmowa,
-}: {
-  wiadomosc: Wiadomosc;
-  rozmowa: ZapisRozmowy;
-}) {
-  const odbyta = rozmowa.sekundy !== undefined;
-
-  // Nieodebrana wychodząca to „nikt nie odebrał", przychodząca — „nie odebrałeś".
-  // To dwie różne rzeczy i tylko druga jest czymś, co się przegapiło.
-  const opis = odbyta
-    ? `${rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa"} · ${trwanieRozmowy(rozmowa.sekundy ?? 0)}`
-    : rozmowa.wychodzaca
-      ? "Nikt nie odebrał"
-      : `Nieodebrana rozmowa ${rozmowa.wideo ? "wideo" : "głosowa"}`;
-
-  return (
-    <li className={odbyta ? "zdarzenie" : "zdarzenie nieodebrane"}>
-      <Ikona nazwa={rozmowa.wideo ? "kamera" : "sluchawka"} rozmiar={14} />
-      <span>{opis}</span>
-      <span className="czas-zdarzenia">{godzina(wiadomosc.czas)}</span>
-    </li>
-  );
-}
-
-/** Czas trwania jako `m:ss`; godziny dopiero wtedy, gdy są. */
-function trwanieRozmowy(sekundy: number): string {
-  const s = Math.max(0, Math.floor(sekundy));
-  const minuty = Math.floor(s / 60);
-  const reszta = String(s % 60).padStart(2, "0");
-
-  if (minuty < 60) return `${minuty}:${reszta}`;
-  return `${Math.floor(minuty / 60)}:${String(minuty % 60).padStart(2, "0")}:${reszta}`;
-}
-
-function Dymek({
-  messenger,
-  wiadomosc,
-  nick,
-  ciag,
-  ogon,
-  ostatniaWlasna,
-  stan,
-  onBlad,
-}: {
-  messenger: Messenger;
-  wiadomosc: Wiadomosc;
-  nick: (username: string) => string;
-  ciag: boolean;
-  ogon: boolean;
-  ostatniaWlasna: boolean;
-  stan?: WLocie;
-  onBlad: (e: unknown) => void;
-}) {
-  const klasy = ["", wiadomosc.wlasna ? "wlasna" : "", ciag ? "ciag" : "", ogon ? "ogon" : ""];
-  if (stan) klasy.push(stan.blad ? "nieudana" : "w-locie");
-
-  /*
-   * Jeden stan zamiast trzech warunków rozsypanych po JSX.
-   *
-   * Wysyłka w locie ma pierwszeństwo nad zapisanym stanem: dopóki nie wróciło
-   * potwierdzenie wysłania, potwierdzenia odczytu nie ma prawa być.
-   */
-  const stanWysylki = stan
-    ? stan.blad
-      ? "nieudana"
-      : "w-locie"
-    : (wiadomosc.stan ?? "wyslane");
-
-  const opis = opisStanu(stanWysylki);
-
-  /*
-   * Stan wysyłki pod ostatnim własnym dymkiem, nie w każdym.
-   *
-   * Ptaszek przy każdej własnej wiadomości to kolumna powtórzonego „wysłano",
-   * a odpowiada on na pytanie zadawane o JEDNĄ wiadomość — tę ostatnią.
-   * Wyjątkiem są stany, z którymi trzeba coś zrobić: „wysyłam" i „nie wysłano"
-   * pokazujemy zawsze, bo milczenie przy nich znaczyłoby „doszło".
-   */
-  const zeStanem =
-    wiadomosc.wlasna && (ostatniaWlasna || stanWysylki === "w-locie" || stanWysylki === "nieudana");
-
-  return (
-    <>
-    {/* Godzina wyszła z dymka na rozdzielacz, ale nie przepadła — `title`
-        odpowiada na „a ta konkretna o której?" bez zajmowania wiersza. */}
-    <li className={klasy.join(" ").trim()} title={pelnaGodzina(wiadomosc.czas)}>
-      {/* Autor tylko na początku bloku i tylko przy cudzych — przy własnych
-          mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem. */}
-      {!wiadomosc.wlasna && !ciag && <span className="autor">{nick(wiadomosc.autor)}</span>}
-
-      {/*
-        Załącznik i treść mogą stać w jednym dymku.
-
-        Wcześniej było to „albo — albo", więc wiadomość z obrazem nie miała jak
-        nieść zdania o tym, że z tego pliku nie udało się usunąć metadanych.
-        Zdanie przepadało albo zajmowało miejsce obrazu.
-      */}
-      {wiadomosc.zalacznik && (
-        <Zalacznik messenger={messenger} zalacznik={wiadomosc.zalacznik} onBlad={onBlad} />
-      )}
-      {wiadomosc.tresc && <span className="tresc">{wiadomosc.tresc}</span>}
-    </li>
-
-    {zeStanem && (
-      <li
-        className={
-          stanWysylki === "nieudana" ? "stan-wysylki nieudany" : "stan-wysylki"
-        }
-      >
-        {duzaLitera(opis.etykieta)}
-      </li>
-    )}
-    </>
-  );
-}
-
-/** Pierwsza litera wielka — opisy stanów są zdaniem, nie etykietą w tabeli. */
-function duzaLitera(tekst: string): string {
-  return tekst.charAt(0).toUpperCase() + tekst.slice(1);
-}
-
-/**
- * Wysyła jeden plik jako załącznik i nanosi go na wątek.
- *
- * Wyniesione z `DolaczPlik`, bo załącznik może teraz wejść dwiema drogami:
- * spinaczem i wklejeniem ze schowka (Ctrl/⌘+V). Obie robią dokładnie to samo,
- * więc robi to jedna funkcja — inaczej wklejanie i dołączanie rozjechałyby się
- * przy pierwszej poprawce w jednej z nich.
- */
-async function wyslijPlik(
-  messenger: Messenger,
-  groupId: Uint8Array,
-  plik: File,
-  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>,
-  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>,
-  onBlad: (e: unknown) => void,
-): Promise<void> {
-  // Wgranie pliku trwa dłużej niż tekst — dochodzi czyszczenie metadanych,
-  // szyfrowanie i wysyłka. Bez znacznika wygląda to jak zawieszenie.
-  const id = crypto.randomUUID();
-  const nazwa = plik.name || "zdjęcie";
-  setWLocie((p) => [...p, { id, tresc: `wysyłam: ${nazwa}`, czas: Date.now(), blad: false }]);
-
-  try {
-    const { stripped, messageId, zalacznik } = await messenger.sendFile(groupId, plik);
-
-    /*
-     * Własne zdjęcie jest ZDJĘCIEM, nie napisem „wysłano: kot.jpg".
-     *
-     * Tak było wcześniej i wyglądało na uszkodzoną wiadomość: druga strona
-     * widziała obraz, nadawca nazwę pliku. Opis załącznika wraca teraz
-     * z `sendFile`, więc własny dymek rysuje ten sam składnik co cudzy
-     * i odszyfrowuje ten sam szyfrogram.
-     *
-     * Treść zostaje pusta, gdy wszystko poszło dobrze. Nieudane czyszczenie
-     * metadanych mówimy wprost — użytkownik ma prawo wiedzieć, że akurat ten
-     * plik poszedł ze współrzędnymi, i jest to jedyna rzecz, z którą może coś
-     * zrobić.
-     */
-    setWiadomosci((p) => [
-      ...p,
-      {
-        id: messageId,
-        autor: "Ty",
-        tresc: stripped ? "" : "nie udało się usunąć metadanych z tego pliku",
-        czas: Date.now(),
-        wlasna: true,
-        zalacznik,
-      },
-    ]);
-    setWLocie((p) => p.filter((w) => w.id !== id));
-  } catch (err) {
-    setWLocie((p) => p.map((w) => (w.id === id ? { ...w, tresc: nazwa, blad: true } : w)));
-    onBlad(err);
-  }
-}
-
-/**
- * Wyławia zdjęcie ze zdarzenia wklejenia.
- *
- * Zwraca pierwszy plik obrazkowy w schowku albo `null`. Wklejenie samego tekstu
- * (najczęstszy przypadek) nie ma tu nic i zostawiamy je polu tekstowemu.
- */
-function obrazZeSchowka(dane: DataTransfer | null): File | null {
-  if (!dane) return null;
-  for (const element of dane.items) {
-    if (element.kind === "file" && element.type.startsWith("image/")) {
-      const plik = element.getAsFile();
-      if (plik) return plik;
-    }
-  }
-  return null;
-}
-
-/**
- * Spinacz przy polu, nie prostokąt nad nim.
- *
- * Wielki obszar „Dołącz zdjęcie lub wideo" zajmował tyle miejsca co dwie
- * wiadomości i podpowiadał, że załącznik jest głównym sposobem pisania.
- */
-function DolaczPlik({
-  messenger,
-  groupId,
-  setWiadomosci,
-  setWLocie,
-  onBlad,
-}: {
-  messenger: Messenger;
-  groupId: Uint8Array;
-  setWiadomosci: React.Dispatch<React.SetStateAction<Wiadomosc[]>>;
-  setWLocie: React.Dispatch<React.SetStateAction<WLocie[]>>;
-  onBlad: (e: unknown) => void;
-}) {
-  return (
-    <label className="dolacz-plik" title="Dołącz zdjęcie lub wideo">
-      <input
-        type="file"
-        accept="image/*,video/*"
-        onChange={async (e) => {
-          const plik = e.target.files?.[0];
-          // Czyścimy pole od razu, żeby dało się wysłać ten sam plik dwa razy.
-          e.target.value = "";
-          if (!plik) return;
-          await wyslijPlik(messenger, groupId, plik, setWiadomosci, setWLocie, onBlad);
-        }}
-      />
-      <Ikona nazwa="spinacz" rozmiar={18} />
-      <span className="tylko-dla-czytnika">Dołącz zdjęcie lub wideo</span>
-    </label>
-  );
-}
-
-/**
- * Sekcja próśb o rozmowę — zwijana, z licznikiem, nad listą rozmów.
- *
- * # Po co osobno
- *
- * Nieproszona rozmowa nie ma prawa wpaść między prawdziwe ani udawać „nowej
- * wiadomości" — to jest cała zapora. Każda prośba niesie podgląd i dwie decyzje:
- * „Przyjmij" (staje się zwykłą rozmową, nadawca staje się kontaktem) albo
- * „Odrzuć" (znika lokalnie).
- *
- * Domyślnie zwinięta: prośby są sygnałem, że ktoś czeka, a nie treścią, którą
- * czyta się co chwilę.
- */
-function Prosby({
-  prosby,
-  nazwaPozycji,
-  onPrzyjmij,
-  onOdrzuc,
-}: {
-  prosby: PozycjaListy[];
-  nazwaPozycji: (p: PozycjaListy) => string;
-  onPrzyjmij: (p: PozycjaListy) => void;
-  onOdrzuc: (p: PozycjaListy) => void;
-}) {
-  const [rozwinięte, setRozwiniete] = useState(false);
-
-  return (
-    <section className="prosby" aria-label="Prośby o rozmowę">
-      <button
-        type="button"
-        className="prosby-naglowek"
-        aria-expanded={rozwinięte}
-        onClick={() => setRozwiniete((r) => !r)}
-      >
-        <Ikona nazwa="rozwin" rozmiar={14} klasa={rozwinięte ? "obrocona" : undefined} />
-        <span className="prosby-tytul">Prośby o rozmowę</span>
-        <span className="znacznik">{prosby.length}</span>
-      </button>
-
-      {rozwinięte && (
-        <ul className="lista-prosb">
-          {prosby.map((pozycja) => {
-            const nazwa = nazwaPozycji(pozycja);
-            return (
-              <li key={kluczRozmowy(pozycja.groupId)} className="prosba">
-                <span className="awatar maly" aria-hidden="true">
-                  {nazwa.slice(0, 1)}
-                </span>
-                <span className="prosba-tresc">
-                  <span className="prosba-nazwa">{nazwa}</span>
-                  <span className="prosba-podglad">
-                    {pozycja.ostatnia ? zapowiedz(pozycja.ostatnia) : "chce zacząć rozmowę"}
-                  </span>
-                </span>
-                <span className="prosba-akcje">
-                  <button
-                    type="button"
-                    className="ikonowy glowny"
-                    aria-label={`Przyjmij prośbę od ${nazwa}`}
-                    title="Przyjmij"
-                    onClick={() => onPrzyjmij(pozycja)}
-                  >
-                    <Ikona nazwa="dodaj" rozmiar={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="ikonowy"
-                    aria-label={`Odrzuć prośbę od ${nazwa}`}
-                    title="Odrzuć"
-                    onClick={() => onOdrzuc(pozycja)}
-                  >
-                    <Ikona nazwa="zamknij" rozmiar={16} />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/**
- * Zakładanie grupy: wybór osób z kontaktów plus dodanie po nazwie.
- *
- * Kontakty to osoby, z którymi już rozmawiamy — katalog nie ma listy do
- * przeglądania (decyzja, nie brak). Kogoś spoza tej listy dodaje się po nazwie
- * użytkownika, tak samo jak w „Nowym czacie". Nazwa grupy jest opcjonalna:
- * bez niej wątek pokazuje sklejone nazwy uczestników, dokładnie jak dotąd.
- */
-function NowaGrupa({
-  kontakty,
-  nick,
-  onAnuluj,
-  onUtworz,
-}: {
-  kontakty: string[];
-  nick: (username: string) => string;
-  onAnuluj: () => void;
-  onUtworz: (osoby: string[], nazwa: string) => void;
-}) {
-  const [wybrani, setWybrani] = useState<Set<string>>(new Set());
-  const [poNazwie, setPoNazwie] = useState("");
-  const [nazwaGrupy, setNazwaGrupy] = useState("");
-  // Osoby dodane po nazwie, spoza listy kontaktów.
-  const [dodatkowi, setDodatkowi] = useState<string[]>([]);
-
-  const przelacz = (osoba: string) =>
-    setWybrani((zbior) => {
-      const kolejny = new Set(zbior);
-      if (kolejny.has(osoba)) kolejny.delete(osoba);
-      else kolejny.add(osoba);
-      return kolejny;
-    });
-
-  const dodajPoNazwie = () => {
-    const nazwa = poNazwie.trim();
-    if (!nazwa) return;
-    setPoNazwie("");
-    // Kontakt z listy → po prostu go zaznacz; ktoś spoza → dołóż jako dodatkowy.
-    if (kontakty.includes(nazwa)) {
-      setWybrani((zbior) => new Set(zbior).add(nazwa));
-    } else {
-      setDodatkowi((lista) => (lista.includes(nazwa) ? lista : [...lista, nazwa]));
-    }
-  };
-
-  const wszyscy = [...new Set([...wybrani, ...dodatkowi])];
-
-  return (
-    <div className="nakladka-modal" role="dialog" aria-modal="true" aria-label="Nowa grupa" onClick={onAnuluj}>
-      <div className="modal-karta nowa-grupa" onClick={(e) => e.stopPropagation()}>
-        <h3>Nowa grupa</h3>
-
-        <label className="pole-nazwy-grupy">
-          Nazwa grupy (opcjonalnie)
-          <input
-            value={nazwaGrupy}
-            onChange={(e) => setNazwaGrupy(e.target.value)}
-            placeholder="Nazwa grupy"
-          />
-        </label>
-
-        {kontakty.length > 0 && (
-          <fieldset className="wybor-osob">
-            <legend>Z kim rozmawiasz</legend>
-            <ul>
-              {kontakty.map((osoba) => (
-                <li key={osoba}>
-                  <label className="osoba-wybor">
-                    <input
-                      type="checkbox"
-                      checked={wybrani.has(osoba)}
-                      onChange={() => przelacz(osoba)}
-                    />
-                    <span className="awatar maly" aria-hidden="true">
-                      {nick(osoba).slice(0, 1)}
-                    </span>
-                    <span className="kto">{nick(osoba)}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
-        )}
-
-        <form
-          className="dodaj-po-nazwie"
-          onSubmit={(e) => {
-            e.preventDefault();
-            dodajPoNazwie();
-          }}
-        >
-          <label>
-            Dodaj po nazwie
-            <span className="pole-z-przyciskiem">
-              <input
-                value={poNazwie}
-                onChange={(e) => setPoNazwie(e.target.value)}
-                placeholder="Nazwa użytkownika"
-              />
-              <button type="submit" className="ikonowy" disabled={!poNazwie.trim()} aria-label="Dodaj">
-                <Ikona nazwa="dodaj" rozmiar={16} />
-              </button>
-            </span>
-          </label>
-        </form>
-
-        {dodatkowi.length > 0 && (
-          <ul className="dodani-po-nazwie" aria-label="Dodani po nazwie">
-            {dodatkowi.map((osoba) => (
-              <li key={osoba}>
-                <span className="kto">{nick(osoba)}</span>
-                <button
-                  type="button"
-                  className="ikonowy"
-                  aria-label={`Usuń ${osoba} z grupy`}
-                  onClick={() => setDodatkowi((lista) => lista.filter((o) => o !== osoba))}
-                >
-                  <Ikona nazwa="zamknij" rozmiar={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="modal-przyciski">
-          <button type="button" onClick={onAnuluj}>
-            Anuluj
-          </button>
-          <button
-            type="button"
-            className="glowny"
-            disabled={wszyscy.length === 0}
-            onClick={() => onUtworz(wszyscy, nazwaGrupy)}
-          >
-            <Ikona nazwa="osoby" rozmiar={16} />
-            Utwórz grupę
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Eksport i import rozmów do zaszyfrowanego pliku ZIP.
- *
- * # Dlaczego hasło, a nie zwykły plik
- *
- * Historia leży w skarbcu zaszyfrowana kluczem, który nie opuszcza urządzenia.
- * Plik ma dać się otworzyć gdzie indziej, więc chroni go jedyny sekret, który
- * zna człowiek: hasło. Cała ochrona to Argon2id i AES-256-GCM w rdzeniu
- * (`core/src/kopia.rs`) — ten sam kod i ten sam format co na Androidzie, więc
- * plik z telefonu otworzy się w przeglądarce i odwrotnie.
- *
- * # Dlaczego oddajemy klatkę przed liczeniem
- *
- * Argon2id liczy się **synchronicznie** w WASM i na chwilę zamraża wątek. Bez
- * `setTimeout(0)` napis „Pracuję…" nigdy by się nie narysował — przeskoczylibyśmy
- * od kliknięcia wprost do wyniku, a przy sekundzie ciszy wyglądałoby to na
- * zawieszenie.
- */
-function KopiaRozmow({ onBlad }: { onBlad: (e: unknown) => void }) {
-  const [hasloEksport, setHasloEksport] = useState("");
-  const [hasloImport, setHasloImport] = useState("");
-  const [plik, setPlik] = useState<File | null>(null);
-  const [komunikat, setKomunikat] = useState<string | null>(null);
-  const [pracuje, setPracuje] = useState(false);
-
-  const eksportuj = async () => {
-    if (!hasloEksport || pracuje) return;
-    setPracuje(true);
-    setKomunikat(null);
-    try {
-      await new Promise((r) => setTimeout(r, 0));
-      const jawne = (await loadHistory()) ?? new Uint8Array(0);
-      const zip = exportBackup(hasloEksport, jawne);
-
-      // Pobranie pliku: obiektowy URL na Blobie i klik w ukryty link. Anchor
-      // z `download` to jedyna droga, którą przeglądarka odda plik bez serwera.
-      const url = URL.createObjectURL(new Blob([zip as BlobPart], { type: "application/zip" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "rozmowy-mekamb.zip";
-      a.click();
-      URL.revokeObjectURL(url);
-
-      setHasloEksport("");
-      setKomunikat("Wyeksportowano rozmowy do pliku.");
-    } catch (e) {
-      onBlad(e);
-    } finally {
-      setPracuje(false);
-    }
-  };
-
-  const importuj = async () => {
-    if (!plik || !hasloImport || pracuje) return;
-    setPracuje(true);
-    setKomunikat(null);
-    try {
-      await new Promise((r) => setTimeout(r, 0));
-      const bajty = new Uint8Array(await plik.arrayBuffer());
-
-      let jawne: Uint8Array;
-      try {
-        jawne = importBackup(hasloImport, bajty);
-      } catch {
-        // Złe hasło i uszkodzony plik dają ten sam komunikat: obie odpowiedzi
-        // znaczą „tego pliku nie otworzysz tym hasłem".
-        setKomunikat("Nie udało się zaimportować: złe hasło albo uszkodzony plik.");
-        return;
-      }
-
-      const wynik: WynikScalania | null = await scalHistorie(jawne);
-      if (wynik) {
-        setKomunikat(
-          `Zaimportowano: ${wynik.rozmow} rozmów, ${wynik.wiadomosci} nowych wiadomości.`,
-        );
-        setHasloImport("");
-        setPlik(null);
-      } else {
-        setKomunikat("Plik nie zawiera czytelnej historii.");
-      }
-    } catch (e) {
-      onBlad(e);
-    } finally {
-      setPracuje(false);
-    }
-  };
-
-  return (
-    <div className="karta">
-      <strong>Kopia rozmów</strong>
-      <p className="wskazowka">
-        Wyeksportuj rozmowy do pliku ZIP chronionego hasłem albo wczytaj je z
-        takiego pliku. Import dokłada rozmowy do istniejących, nie kasuje ich.
-        Plik chroni wyłącznie hasło — zapomnianego nie da się obejść.
-      </p>
-
-      <label className="pole-nicku">
-        Hasło do eksportu
-        <input
-          type="password"
-          value={hasloEksport}
-          onChange={(e) => setHasloEksport(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        className="glowny"
-        disabled={!hasloEksport || pracuje}
-        onClick={eksportuj}
-      >
-        {pracuje ? "Pracuję…" : "Eksportuj rozmowy"}
-      </button>
-
-      <label className="pole-nicku">
-        Plik kopii
-        <input
-          type="file"
-          accept=".zip,application/zip"
-          onChange={(e) => setPlik(e.target.files?.[0] ?? null)}
-        />
-      </label>
-      <label className="pole-nicku">
-        Hasło pliku
-        <input
-          type="password"
-          value={hasloImport}
-          onChange={(e) => setHasloImport(e.target.value)}
-        />
-      </label>
-      <button
-        type="button"
-        className="glowny"
-        disabled={!plik || !hasloImport || pracuje}
-        onClick={importuj}
-      >
-        {pracuje ? "Pracuję…" : "Importuj rozmowy"}
-      </button>
-
-      {komunikat && <p className="wskazowka">{komunikat}</p>}
-    </div>
-  );
-}
-
-function Konto({
-  messenger,
-  trwaly,
-  odczyt,
-  mojNick,
-  onNick,
-  zablokowani,
-  nick,
-  onOdblokuj,
-  onOdczyt,
-  onBlad,
-}: {
-  messenger: Messenger;
-  trwaly: boolean;
-  odczyt: boolean;
-  mojNick: string;
-  onNick: (nick: string) => void;
-  zablokowani: Set<string>;
-  nick: (username: string) => string;
-  onOdblokuj: (username: string) => void;
-  onOdczyt: (wlaczony: boolean) => void;
-  onBlad: (e: unknown) => void;
-}) {
-  // Pole nicku trzymane lokalnie — zapisujemy dopiero, gdy pole traci fokus
-  // albo na Enter, żeby nie rozsyłać metadany po każdym naciśnięciu klawisza.
-  const [nickPole, setNickPole] = useState(mojNick);
-  useEffect(() => setNickPole(mojNick), [mojNick]);
-
-  const zapiszNick = () => {
-    if (nickPole.trim() !== mojNick.trim()) onNick(nickPole);
-  };
-
-  return (
-    <>
-      <header className="naglowek-konta">
-        <h2>Konto</h2>
-      </header>
-
-      <div className="siatka-konta">
-        <div className="karta">
-          <div className="tozsamosc">
-            <span className="awatar" aria-hidden="true">
-              {(mojNick || messenger.account.username).slice(0, 1)}
-            </span>
-            <span>
-              <strong>{messenger.account.username}</strong>
-              <span className="wskazowka">{messenger.account.deviceId}</span>
-            </span>
-          </div>
-
-          {/*
-            Nazwa wyświetlana (nick) — WARSTWA WYŚWIETLANIA, nie tożsamość.
-            Adresem skrzynki i tożsamością MLS zostaje nazwa użytkownika wyżej;
-            nick to tylko to, jak widzą Cię inni w rozmowach. Zmiana rozsyła się
-            współdzieloną metadaną do Twoich rozmów.
-          */}
-          <label className="pole-nicku">
-            Nazwa wyświetlana
-            <input
-              value={nickPole}
-              onChange={(e) => setNickPole(e.target.value)}
-              onBlur={zapiszNick}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  zapiszNick();
-                  e.currentTarget.blur();
-                }
-              }}
-              placeholder={messenger.account.username}
-              aria-label="Nazwa wyświetlana"
-            />
-          </label>
-          <p className="wskazowka">
-            Tak zobaczą Cię inni w rozmowach. Twoja nazwa użytkownika się nie
-            zmienia — to po niej dochodzą wiadomości.
-          </p>
-
-          {/*
-            Stan konta powiedziany po ludzku.
-
-            „Trwały magazyn: nieprzyznany" i „Aplikacja zainstalowana: nie" to
-            były odpowiedzi na pytania, których nikt nie zadał — nazwy
-            wewnętrznych mechanizmów przepisane wprost na ekran. Zostaje to,
-            co daje się z czymś zrobić: czy rozmowy są bezpieczne na tym
-            urządzeniu i czy w tej chwili cokolwiek dochodzi.
-
-            Wiersz o pamięci pojawia się DOPIERO, gdy jest źle. Napis
-            „przyznany" przy działającej rzeczy nie mówi nic; ostrzeżenie
-            o tym, że przeglądarka może skasować rozmowy, mówi bardzo dużo —
-            i wtedy trzeba je przeczytać.
-          */}
-          <dl className="stan-konta">
-            {!trwaly && (
-              <div>
-                <dt>Pamięć</dt>
-                <dd className="uwaga">
-                  <Ikona nazwa="ostrzezenie" rozmiar={13} />
-                  przeglądarka może usunąć rozmowy
-                </dd>
-              </div>
+            title={g.etykieta}
+            aria-current={aktywna ? "page" : undefined}
+            onClick={() => onGalaz(g.klucz)}
+            className={cn(
+              "relative flex flex-col items-center gap-0.5 rounded-m px-3 py-1.5 text-[11px] font-medium transition-colors md:size-11 md:justify-center md:p-0",
+              aktywna ? "bg-wglebienie text-tekst" : "text-tekst-drugi hover:bg-wglebienie hover:text-tekst",
             )}
-          </dl>
-        </div>
-
-        {/*
-          Potwierdzenia odczytu w panelu konta, nie w ustawieniach rozmowy.
-
-          To decyzja o tym, ile o sobie mówisz — dotyczy każdej rozmowy naraz,
-          więc miejscem jest konto, a nie pojedynczy wątek.
-        */}
-        {/*
-          Z opisu zostało jedno zdanie: to, które zmienia decyzję.
-          Reszta — opóźnienie, zbiorcza wysyłka, „moment wysłania koperty" —
-          opisywała, JAK to zrobiliśmy. Kto to czyta, nie ma z tego czego
-          wybrać, a słowo „koperta" znaczy coś tylko dla nas.
-        */}
-        <div className="karta">
-          <strong>Potwierdzenia odczytu</strong>
-
-          <label className="przelacznik">
-            <input
-              type="checkbox"
-              checked={odczyt}
-              onChange={(e) => onOdczyt(e.target.checked)}
-            />
-            <span>Wysyłaj potwierdzenia odczytu</span>
-          </label>
-
-          <p className="wskazowka">
-            Kiedy je wyłączysz, przestaniesz też widzieć cudze.
-          </p>
-        </div>
-
-        {/*
-          Zablokowani — jedyne miejsce, z którego da się ich odblokować.
-
-          Blokada ukrywa rozmowę z tą osobą, więc panelu uczestników już się nie
-          otworzy: gdyby odblokowanie było tylko tam, blokada byłaby pułapką bez
-          wyjścia. Karta pojawia się dopiero, gdy jest kogo pokazać.
-        */}
-        {zablokowani.size > 0 && (
-          <div className="karta">
-            <strong>Zablokowani</strong>
-            <p className="wskazowka">
-              Nie dostajesz od nich wiadomości ani zaproszeń. Odblokowanie
-              przywraca rozmowy i wszystko, co przyszło w międzyczasie.
-            </p>
-            <ul className="lista-zablokowanych">
-              {[...zablokowani].sort((a, b) => a.localeCompare(b)).map((osoba) => (
-                <li key={osoba}>
-                  <span className="awatar maly" aria-hidden="true">
-                    {nick(osoba).slice(0, 1)}
-                  </span>
-                  <span className="kto">{nick(osoba)}</span>
-                  <button type="button" className="cichy" onClick={() => onOdblokuj(osoba)}>
-                    Odblokuj
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Bez opisu: przełącznik z trzema podpisanymi opcjami mówi wszystko,
-            co da się o nim powiedzieć. */}
-        <div className="karta">
-          <strong>Wygląd</strong>
-          <WyborMotywuUI />
-        </div>
-
-        <KopiaRozmow onBlad={onBlad} />
-
-        <Urzadzenia messenger={messenger} onBlad={onBlad} />
-
-        <PasskeyZarzadzanie messenger={messenger} onBlad={onBlad} />
-
-        <ZmianaAuthenticatora messenger={messenger} onBlad={onBlad} />
-
-        <ZglosBlad token={messenger.accessToken} />
-
-        {/*
-          To zdanie ZOSTAJE i zostaje w całości.
-
-          Nie jest opisem mechanizmu — jest jedyną informacją, przez którą ktoś
-          może stracić wszystkie swoje rozmowy, jeśli jej nie przeczyta. Skrócone
-          do „rozmowy są zapisane lokalnie" nie mówi już, co z tego wynika ani co
-          zrobić, zanim będzie za późno.
-        */}
-        <div className="karta">
-          <strong>Twoje rozmowy</strong>
-          <p className="wskazowka-ikona">
-            <Ikona nazwa="klucz" rozmiar={14} />
-            Są zapisane tylko na tym urządzeniu — nie mamy ich kopii i nie
-            odtworzymy ich nikomu. Zanim zmienisz telefon, przenieś konto.
-          </p>
-        </div>
-      </div>
-
-      {/*
-        Kasowanie w osobnej strefie, na dole i za linią.
-
-        Nieodwracalne obok odwracalnego to zaproszenie do pomyłki — a tej
-        pomyłki nie da się cofnąć, bo historii nie ma nigdzie indziej.
-      */}
-      <section className="strefa-kasowania">
-        <strong>Usunięcie konta z tego urządzenia</strong>
-        <p className="wskazowka">Historii nie da się odzyskać — nigdzie jej nie zapisujemy.</p>
-
-        <button
-          className="niszczacy"
-          onClick={async () => {
-            if (confirm("Usunąć konto z tego urządzenia? Historii nie da się odzyskać.")) {
-              // Najlepszy wysiłek: nawet gdy się nie powiedzie (offline),
-              // lokalne skasowanie musi zajść — użytkownik prosił o usunięcie
-              // danych na TYM urządzeniu, niezależnie od stanu sieci.
-              await logout(messenger.account.deviceId).catch(() => {});
-              await wipe();
-              location.reload();
-            }
-          }}
-        >
-          <Ikona nazwa="kosz" rozmiar={16} />
-          Usuń konto z tego urządzenia
-        </button>
-      </section>
-    </>
-  );
-}
-
-/** Dodawanie passkeya do konta — punkt wejścia do rejestracji, nie logowania. */
-/**
- * Zmiana aplikacji authenticator (drugiego składnika).
- *
- * # Dlaczego najpierw ponowne uwierzytelnienie
- *
- * Podmiana authenticatora przejmuje logowanie na stałe, więc nie może wystarczyć
- * otwarta sesja — przejęte, odblokowane urządzenie ma otwartą sesję. Zanim
- * serwer wyda nowy sekret, żąda świeżego dowodu: passkeya albo aktualnego kodu
- * ze starego authenticatora.
- *
- * # Dlaczego stary działa aż do potwierdzenia
- *
- * Nowy sekret jest OCZEKUJĄCY, dopóki użytkownik nie wpisze pierwszego kodu
- * z nowej aplikacji. Gdyby aktywował się od razu po pokazaniu QR, zamknięcie
- * karty w pół drogi zostawiłoby konto bez żadnego działającego authenticatora.
- */
-function ZmianaAuthenticatora({
-  messenger,
-  onBlad,
-}: {
-  messenger: Messenger;
-  onBlad: (e: unknown) => void;
-}) {
-  type Etap =
-    | { nazwa: "spoczynek" }
-    | { nazwa: "reauth" }
-    | { nazwa: "nowy"; totpSecret: string; otpauthUri: string };
-
-  const [etap, setEtap] = useState<Etap>({ nazwa: "spoczynek" });
-  const [staryKod, setStaryKod] = useState("");
-  const [nowyKod, setNowyKod] = useState("");
-  const [pracuje, setPracuje] = useState(false);
-  const [gotowe, setGotowe] = useState(false);
-
-  const token = messenger.accessToken;
-
-  const zaczniPasskeyem = async () => {
-    setPracuje(true);
-    try {
-      const opcje = await totpChangeOptions(token);
-      const odpowiedz = await getPasskey(opcje);
-      const nowy = await totpChangeStartPasskeyem(token, odpowiedz);
-      setEtap({ nazwa: "nowy", ...nowy });
-    } catch (err) {
-      onBlad(err);
-    } finally {
-      setPracuje(false);
-    }
-  };
-
-  const zaczniKodem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPracuje(true);
-    try {
-      const nowy = await totpChangeStartKodem(token, staryKod.trim());
-      setStaryKod("");
-      setEtap({ nazwa: "nowy", ...nowy });
-    } catch (err) {
-      onBlad(err);
-    } finally {
-      setPracuje(false);
-    }
-  };
-
-  const potwierdz = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPracuje(true);
-    try {
-      await totpChangeConfirm(token, nowyKod.trim());
-      setNowyKod("");
-      setEtap({ nazwa: "spoczynek" });
-      setGotowe(true);
-    } catch (err) {
-      onBlad(err);
-    } finally {
-      setPracuje(false);
-    }
-  };
-
-  return (
-    <div className="karta">
-      <strong>Aplikacja authenticator</strong>
-
-      {etap.nazwa === "spoczynek" && (
-        <>
-          <p className="wskazowka">
-            Zmieniasz telefon albo aplikację? Podłącz nowy authenticator — najpierw
-            potwierdzisz, że to Ty.
-          </p>
-          {gotowe && (
-            <p className="wskazowka-ikona">
-              <Ikona nazwa="wyslane" rozmiar={14} />
-              Authenticator zmieniony. Od teraz loguj się kodami z nowej aplikacji.
-            </p>
-          )}
-          <button
-            onClick={() => {
-              setGotowe(false);
-              setEtap({ nazwa: "reauth" });
-            }}
           >
-            Zmień authenticator
+            <Ikona nazwa={g.ikona} rozmiar={20} />
+            <span className="md:sr-only">{g.etykieta}</span>
+            {g.klucz === "rozmowy" && nieprzeczytane > 0 && (
+              <Znacznik liczba={nieprzeczytane} className="absolute -top-0.5 right-1 md:-right-1" />
+            )}
           </button>
-        </>
-      )}
-
-      {etap.nazwa === "reauth" && (
-        <>
-          <p className="wskazowka">
-            Potwierdź, że to Ty — passkeyem albo aktualnym kodem ze starego authenticatora.
-          </p>
-
-          {isPasskeySupported() && (
-            <button disabled={pracuje} onClick={zaczniPasskeyem}>
-              <Ikona nazwa="blokada" rozmiar={16} />
-              {pracuje ? "Czekam…" : "Potwierdź passkeyem"}
-            </button>
-          )}
-
-          <form onSubmit={zaczniKodem}>
-            <label>
-              Kod ze starego authenticatora
-              <input
-                value={staryKod}
-                onChange={(e) => setStaryKod(e.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-              />
-            </label>
-            <button className="glowny" disabled={pracuje}>
-              Dalej
-            </button>
-          </form>
-
-          <button onClick={() => setEtap({ nazwa: "spoczynek" })}>Anuluj</button>
-        </>
-      )}
-
-      {etap.nazwa === "nowy" && (
-        <>
-          <p className="wskazowka">
-            Zeskanuj w <strong>nowej</strong> aplikacji authenticator, potem wpisz jej pierwszy
-            kod. Stary authenticator działa aż do potwierdzenia.
-          </p>
-
-          <KodQr tresc={etap.otpauthUri} opis="Kod QR nowego authenticatora" />
-
-          <details className="sekret-recznie">
-            <summary>Albo wpisz sekret ręcznie</summary>
-            <code className="sekret">{etap.totpSecret}</code>
-          </details>
-
-          <form onSubmit={potwierdz}>
-            <label>
-              Kod z nowej aplikacji
-              <input
-                value={nowyKod}
-                onChange={(e) => setNowyKod(e.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-              />
-            </label>
-            <button className="glowny" disabled={pracuje}>
-              {pracuje ? "Potwierdzam…" : "Potwierdź zmianę"}
-            </button>
-          </form>
-
-          <button onClick={() => setEtap({ nazwa: "spoczynek" })}>Anuluj</button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function PasskeyZarzadzanie({
-  messenger,
-  onBlad,
-}: {
-  messenger: Messenger;
-  onBlad: (e: unknown) => void;
-}) {
-  const [pracuje, setPracuje] = useState(false);
-  const [zarejestrowano, setZarejestrowano] = useState(false);
-
-  if (!isPasskeySupported()) return null;
-
-  return (
-    <div className="karta">
-      <strong>Passkey</strong>
-      <p className="wskazowka">
-        Zaloguj się odciskiem palca, PIN-em albo kluczem sprzętowym — zamiast wpisywać hasło
-        i kod za każdym razem.
-      </p>
-      <button
-        disabled={pracuje || zarejestrowano}
-        onClick={async () => {
-          setPracuje(true);
-          try {
-            const opcje = await webauthnRegisterOptions(messenger.accessToken);
-            const odpowiedz = await createPasskey(opcje);
-            await webauthnRegisterVerify(messenger.accessToken, odpowiedz);
-            setZarejestrowano(true);
-          } catch (err) {
-            onBlad(err);
-          } finally {
-            setPracuje(false);
-          }
-        }}
-      >
-        <Ikona nazwa={zarejestrowano ? "wyslane" : "blokada"} rozmiar={16} />
-        {zarejestrowano ? "Passkey dodany" : pracuje ? "Dodaję…" : "Dodaj passkey"}
-      </button>
-    </div>
+        );
+      })}
+    </nav>
   );
 }

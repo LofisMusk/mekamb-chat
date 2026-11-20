@@ -55,28 +55,28 @@
   color-scheme: dark;
 
   /* Neutralny — ciepły odcień szarości, nie idealnie czysty. */
-  --tlo: #111113;
-  --karta: #1c1c20;
-  --wglebienie: #26262a;
-  --wglebienie-mocne: #404045;
+  --tlo: #0a0a0a;
+  --karta: #171717;
+  --wglebienie: #262626;
+  --wglebienie-mocne: #404040;
 
-  --tekst: #f7f7f8;
-  --tekst-drugi: #9ca0aa;
-  --tekst-trzeci: #6b6e77;
+  --tekst: #fafafa;
+  --tekst-drugi: #a3a3a3;
+  --tekst-trzeci: #737373;
 
   /* Linia z nutą ciepła — mniej chłodna niż czysta biel. */
-  --linia: rgba(255, 255, 255, 0.14);
-  --linia-mocna: rgba(255, 255, 255, 0.24);
-  --pierscien: #858993;
+  --linia: rgb(255 255 255 / .10);
+  --linia-mocna: rgb(255 255 255 / .15);
+  --pierscien: #737373;
 
   /* Kropka koloru — nie akcent, ale rozstrzygająca plama na ekranie. */
-  --glowny: #d4d4db;
-  --glowny-tekst: #1c1c20;
+  --glowny: #e5e5e5;
+  --glowny-tekst: #171717;
 
-  --alarm: #ef6b6b;
-  --alarm-tlo: rgba(239, 107, 107, 0.12);
-  --sukces: #5fd38d;
-  --ostrzezenie: #e9c46a;
+  --alarm: #f87171;
+  --alarm-tlo: #450a0a;
+  --sukces: #4ade80;
+  --ostrzezenie: #fbbf24;
 
   --nakladka: rgb(0 0 0 / .6);
 
@@ -93,25 +93,25 @@
   :root:not([data-motyw]) {
     color-scheme: light;
     /* Neutralny — lekko ciepły odcień białego. */
-    --tlo: #f8f8fa;
+    --tlo: #ffffff;
     --karta: #ffffff;
-    --wglebienie: #f0f0f3;
-    --wglebienie-mocne: #e4e4e8;
-    --tekst: #1d1e21;
-    --tekst-drugi: #6e717a;
-    --tekst-trzeci: #9ca0aa;
-    --linia: rgba(0, 0, 0, 0.1);
-    --linia-mocna: rgba(0, 0, 0, 0.2);
-    --pierscien: #858993;
+    --wglebienie: #f5f5f5;
+    --wglebienie-mocne: #e5e5e5;
+    --tekst: #0a0a0a;
+    --tekst-drugi: #737373;
+    --tekst-trzeci: #a3a3a3;
+    --linia: #e5e5e5;
+    --linia-mocna: #d4d4d4;
+    --pierscien: #a3a3a3;
 
     /* Kropka koloru — kontrast z jasnym tłem. */
-    --glowny: #1d1e21;
-    --glowny-tekst: #f8f8fa;
+    --glowny: #171717;
+    --glowny-tekst: #fafafa;
 
-    --alarm: #d94b4b;
-    --alarm-tlo: rgba(217, 75, 75, 0.1);
-    --sukces: #3ba66a;
-    --ostrzezenie: #c99a2e;
+    --alarm: #dc2626;
+    --alarm-tlo: #fef2f2;
+    --sukces: #16a34a;
+    --ostrzezenie: #d97706;
     --nakladka: rgb(0 0 0 / .4);
     --cien: 0 1px 2px #0000000d;
   }

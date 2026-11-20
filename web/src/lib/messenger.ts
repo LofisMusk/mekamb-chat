@@ -11,10 +11,11 @@ import init, {
 } from "../wasm/mekamb_wasm";
 import { ApiError, api } from "./api";
 import { czyWlasna, zapamietaj } from "./echa";
-import { WYSCIG, odmowaRelaya } from "./relay";
+import { odmowaRelaya, wyscig } from "./relay";
 import { ileTokenow, naglowekTokenu, uzupelnij, wezToken } from "./tokeny";
 import type { Account } from "./vault";
 import { loadSeed, loadState, saveSeed, saveState } from "./vault";
+import { t } from "./jezyk";
 
 /**
  * Warstwa spinająca kryptografię (WASM) z siecią (skrzynka na Workerze).
@@ -348,7 +349,7 @@ export class Messenger {
     );
 
     if (devices.length === 0) {
-      throw new Error(`użytkownik ${username} nie ma zarejestrowanych urządzeń`);
+      throw new Error(t(`użytkownik ${username} nie ma zarejestrowanych urządzeń`, `user ${username} has no registered devices`));
     }
 
     const pakiety = await this.pobierzPakiety(devices);
@@ -356,8 +357,8 @@ export class Messenger {
       // Wszystkie urządzenia bez wolnych key packages. Dodanie „zera osób"
       // zajęłoby epokę bez żadnej zmiany składu, więc lepiej powiedzieć wprost.
       throw new Error(
-        `żadne urządzenie użytkownika ${username} nie ma wolnych key packages — ` +
-          `niech otworzy aplikację i spróbuj ponownie`,
+        t(`żadne urządzenie użytkownika ${username} nie ma wolnych key packages — `, `none of ${username}'s devices has free key packages — `) +
+          t("niech otworzy aplikację i spróbuj ponownie", "ask them to open the app and try again"),
       );
     }
 
@@ -383,7 +384,7 @@ export class Messenger {
     const pakiety = await this.pobierzPakiety([{ deviceId }]);
     if (pakiety.length === 0) {
       throw new Error(
-        "nowe urządzenie nie ma wolnych key packages — otwórz na nim aplikację i spróbuj ponownie",
+        t("nowe urządzenie nie ma wolnych key packages — otwórz na nim aplikację i spróbuj ponownie", "the new device has no free key packages — open the app on it and try again"),
       );
     }
 
@@ -551,7 +552,7 @@ export class Messenger {
     }
 
     // Odpowiedź 200 z `accepted: false` — serwer odpowiedział, epoki nie zajął.
-    await this.porzucCommit(groupId, WYSCIG);
+    await this.porzucCommit(groupId, wyscig());
   }
 
   /** Porzuca przygotowany commit, zapisuje stan i zgłasza powód wywołującemu. */
@@ -731,7 +732,7 @@ export class Messenger {
   ): Promise<{ stripped: boolean; messageId: string; zalacznik: ReceivedAttachment }> {
     if (file.size > maxAttachmentBytes()) {
       throw new Error(
-        `plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to ` +
+        t(`plik ma ${Math.round(file.size / 1024 / 1024)} MB, limit to `, `the file is ${Math.round(file.size / 1024 / 1024)} MB, the limit is `) +
           `${Math.round(maxAttachmentBytes() / 1024 / 1024)} MB`,
       );
     }

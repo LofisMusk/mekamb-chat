@@ -23,6 +23,7 @@
  */
 
 import type { NazwaIkony } from "../Ikony";
+import { t } from "./jezyk";
 
 export type RodzajPotwierdzenia = "delivered" | "read";
 
@@ -141,11 +142,11 @@ export function stanZPotwierdzenia(rodzaj: RodzajPotwierdzenia): StanWiadomosci 
 export function opisStanu(stan: StanWiadomosci): { ikona: NazwaIkony; etykieta: string } {
   switch (stan) {
     case "w-locie":
-      return { ikona: "zegar", etykieta: "wysyłam" };
+      return { ikona: "zegar", etykieta: t("wysyłam", "sending") };
     case "nieudana":
-      return { ikona: "niepowodzenie", etykieta: "nie wysłano" };
+      return { ikona: "niepowodzenie", etykieta: t("nie wysłano", "not sent") };
     case "wyslane":
-      return { ikona: "wyslane", etykieta: "wysłano" };
+      return { ikona: "wyslane", etykieta: t("wysłano", "sent") };
     case "dostarczone":
       return { ikona: "dostarczone", etykieta: "dostarczono" };
     case "przeczytane":

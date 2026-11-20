@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { ustawJezyk } from "./jezyk";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { WYSCIG, odmowaRelaya } from "./relay";
+import { odmowaRelaya, wyscig } from "./relay";
 
 /**
  * Sedno: odmowa, po której commit zostaje przygotowany, psuje CAŁĄ rozmowę —
@@ -11,11 +12,15 @@ import { WYSCIG, odmowaRelaya } from "./relay";
  * Niepusty wynik znaczy „porzuć commit i powiedz to użytkownikowi", `null` —
  * „nie ruszaj stanu MLS".
  */
+// Komunikaty sprawdzamy po polsku — angielski jest domyślny, więc wybór wprost.
+beforeAll(() => ustawJezyk("pl"));
+afterAll(() => ustawJezyk("en"));
+
 describe("odmowa relaya", () => {
   it("wyścig porzuca commit", () => {
     // 409 znaczy „ktoś był pierwszy": epoka jest zajęta cudzym commitem,
     // a nasz nie ma już szans i musi zniknąć.
-    expect(odmowaRelaya(409)).toBe(WYSCIG);
+    expect(odmowaRelaya(409)).toBe(wyscig());
   });
 
   it("serwer w innej wersji porzuca commit", () => {

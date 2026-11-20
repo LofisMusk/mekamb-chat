@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "./lib/jezyk";
 
 /**
  * Ostatnia zapora przed czarnym ekranem.
@@ -49,23 +50,21 @@ export class Awaria extends Component<{ children: ReactNode }, Stan> {
     return (
       <main className="wejscie">
         <div className="mx-auto flex max-w-md flex-col gap-4 py-10">
-          <h1 className="text-tytul">Coś się posypało</h1>
+          <h1 className="text-tytul">{t("Coś się posypało", "Something broke")}</h1>
           <p className="wskazowka">
-            Interfejs przerwał pracę. Twoje dane są na miejscu — historia i klucze
-            leżą w tej przeglądarce i ta awaria ich nie dotyka.
+            {t("Interfejs przerwał pracę. Twoje dane są na miejscu — historia i klucze leżą w tej przeglądarce i ta awaria ich nie dotyka.", "The interface stopped working. Your data is safe — history and keys are stored in this browser and this crash doesn't touch them.")}
           </p>
 
           <div className="karta">
             <strong className="font-mono text-meta break-words">{blad.message}</strong>
             <p className="wskazowka">
-              Odświeżenie zwykle wystarcza. Jeśli błąd wraca przy tej samej
-              czynności, zapisz powyższą treść — mówi, co dokładnie zawiodło.
+              {t("Odświeżenie zwykle wystarcza. Jeśli błąd wraca przy tej samej czynności, zapisz powyższą treść — mówi, co dokładnie zawiodło.", "Reloading usually helps. If the error comes back during the same action, save the text above — it says exactly what failed.")}
             </p>
             <button
               className="h-10 cursor-pointer rounded-md bg-glowny px-4 font-medium text-glowny-tekst"
               onClick={() => location.reload()}
             >
-              Odśwież aplikację
+              {t("Odśwież aplikację", "Reload the app")}
             </button>
           </div>
         </div>

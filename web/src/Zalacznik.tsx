@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Ikona, type NazwaIkony } from "./Ikony";
 import { Migotanie } from "./Wspolne";
 import type { Messenger, ReceivedAttachment } from "./lib/messenger";
+import { t } from "./lib/jezyk";
 
 /*
  * Przycisk pliku w dymku bierze kolor z tekstu dymka (`currentColor`), a nie
@@ -75,7 +76,7 @@ export function Zalacznik({
   }, [url]);
 
   const rozmiarMb = (zalacznik.sizeBytes / 1024 / 1024).toFixed(1);
-  const nazwa = zalacznik.fileName ?? "załącznik";
+  const nazwa = zalacznik.fileName ?? t("załącznik", "attachment");
 
   // Ikona mówi, czego nie widać: dokument nie ma podglądu, więc jego rodzaj
   // jest jedyną informacją, jaką da się pokazać przed pobraniem.
@@ -88,12 +89,12 @@ export function Zalacznik({
       return pobiera ? (
         <Migotanie
           className="zalacznik-media h-44 w-60 max-w-full rounded-[14px]"
-          opis="Odszyfrowuję…"
+          opis={t("Odszyfrowuję…", "Decrypting…")}
         />
       ) : (
         <span className="flex items-center gap-1.5 px-1 py-1 text-meta opacity-80">
           <Ikona nazwa="niepowodzenie" rozmiar={14} />
-          nie udało się odszyfrować
+          {t("nie udało się odszyfrować", "couldn't decrypt")}
         </span>
       );
     }
@@ -115,7 +116,7 @@ export function Zalacznik({
         }}
       >
         <Ikona nazwa={pobiera ? "zegar" : piktogram} rozmiar={14} />
-        <span className="truncate">{pobiera ? "Odszyfrowuję…" : `${nazwa} · ${rozmiarMb} MB`}</span>
+        <span className="truncate">{pobiera ? t("Odszyfrowuję…", "Decrypting…") : t(`${nazwa} · ${rozmiarMb} MB`, `${nazwa} · ${rozmiarMb} MB`)}</span>
       </button>
     );
   }
@@ -129,7 +130,7 @@ export function Zalacznik({
           type="button"
           className="zalacznik-media block cursor-zoom-in rounded-[14px] transition-[filter] duration-150 hover:brightness-[1.04]"
           onClick={() => setNaPelnym(true)}
-          aria-label={`Powiększ zdjęcie: ${nazwa}`}
+          aria-label={t(`Powiększ zdjęcie: ${nazwa}`, `Enlarge photo: ${nazwa}`)}
         >
           <img className="zalacznik" src={url} alt={nazwa} />
         </button>
@@ -142,7 +143,7 @@ export function Zalacznik({
   return (
     <a className={klasyPliku} href={url} download={zalacznik.fileName ?? "zalacznik"}>
       <Ikona nazwa="pobierz" rozmiar={14} />
-      <span className="truncate">Pobierz {nazwa}</span>
+      <span className="truncate">{t("Pobierz", "Download")} {nazwa}</span>
     </a>
   );
 }
@@ -181,10 +182,10 @@ function Pelnoekranowy({
           className="fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center p-4 outline-none md:p-10 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
           onClick={() => onZmiana(false)}
         >
-          <DialogPrimitive.Title className="tylko-dla-czytnika">Zdjęcie: {nazwa}</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="tylko-dla-czytnika">{t("Zdjęcie:", "Photo:")} {nazwa}</DialogPrimitive.Title>
           <DialogPrimitive.Close
             className="absolute top-[max(16px,var(--bezpiecznie-gora))] right-4 grid size-10 cursor-pointer place-items-center rounded-full bg-white/12 text-white transition-colors hover:bg-white/22"
-            aria-label="Zamknij"
+            aria-label={t("Zamknij", "Close")}
           >
             <Ikona nazwa="zamknij" rozmiar={20} />
           </DialogPrimitive.Close>

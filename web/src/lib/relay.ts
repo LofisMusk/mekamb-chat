@@ -1,3 +1,4 @@
+import { t } from "./jezyk";
 /**
  * Co zrobić z przygotowanym commitem, gdy relay go nie przyjął.
  *
@@ -30,7 +31,8 @@
  * Wystawiona osobno, bo ta sama sytuacja przychodzi dwiema drogami: kodem 409
  * i odpowiedzią `200` z `accepted: false`.
  */
-export const WYSCIG = "Ktoś zmienił skład tej rozmowy w tej samej chwili. Spróbuj jeszcze raz.";
+// Funkcja, nie stała: stała policzona przy imporcie zostałaby w języku startu.
+export const wyscig = () => t("Ktoś zmienił skład tej rozmowy w tej samej chwili. Spróbuj jeszcze raz.", "Someone changed this conversation's members at the same moment. Try again.");
 
 /**
  * Rozstrzyga odmowę na podstawie kodu odpowiedzi.
@@ -48,13 +50,13 @@ export function odmowaRelaya(status: number): string | null {
   // Wyścig: ktoś zdążył pierwszy, epoka jest już zajęta jego commitem. Nasz
   // trzeba porzucić, przetworzyć cudzy (dojdzie skrzynką) i spróbować ponownie.
   if (status === 409) {
-    return WYSCIG;
+    return wyscig();
   }
 
   // Wygasła sesja jest zwykłym stanem, nie awarią — i ma inne wyjście niż
   // „spróbuj ponownie", więc nie może chować się pod komunikatem o serwerze.
   if (status === 401 || status === 403) {
-    return "Sesja wygasła. Zaloguj się ponownie i powtórz tę zmianę.";
+    return t("Sesja wygasła. Zaloguj się ponownie i powtórz tę zmianę.", "Your session expired. Sign in again and repeat this change.");
   }
 
   // Pozostałe odmowy klienta: żądanie w ogóle nie doszło do relaya, więc epoka
@@ -63,8 +65,8 @@ export function odmowaRelaya(status: number): string | null {
   // nie zrobi.
   if (status >= 400 && status < 500) {
     return (
-      "Serwer nie przyjął zmiany składu rozmowy — najpewniej działa w starszej wersji " +
-      "niż ta aplikacja. Spróbuj ponownie, gdy zostanie zaktualizowany."
+      t("Serwer nie przyjął zmiany składu rozmowy — najpewniej działa w starszej wersji ", "The server didn't accept the membership change — it's most likely running an older version ") +
+      t("niż ta aplikacja. Spróbuj ponownie, gdy zostanie zaktualizowany.", "than this app. Try again once it's updated.")
     );
   }
 

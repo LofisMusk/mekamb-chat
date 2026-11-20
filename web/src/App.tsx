@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Czat } from "./Czat";
 import { Ikona } from "./Ikony";
 import { KodQr } from "./KodQr";
-import { Migotanie, WyborMotywuUI, WzorKropek, ZnakMarki } from "./Wspolne";
+import { Migotanie, WyborJezykaUI, WyborMotywuUI, WzorKropek, ZnakMarki } from "./Wspolne";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import {
@@ -32,6 +32,7 @@ import {
   requestPersistence,
   saveAccount,
 } from "./lib/vault";
+import { t, useJezyk } from "./lib/jezyk";
 
 /** Minimalna długość hasła — ta sama, na którą patrzy przycisk „Załóż konto". */
 const MINIMUM_HASLA = 12;
@@ -77,10 +78,9 @@ type Ekran =
 /**
  * Tytuł ekranu w pasku — jedno miejsce zamiast napisu wpisanego w każdym.
  *
- * Dwujęzycznie: polski wiodący, angielski drugą linią. To konwencja z projektu,
- * ta sama co w `NaglowekEkranu` na Androidzie — polski jest pierwszy, angielski
- * towarzyszy nagłówkom i głównym akcjom. Tekstów pomocniczych nie dotyczy: tam
- * druga wersja jest szumem, a nie ułatwieniem.
+ * Jeden język naraz, wybrany przełącznikiem (`lib/jezyk.ts`). Wcześniej tytuł
+ * stał w dwóch liniach, PL i EN — obejście braku przełącznika, tak jak
+ * „Załóż konto · Create account" na przyciskach.
  */
 const TYTULY: Partial<Record<Ekran["nazwa"], { pl: string; en: string }>> = {
   rejestracja: { pl: "Nowe konto", en: "New account" },
@@ -90,6 +90,9 @@ const TYTULY: Partial<Record<Ekran["nazwa"], { pl: string; en: string }>> = {
 };
 
 export function App() {
+  // Subskrypcja języka w korzeniu: zmiana przełącznika przerysowuje całe
+  // drzewo, a `t()` w każdym komponencie czyta nowy język przy renderze.
+  useJezyk();
   const [ekran, setEkran] = useState<Ekran>({ nazwa: "ladowanie" });
   const [trwaly, setTrwaly] = useState(true);
 
@@ -143,7 +146,7 @@ export function App() {
         // Sieć mogła paść między odświeżeniem a rejestracją urządzenia.
         // Ekran logowania jest tu bezpiecznym miejscem powrotu — ale z powodem
         // wypisanym wprost, bo inaczej wygląda to na wylogowanie bez przyczyny.
-        pokazBlad(`Nie udało się przywrócić sesji (${opisBledu(e)}). Zaloguj się ponownie.`);
+        pokazBlad(t(`Nie udało się przywrócić sesji (${opisBledu(e)}). Zaloguj się ponownie.`, `Couldn't restore the session (${opisBledu(e)}). Please sign in again.`));
         setEkran({ nazwa: "logowanie" });
       }
     })();
@@ -172,8 +175,8 @@ export function App() {
           // Stały identyfikator: w trybie ścisłym React woła tę funkcję dwa
           // razy, a komunikat ma się pokazać raz.
           pokazBlad(
-            "Konto zostało założone, ale niepotwierdzone — bez kodu z authenticatora nie da " +
-              "się na nie zalogować, a jego nazwa pozostaje zajęta.",
+            t("Konto zostało założone, ale niepotwierdzone — bez kodu z authenticatora nie da ", "The account was created but not confirmed — without the authenticator code you can't sign in to it, and its name stays taken. ") +
+              t("się na nie zalogować, a jego nazwa pozostaje zajęta.", ""),
             "niepotwierdzone",
           );
           return { nazwa: "logowanie" };
@@ -211,7 +214,12 @@ export function App() {
 
       <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col">
         <div className="flex justify-end">
-          <WyborMotywuUI />
+          <div className="flex items-center gap-2">
+            {/* Przełącznik języka PRZED logowaniem — osoba nieznająca angielskiego
+                musi dotrzeć do polskiego bez wchodzenia do ustawień. */}
+            <WyborJezykaUI />
+            <WyborMotywuUI />
+          </div>
         </div>
 
         <div className="flex flex-1 flex-col justify-center gap-6 py-8">
@@ -233,19 +241,18 @@ export function App() {
 
           {wEkranieZPowrotem && tytul && (
             <div className="-mb-2 flex items-center gap-2">
-              <Button variant="ghost" size="icon" aria-label="Wróć" onClick={() => history.back()}>
+              <Button variant="ghost" size="icon" aria-label={t("Wróć", "Back")} onClick={() => history.back()}>
                 <Ikona nazwa="wstecz" rozmiar={18} />
               </Button>
               <span className="flex min-w-0 flex-col">
-                <h2 className="text-tytul">{tytul.pl}</h2>
-                <span className="text-podpis text-tekst-trzeci">{tytul.en}</span>
+                <h2 className="text-tytul">{t(tytul.pl, tytul.en)}</h2>
               </span>
             </div>
           )}
 
           {ekran.nazwa === "ladowanie" && (
             <div className="karta" aria-busy="true">
-              <Migotanie className="h-10" opis="Wczytywanie…" />
+              <Migotanie className="h-10" opis={t("Wczytywanie…", "Loading…")} />
               <Migotanie className="h-10 opacity-70" opis="" />
             </div>
           )}
@@ -254,10 +261,10 @@ export function App() {
             <div className="karta">
               <Button onClick={() => setEkran({ nazwa: "rejestracja" })}>
                 <Ikona nazwa="dodaj" rozmiar={16} />
-                Załóż konto · Create account
+                {t("Załóż konto", "Create account")}
               </Button>
               <Button variant="outline" onClick={() => setEkran({ nazwa: "logowanie" })}>
-                Mam już konto · Sign in
+                {t("Mam już konto", "I already have an account")}
               </Button>
               <PrzyciskPasskey
                 wariant="ghost"
@@ -308,7 +315,7 @@ export function App() {
                   onGotowe={(messenger) => setEkran({ nazwa: "czat", messenger })}
                 />
                 <Button variant="ghost" onClick={() => setEkran({ nazwa: "powitanie" })}>
-                  Nie mam jeszcze konta · Create account
+                  {t("Nie mam jeszcze konta", "I don't have an account yet")}
                 </Button>
               </div>
             </>
@@ -357,16 +364,14 @@ function OstrzezenieOTrwalosci({ onOdswiez }: { onOdswiez: () => void }) {
         <span className="mt-0.5 text-ostrzezenie">
           <Ikona nazwa="ostrzezenie" rozmiar={16} />
         </span>
-        Twoje dane mogą zostać skasowane przez system.
+        {t("Twoje dane mogą zostać skasowane przez system.", "The system may delete your data.")}
       </strong>
       <p className="wskazowka">
-        Historia rozmów jest wyłącznie na tym urządzeniu — serwer jej nie ma, więc nikt jej nie
-        odtworzy.
+        {t("Historia rozmów jest wyłącznie na tym urządzeniu — serwer jej nie ma, więc nikt jej nie odtworzy.", "Chat history lives only on this device — the server doesn't have it, so no one can restore it.")}
       </p>
       {!zainstalowana ? (
         <p className="wskazowka">
-          Na iPhonie: otwórz w Safari, wybierz <em>Udostępnij → Dodaj do ekranu głównego</em>,
-          a potem uruchom aplikację z ikony. Bez tego iOS nie pozwala zabezpieczyć danych.
+          {t("Na iPhonie: otwórz w Safari, wybierz", "On iPhone: open in Safari, choose")} <em>{t("Udostępnij → Dodaj do ekranu głównego", "Share → Add to Home Screen")}</em>{t(", a potem uruchom aplikację z ikony. Bez tego iOS nie pozwala zabezpieczyć danych.", ", then launch the app from the icon. Without that, iOS won't let the app protect its data.")}
         </p>
       ) : (
         <Button
@@ -379,7 +384,7 @@ function OstrzezenieOTrwalosci({ onOdswiez }: { onOdswiez: () => void }) {
           }}
         >
           <Ikona nazwa="tarcza" rozmiar={16} />
-          Zabezpiecz dane na tym urządzeniu
+          {t("Zabezpiecz dane na tym urządzeniu", "Protect the data on this device")}
         </Button>
       )}
     </section>
@@ -407,7 +412,7 @@ function SilaHasla({ haslo }: { haslo: string }) {
         <span key={i} className={i < wypelnione ? "kreska pelna" : "kreska"} />
       ))}
       <span className={wystarczy ? "opis wystarczy" : "opis"}>
-        {wystarczy ? "wystarczy" : `min. ${MINIMUM_HASLA} znaków`}
+        {wystarczy ? "wystarczy" : t(`min. ${MINIMUM_HASLA} znaków`, `min. ${MINIMUM_HASLA} characters`)}
       </span>
     </div>
   );
@@ -440,7 +445,7 @@ function FormularzRejestracji({
       }}
     >
       <label>
-        Nazwa użytkownika · Username
+        {t("Nazwa użytkownika", "Username")}
         <Input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -451,7 +456,7 @@ function FormularzRejestracji({
       </label>
 
       <label>
-        Hasło · Password
+        {t("Hasło", "Password")}
         <Input
           type="password"
           value={haslo}
@@ -468,12 +473,11 @@ function FormularzRejestracji({
           pochwałą, „nie da się go odzyskać" jest powodem, żeby je zapisać. */}
       <p className="wskazowka-ikona">
         <Ikona nazwa="klucz" rozmiar={14} />
-        Tego hasła nie da się odzyskać ani zresetować. Zapisz je w menedżerze haseł, zanim
-        przejdziesz dalej.
+        {t("Tego hasła nie da się odzyskać ani zresetować. Zapisz je w menedżerze haseł, zanim przejdziesz dalej.", "This password can't be recovered or reset. Save it in a password manager before you continue.")}
       </p>
 
       <Button type="submit" disabled={pracuje}>
-        {pracuje ? "Zakładam…" : "Załóż konto · Create account"}
+        {pracuje ? t("Zakładam…", "Creating…") : t("Załóż konto", "Create account")}
       </Button>
     </form>
   );
@@ -512,24 +516,24 @@ function PotwierdzenieTotp({
         }
       }}
     >
-      <p className="wskazowka">Zeskanuj kod aplikacją authenticator:</p>
+      <p className="wskazowka">{t("Zeskanuj kod aplikacją authenticator:", "Scan the code with an authenticator app:")}</p>
 
-      <KodQr tresc={otpauthUri} opis="Kod QR do dodania konta w aplikacji authenticator" />
+      <KodQr tresc={otpauthUri} opis={t("Kod QR do dodania konta w aplikacji authenticator", "QR code for adding the account to an authenticator app")} />
 
       {/* Trzy drogi, bo żadna nie działa wszędzie: kod QR wymaga drugiego
           urządzenia, odnośnik działa tylko na tym samym telefonie, a sekret
           przepisany ręcznie działa zawsze i jest ostatnią deską ratunku. */}
       <p className="wskazowka">
-        Na tym samym telefonie: <a href={otpauthUri}>otwórz w aplikacji authenticator</a>.
+        {t("Na tym samym telefonie:", "On this same phone:")} <a href={otpauthUri}>{t("otwórz w aplikacji authenticator", "open in the authenticator app")}</a>.
       </p>
 
       <details className="sekret-recznie">
-        <summary>Albo wpisz sekret ręcznie</summary>
+        <summary>{t("Albo wpisz sekret ręcznie", "Or enter the secret manually")}</summary>
         <code className="sekret">{totpSecret}</code>
       </details>
 
       <label>
-        Kod z aplikacji · Code
+        {t("Kod z aplikacji", "Code from the app")}
         <Input
           className="font-mono tracking-[0.2em]"
           value={kod}
@@ -540,10 +544,10 @@ function PotwierdzenieTotp({
         />
       </label>
 
-      <Button type="submit">Potwierdź · Confirm</Button>
+      <Button type="submit">{t("Potwierdź", "Confirm")}</Button>
 
       <p className="wskazowka">
-        Po potwierdzeniu ten kod jest już zużyty — do logowania poczekaj na następny.
+        {t("Po potwierdzeniu ten kod jest już zużyty — do logowania poczekaj na następny.", "Once confirmed, this code is used up — wait for the next one to sign in.")}
       </p>
     </form>
   );
@@ -576,7 +580,7 @@ function FormularzLogowania({
       }}
     >
       <label>
-        Nazwa użytkownika · Username
+        {t("Nazwa użytkownika", "Username")}
         <Input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -586,7 +590,7 @@ function FormularzLogowania({
       </label>
 
       <label>
-        Hasło · Password
+        {t("Hasło", "Password")}
         <Input
           type="password"
           value={haslo}
@@ -597,7 +601,7 @@ function FormularzLogowania({
       </label>
 
       <Button type="submit" disabled={pracuje}>
-        {pracuje ? "Sprawdzam…" : "Dalej · Continue"}
+        {pracuje ? t("Sprawdzam…", "Checking…") : t("Dalej", "Continue")}
       </Button>
     </form>
   );
@@ -638,7 +642,7 @@ function DrugiSkladnik({
       }}
     >
       <label>
-        Kod · Code
+        {t("Kod", "Code")}
         <Input
           className="font-mono tracking-[0.2em]"
           value={kod}
@@ -649,7 +653,7 @@ function DrugiSkladnik({
         />
       </label>
 
-      <Button type="submit">Zaloguj · Sign in</Button>
+      <Button type="submit">{t("Zaloguj", "Sign in")}</Button>
     </form>
   );
 }
@@ -711,7 +715,7 @@ function PrzyciskPasskey({
       }}
     >
       <Ikona nazwa="blokada" rozmiar={16} />
-      {pracuje ? "Loguję…" : "Zaloguj passkeyem · Passkey"}
+      {pracuje ? t("Loguję…", "Signing in…") : t("Zaloguj passkeyem", "Sign in with a passkey")}
     </Button>
   );
 }

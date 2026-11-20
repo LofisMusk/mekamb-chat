@@ -30,6 +30,7 @@ import { Input } from "./components/ui/input";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { Podpowiedz } from "./components/ui/tooltip";
 import { type PozycjaListy, type Wiadomosc, kluczRozmowy } from "./lib/historia";
+import { t } from "./lib/jezyk";
 
 /**
  * Lista rozmów: nagłówek, prośby, szukanie i wiersze.
@@ -62,16 +63,16 @@ export function godzina(czas: number): string {
  */
 export function zapowiedz(w: Wiadomosc): string {
   if (w.rozmowa) {
-    if (w.rozmowa.sekundy === undefined) return "Nieodebrana rozmowa";
-    return w.rozmowa.wideo ? "Rozmowa wideo" : "Rozmowa głosowa";
+    if (w.rozmowa.sekundy === undefined) return t("Nieodebrana rozmowa", "Missed call");
+    return w.rozmowa.wideo ? t("Rozmowa wideo", "Video call") : t("Rozmowa głosowa", "Voice call");
   }
 
   if (w.tresc) return w.tresc;
   if (!w.zalacznik) return "";
 
-  if (w.zalacznik.mimeType.startsWith("image/")) return "Zdjęcie";
-  if (w.zalacznik.mimeType.startsWith("video/")) return "Nagranie";
-  return "Plik";
+  if (w.zalacznik.mimeType.startsWith("image/")) return t("Zdjęcie", "Photo");
+  if (w.zalacznik.mimeType.startsWith("video/")) return t("Nagranie", "Video");
+  return t("Plik", "File");
 }
 
 export function PanelListy({
@@ -110,9 +111,9 @@ export function PanelListy({
   const [doUsuniecia, setDoUsuniecia] = useState<PozycjaListy | null>(null);
 
   return (
-    <aside className="panel-listy" aria-label="Lista rozmów">
+    <aside className="panel-listy" aria-label={t("Lista rozmów", "Conversation list")}>
       <div className="flex h-16 shrink-0 items-center gap-1 pr-2 pl-4">
-        <h2 className="flex-1 text-tytul">Rozmowy</h2>
+        <h2 className="flex-1 text-tytul">{t("Rozmowy", "Chats")}</h2>
 
         {/*
           Dwa wejścia zamiast dawnej zakładki Kontakty: „Nowy czat” (nazwa
@@ -121,9 +122,9 @@ export function PanelListy({
           „z kim chcę zacząć rozmawiać".
         */}
         <DropdownMenu>
-          <Podpowiedz tresc="Nowa rozmowa">
+          <Podpowiedz tresc={t("Nowa rozmowa", "New conversation")}>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Nowa rozmowa">
+              <Button variant="ghost" size="icon" aria-label={t("Nowa rozmowa", "New conversation")}>
                 <Ikona nazwa="dodaj" rozmiar={20} />
               </Button>
             </DropdownMenuTrigger>
@@ -131,11 +132,11 @@ export function PanelListy({
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={onNowyCzat}>
               <Ikona nazwa="kontakty" rozmiar={16} />
-              Nowy czat
+              {t("Nowy czat", "New chat")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onNowaGrupa}>
               <Ikona nazwa="osoby" rozmiar={16} />
-              Nowa grupa
+              {t("Nowa grupa", "New group")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -152,8 +153,8 @@ export function PanelListy({
             type="search"
             value={szukane}
             onChange={(e) => onSzukane(e.target.value)}
-            placeholder="Szukaj"
-            aria-label="Szukaj rozmowy"
+            placeholder={t("Szukaj", "Search")}
+            aria-label={t("Szukaj rozmowy", "Search conversations")}
             className="h-9 pl-9 text-meta pointer-coarse:h-10"
           />
         </div>
@@ -171,17 +172,17 @@ export function PanelListy({
             <Pusto
               className="flex-none"
               ikona="rozmowy"
-              tytul="Nie masz jeszcze żadnej rozmowy"
-              wskazowka="Wystarczy nazwa użytkownika drugiej osoby."
+              tytul={t("Nie masz jeszcze żadnej rozmowy", "No conversations yet")}
+              wskazowka={t("Wystarczy nazwa użytkownika drugiej osoby.", "All you need is the other person's username.")}
             />
             <Button variant="outline" onClick={onNowyCzat}>
               <Ikona nazwa="kontakty" rozmiar={16} />
-              Nowy czat
+              {t("Nowy czat", "New chat")}
             </Button>
           </div>
         )
       ) : rozmowy.length === 0 ? (
-        <Pusto ikona="szukaj" tytul="Nic nie pasuje" wskazowka="Szukamy po nazwie i po ostatniej wiadomości." />
+        <Pusto ikona="szukaj" tytul={t("Nic nie pasuje", "Nothing matches")} wskazowka={t("Szukamy po nazwie i po ostatniej wiadomości.", "We search by name and by the last message.")} />
       ) : (
         <ScrollArea className="flex-1">
           <ul className="flex flex-col gap-0.5 px-2 pt-1 pb-3">
@@ -216,15 +217,14 @@ export function PanelListy({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Usunąć rozmowę z {doUsuniecia ? nazwaPozycji(doUsuniecia) : ""}?
+              {t("Usunąć rozmowę z", "Delete the conversation with")} {doUsuniecia ? nazwaPozycji(doUsuniecia) : ""}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Historia tej rozmowy jest tylko na tym urządzeniu — serwer jej nie ma, więc po
-              usunięciu nikt jej nie odtworzy.
+              {t("Historia tej rozmowy jest tylko na tym urządzeniu — serwer jej nie ma, więc po usunięciu nikt jej nie odtworzy.", "This conversation's history exists only on this device — the server doesn't have it, so once deleted no one can restore it.")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Anuluj</AlertDialogCancel>
+            <AlertDialogCancel>{t("Anuluj", "Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 const cel = doUsuniecia;
@@ -233,7 +233,7 @@ export function PanelListy({
               }}
             >
               <Ikona nazwa="kosz" rozmiar={16} />
-              Usuń
+              {t("Usuń", "Delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -316,12 +316,12 @@ function WierszRozmowy({
           "absolute inset-y-0 right-0 flex w-[88px] cursor-pointer flex-col items-center justify-center gap-0.5 bg-alarm-tlo text-podpis font-medium text-alarm transition-opacity duration-150",
           odslania ? "opacity-100" : "pointer-events-none opacity-0",
         )}
-        aria-label={`Usuń rozmowę z ${nazwa}`}
+        aria-label={t(`Usuń rozmowę z ${nazwa}`, `Delete conversation with ${nazwa}`)}
         onClick={onUsun}
         tabIndex={odsloniete ? 0 : -1}
       >
         <Ikona nazwa="kosz" rozmiar={20} />
-        <span>Usuń</span>
+        <span>{t("Usuń", "Delete")}</span>
       </button>
 
       <ContextMenu>
@@ -412,7 +412,7 @@ function WierszRozmowy({
                     </span>
                   )}
                   <span className="line-clamp-2 min-w-0 break-words">
-                    {ostatnia ? (ostatnia.wlasna ? "Ty: " : "") + zapowiedz(ostatnia) : "brak wiadomości"}
+                    {ostatnia ? (ostatnia.wlasna ? t("Ty: ", "You: ") : "") + zapowiedz(ostatnia) : t("brak wiadomości", "no messages")}
                   </span>
                 </span>
                 {pozycja.nieprzeczytane > 0 && (
@@ -425,11 +425,11 @@ function WierszRozmowy({
         <ContextMenuContent>
           <ContextMenuItem onSelect={onOtworz}>
             <Ikona nazwa="rozmowy" rozmiar={16} />
-            Otwórz
+            {t("Otwórz", "Open")}
           </ContextMenuItem>
           <ContextMenuItem variant="destructive" onSelect={onUsun}>
             <Ikona nazwa="kosz" rozmiar={16} />
-            Usuń rozmowę
+            {t("Usuń rozmowę", "Delete conversation")}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -446,7 +446,7 @@ function WierszRozmowy({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={`Więcej — rozmowa z ${nazwa}`}
+            aria-label={t(`Więcej — rozmowa z ${nazwa}`, `More — conversation with ${nazwa}`)}
             className={cn(
               "absolute top-1/2 right-2 z-[2] hidden -translate-y-1/2 bg-karta pointer-fine:inline-flex",
               "opacity-0 group-hover/wiersz:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100",
@@ -458,7 +458,7 @@ function WierszRozmowy({
         <DropdownMenuContent align="end">
           <DropdownMenuItem variant="destructive" onSelect={onUsun}>
             <Ikona nazwa="kosz" rozmiar={16} />
-            Usuń rozmowę
+            {t("Usuń rozmowę", "Delete conversation")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -493,7 +493,7 @@ function Prosby({
   const [rozwiniete, setRozwiniete] = useState(false);
 
   return (
-    <section className="mx-2 mb-2 shrink-0 rounded-md border border-linia" aria-label="Prośby o rozmowę">
+    <section className="mx-2 mb-2 shrink-0 rounded-md border border-linia" aria-label={t("Prośby o rozmowę", "Message requests")}>
       <button
         type="button"
         className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-meta font-medium text-tekst-drugi transition-colors hover:text-tekst"
@@ -501,7 +501,7 @@ function Prosby({
         onClick={() => setRozwiniete((r) => !r)}
       >
         <Ikona nazwa="rozwin" rozmiar={14} klasa={rozwiniete ? "obrocona" : undefined} />
-        <span className="flex-1 text-left">Prośby o rozmowę</span>
+        <span className="flex-1 text-left">{t("Prośby o rozmowę", "Message requests")}</span>
         <Znacznik liczba={prosby.length} />
       </button>
 
@@ -515,24 +515,24 @@ function Prosby({
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-meta font-medium">{nazwa}</span>
                   <span className="truncate text-podpis text-tekst-drugi">
-                    {pozycja.ostatnia ? zapowiedz(pozycja.ostatnia) : "chce zacząć rozmowę"}
+                    {pozycja.ostatnia ? zapowiedz(pozycja.ostatnia) : t("chce zacząć rozmowę", "wants to start a conversation")}
                   </span>
                 </span>
-                <Podpowiedz tresc="Przyjmij">
+                <Podpowiedz tresc={t("Przyjmij", "Accept")}>
                   <Button
                     variant="outline"
                     size="icon-sm"
-                    aria-label={`Przyjmij prośbę od ${nazwa}`}
+                    aria-label={t(`Przyjmij prośbę od ${nazwa}`, `Accept request from ${nazwa}`)}
                     onClick={() => onPrzyjmij(pozycja)}
                   >
                     <Ikona nazwa="wyslane" rozmiar={16} />
                   </Button>
                 </Podpowiedz>
-                <Podpowiedz tresc="Odrzuć">
+                <Podpowiedz tresc={t("Odrzuć", "Decline")}>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Odrzuć prośbę od ${nazwa}`}
+                    aria-label={t(`Odrzuć prośbę od ${nazwa}`, `Decline request from ${nazwa}`)}
                     onClick={() => onOdrzuc(pozycja)}
                   >
                     <Ikona nazwa="zamknij" rozmiar={16} />
@@ -580,15 +580,15 @@ export function NowyCzat({
         if (!o) setNazwa("");
         onZmiana(o);
       }}
-      tytul="Nowy czat"
-      opis="Katalog nie ma listy do przeglądania — rozmowę zaczyna się od nazwy użytkownika drugiej osoby."
+      tytul={t("Nowy czat", "New chat")}
+      opis={t("Katalog nie ma listy do przeglądania — rozmowę zaczyna się od nazwy użytkownika drugiej osoby.", "The directory has no list to browse — a conversation starts from the other person's username.")}
       stopka={
         <>
           <Button variant="outline" onClick={() => onZmiana(false)}>
-            Anuluj
+            {t("Anuluj", "Cancel")}
           </Button>
           <Button type="submit" form="nowy-czat" disabled={!nazwa.trim()}>
-            Zacznij rozmowę
+            {t("Zacznij rozmowę", "Start conversation")}
           </Button>
         </>
       }
@@ -601,12 +601,12 @@ export function NowyCzat({
         }}
       >
         <label>
-          Nazwa użytkownika
+          {t("Nazwa użytkownika", "Username")}
           <Input
             autoFocus
             value={nazwa}
             onChange={(e) => setNazwa(e.target.value)}
-            placeholder="np. ala"
+            placeholder={t("np. ala", "e.g. alice")}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
@@ -680,11 +680,11 @@ export function NowaGrupa({
         if (!o) wyczysc();
         onZmiana(o);
       }}
-      tytul="Nowa grupa"
+      tytul={t("Nowa grupa", "New group")}
       stopka={
         <>
           <Button variant="outline" onClick={() => onZmiana(false)}>
-            Anuluj
+            {t("Anuluj", "Cancel")}
           </Button>
           <Button
             disabled={wszyscy.length === 0}
@@ -695,19 +695,19 @@ export function NowaGrupa({
             }}
           >
             <Ikona nazwa="osoby" rozmiar={16} />
-            Utwórz grupę
+            {t("Utwórz grupę", "Create group")}
           </Button>
         </>
       }
     >
       <label>
-        Nazwa grupy (opcjonalnie)
-        <Input value={nazwaGrupy} onChange={(e) => setNazwaGrupy(e.target.value)} placeholder="Nazwa grupy" />
+        {t("Nazwa grupy (opcjonalnie)", "Group name (optional)")}
+        <Input value={nazwaGrupy} onChange={(e) => setNazwaGrupy(e.target.value)} placeholder={t("Nazwa grupy", "Group name")} />
       </label>
 
       {kontakty.length > 0 && (
         <fieldset className="flex flex-col gap-1.5">
-          <legend className="mb-1.5 text-meta font-medium text-tekst-drugi">Z kim rozmawiasz</legend>
+          <legend className="mb-1.5 text-meta font-medium text-tekst-drugi">{t("Z kim rozmawiasz", "Who's in it")}</legend>
           <ul className="flex max-h-56 flex-col gap-0.5 overflow-y-auto rounded-md border border-linia p-1">
             {kontakty.map((osoba) => {
               const zaznaczona = wybrani.has(osoba);
@@ -749,17 +749,17 @@ export function NowaGrupa({
         }}
       >
         <label>
-          Dodaj po nazwie
+          {t("Dodaj po nazwie", "Add by username")}
           <span className="flex gap-2">
             <Input
               value={poNazwie}
               onChange={(e) => setPoNazwie(e.target.value)}
-              placeholder="Nazwa użytkownika"
+              placeholder={t("Nazwa użytkownika", "Username")}
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
             />
-            <Button type="submit" variant="outline" size="icon" disabled={!poNazwie.trim()} aria-label="Dodaj">
+            <Button type="submit" variant="outline" size="icon" disabled={!poNazwie.trim()} aria-label={t("Dodaj", "Add")}>
               <Ikona nazwa="dodaj" rozmiar={16} />
             </Button>
           </span>
@@ -767,7 +767,7 @@ export function NowaGrupa({
       </form>
 
       {dodatkowi.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5" aria-label="Dodani po nazwie">
+        <ul className="flex flex-wrap gap-1.5" aria-label={t("Dodani po nazwie", "Added by username")}>
           {dodatkowi.map((osoba) => (
             <li
               key={osoba}
@@ -777,7 +777,7 @@ export function NowaGrupa({
               <button
                 type="button"
                 className="grid size-6 cursor-pointer place-items-center rounded-full text-tekst-drugi hover:bg-wglebienie hover:text-tekst"
-                aria-label={`Usuń ${osoba} z grupy`}
+                aria-label={t(`Usuń ${osoba} z grupy`, `Remove ${osoba} from the group`)}
                 onClick={() => setDodatkowi((lista) => lista.filter((o) => o !== osoba))}
               >
                 <Ikona nazwa="zamknij" rozmiar={12} />

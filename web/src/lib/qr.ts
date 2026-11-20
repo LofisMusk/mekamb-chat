@@ -1,3 +1,4 @@
+import { t } from "./jezyk";
 //! Generator kodów QR — ISO/IEC 18004, tryb bajtowy, korekcja poziomu M.
 //!
 //! # Dlaczego własny, a nie biblioteka
@@ -47,7 +48,7 @@ const WYROWNANIE: readonly (readonly number[])[] = [
 
 function parametry(wersja: number): { ec: number; grupy: readonly (readonly [number, number])[] } {
   const wpis = BLOKI[wersja - 1];
-  if (!wpis) throw new Error(`nieobsługiwana wersja kodu QR: ${wersja}`);
+  if (!wpis) throw new Error(t(`nieobsługiwana wersja kodu QR: ${wersja}`, `unsupported QR code version: ${wersja}`));
   return wpis;
 }
 
@@ -129,7 +130,7 @@ function dobierzWersje(ileBajtow: number): number {
     const naglowek = wersja < 10 ? 12 : 20;
     if (Math.ceil((naglowek + ileBajtow * 8) / 8) <= pojemnosc(wersja)) return wersja;
   }
-  throw new Error(`dane nie mieszczą się w kodzie QR: ${ileBajtow} bajtów`);
+  throw new Error(t(`dane nie mieszczą się w kodzie QR: ${ileBajtow} bajtów`, `the data doesn't fit in a QR code: ${ileBajtow} bytes`));
 }
 
 /** Składa strumień danych: nagłówek, treść, terminator i wypełnienie. */

@@ -5,6 +5,7 @@ import { Ikona, type NazwaIkony } from "./Ikony";
 import { cn } from "./components/ui/cn";
 import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 import { Podpowiedz } from "./components/ui/tooltip";
+import { type Jezyk, t, ustawJezyk, useJezyk } from "./lib/jezyk";
 import {
   type WyborMotywu,
   pilnujMotywu,
@@ -147,10 +148,12 @@ export function Migotanie({ className, opis }: { className?: string; opis: strin
   );
 }
 
-const MOTYWY: { wybor: WyborMotywu; ikona: NazwaIkony; etykieta: string }[] = [
-  { wybor: "jasny", ikona: "slonce", etykieta: "Jasny" },
-  { wybor: "ciemny", ikona: "ksiezyc", etykieta: "Ciemny" },
-  { wybor: "auto", ikona: "ekran", etykieta: "Systemowy" },
+// Etykiety liczone przy renderze, nie przy imporcie — inaczej zostałyby
+// w języku, w którym aplikacja wystartowała.
+const MOTYWY = (): { wybor: WyborMotywu; ikona: NazwaIkony; etykieta: string }[] => [
+  { wybor: "jasny", ikona: "slonce", etykieta: t("Jasny", "Light") },
+  { wybor: "ciemny", ikona: "ksiezyc", etykieta: t("Ciemny", "Dark") },
+  { wybor: "auto", ikona: "ekran", etykieta: t("Systemowy", "System") },
 ];
 
 /**
@@ -180,7 +183,7 @@ export function WyborMotywuUI({ zEtykietami = false }: { zEtykietami?: boolean }
     <ToggleGroup
       type="single"
       value={wybor}
-      aria-label="Motyw"
+      aria-label={t("Motyw", "Theme")}
       className={zEtykietami ? "w-full" : undefined}
       onValueChange={(wartosc) => {
         // Klik w już wybraną pozycję odznacza ją w Radiksie — a motyw „żaden"
@@ -188,7 +191,7 @@ export function WyborMotywuUI({ zEtykietami = false }: { zEtykietami?: boolean }
         if (wartosc) ustawMotyw(wartosc as WyborMotywu);
       }}
     >
-      {MOTYWY.map((motyw) =>
+      {MOTYWY().map((motyw) =>
         zEtykietami ? (
           <ToggleGroupItem key={motyw.wybor} value={motyw.wybor}>
             <Ikona nazwa={motyw.ikona} rozmiar={15} />
@@ -202,6 +205,30 @@ export function WyborMotywuUI({ zEtykietami = false }: { zEtykietami?: boolean }
           </Podpowiedz>
         ),
       )}
+    </ToggleGroup>
+  );
+}
+
+/**
+ * Przełącznik PL/EN. Ten sam wzorzec co motyw: segment, jedna decyzja.
+ *
+ * Stoi też na ekranie powitania — osoba nieznająca angielskiego musi do
+ * polskiego dotrzeć przed zalogowaniem, a nie dopiero w ustawieniach.
+ */
+export function WyborJezykaUI({ className }: { className?: string }) {
+  const biezacy = useJezyk();
+  return (
+    <ToggleGroup
+      type="single"
+      value={biezacy}
+      aria-label={t("Język", "Language")}
+      className={className}
+      onValueChange={(wartosc) => {
+        if (wartosc) ustawJezyk(wartosc as Jezyk);
+      }}
+    >
+      <ToggleGroupItem value="en" aria-label="English">EN</ToggleGroupItem>
+      <ToggleGroupItem value="pl" aria-label="Polski">PL</ToggleGroupItem>
     </ToggleGroup>
   );
 }

@@ -1,95 +1,93 @@
-# Polityka bezpieczeństwa
+# Security policy
 
-## Status projektu
+## Project status
 
-**mekamb-chat jest w budowie i nie przeszedł niezależnego audytu.**
+**mekamb-chat is under construction and has not had an independent audit.**
 
-Nie należy go używać tam, gdzie ujawnienie treści miałoby poważne konsekwencje.
-Do takich zastosowań istnieją komunikatory po audycie — Signal.
+Don't use it where disclosure of the content would have serious consequences.
+There are audited messengers for that — Signal.
 
-## Znane zgłoszenia audytu
+## Known audit findings
 
-`cargo audit` zgłasza dziewięć pozycji, wszystkie wyciszone w
-[`.cargo/audit.toml`](.cargo/audit.toml) z uzasadnieniem. Poniżej ocena — jawnie,
-bo wyciszenie bez uzasadnienia jest gorsze niż brak audytu.
+`cargo audit` reports nine items, all silenced in
+[`.cargo/audit.toml`](.cargo/audit.toml) with a justification. The assessment
+follows — openly, because silencing without a justification is worse than no
+audit at all.
 
-### Faktycznie w drzewie zależności
+### Actually in the dependency tree
 
-`libcrux-sha3` i `libcrux-secrets` wchodzą przez `hpke-rs` → `openmls_rust_crypto`.
-Trzy zgłoszenia (RUSTSEC-2026-0207, -0208, -0212), wszystkie o wysokiej wadze,
-wszystkie dotyczą **SHA3 i SHAKE**.
+`libcrux-sha3` and `libcrux-secrets` come in through `hpke-rs` →
+`openmls_rust_crypto`. Three findings (RUSTSEC-2026-0207, -0208, -0212), all high
+severity, all about **SHA3 and SHAKE**.
 
-Nasz ciphersuite to `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` — X25519,
-AES-128-GCM, SHA-256, Ed25519. **SHA3 ani SHAKE nie występują na tej ścieżce.**
+Our ciphersuite is `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` — X25519,
+AES-128-GCM, SHA-256, Ed25519. **Neither SHA3 nor SHAKE is on that path.**
 
-To ocena oparta na wyborze ciphersuite, nie na prześledzeniu kodu `hpke-rs`.
-Gdyby ktoś zmienił ciphersuite na wariant z SHA3, ocena przestaje obowiązywać.
+This assessment is based on the choice of ciphersuite, not on tracing the
+`hpke-rs` code. If someone switched to a ciphersuite with SHA3, it stops holding.
 
-Poprawki istnieją (`libcrux-sha3` ≥ 0.0.10, `libcrux-secrets` ≥ 0.0.6), ale
-`hpke-rs` przypina starsze wersje. **Do usunięcia z listy wyciszeń, gdy hpke-rs
-zaktualizuje libcrux.**
+Fixes exist (`libcrux-sha3` ≥ 0.0.10, `libcrux-secrets` ≥ 0.0.6), but `hpke-rs`
+pins older versions. **Remove from the silenced list once hpke-rs updates libcrux.**
 
-### Poza drzewem
+### Not in the tree
 
-`libcrux-aesgcm` i `libcrux-chacha20poly1305` figurują w `Cargo.lock`, ale
-`cargo tree` pokazuje **zero wystąpień** — nie trafiają do żadnego builda.
-To pozostałość rozwiązywania zależności opcjonalnych.
+`libcrux-aesgcm` and `libcrux-chacha20poly1305` appear in `Cargo.lock`, but
+`cargo tree` shows **zero occurrences** — they don't end up in any build. It's a
+leftover of resolving optional dependencies.
 
-### Zależności JavaScriptu
+### JavaScript dependencies
 
-Audyt npm blokuje wyłącznie na **zależnościach produkcyjnych** — tych, które
-trafiają do użytkownika. Tam jest ich zero.
+The npm audit blocks only on **production dependencies** — the ones that reach
+users. There are zero findings there.
 
-Narzędzia budowania i testów są sprawdzane osobno, informacyjnie: `wrangler`
-i `miniflare` ciągną `undici` z otwartymi zgłoszeniami, a jedyna poprawka
-proponowana przez npm to cofnięcie wranglera do starszej wersji. Te zależności
-nie działają ani na serwerze produkcyjnym (Worker chodzi na runtime Cloudflare,
-nie na undici), ani u użytkownika.
+Build and test tools are checked separately, informationally: `wrangler` and
+`miniflare` pull in `undici` with open findings, and the only fix npm offers is
+downgrading wrangler. These dependencies run neither on the production server
+(the Worker runs on Cloudflare's runtime, not undici) nor on users' devices.
 
-### Niekonserwowane
+### Unmaintained
 
-`instant` i `proc-macro-error2` to ostrzeżenia o braku konserwacji, nie
-podatności. Oba wchodzą przez narzędzia budowania.
+`instant` and `proc-macro-error2` are unmaintained warnings, not vulnerabilities.
+Both come in through build tooling.
 
-## Zgłaszanie podatności
+## Reporting a vulnerability
 
-Podatności prosimy zgłaszać przez **GitHub Security Advisories** w tym
-repozytorium (zakładka Security → Report a vulnerability). Kanał jest prywatny
-do czasu wydania poprawki.
+Please report vulnerabilities through **GitHub Security Advisories** in this
+repository (Security tab → Report a vulnerability). The channel stays private
+until a fix is released.
 
-Prosimy **nie** zakładać publicznych zgłoszeń dla problemów bezpieczeństwa.
+Please **don't** open public issues for security problems.
 
-W zgłoszeniu przydatne są: opis, kroki odtworzenia, wersja i platforma oraz ocena
-wpływu. Odpowiadamy najszybciej jak się da, ale to projekt prowadzony po
-godzinach — bez gwarancji czasu reakcji.
+Useful in a report: a description, steps to reproduce, version and platform, and
+your assessment of the impact. We answer as fast as we can, but this is an
+after-hours project — no guaranteed response time.
 
-## Zakres
+## Scope
 
-Interesują nas zwłaszcza:
+We're especially interested in:
 
-- obejście E2EE, wycieki materiału klucza,
-- błędy w wyprowadzaniu kluczy i rozdzielaniu etykiet HKDF,
-- podszycie się pod innego nadawcę,
-- MITM na rozmowach (obejście weryfikacji odcisku DTLS),
-- obejście uwierzytelnienia (OPAQUE, TOTP),
-- panika lub uszkodzenie pamięci przy danych z sieci.
+- bypassing E2EE, leaks of key material,
+- mistakes in key derivation and the separation of HKDF labels,
+- impersonating another sender,
+- MITM on calls (bypassing the DTLS fingerprint check),
+- bypassing authentication (OPAQUE, TOTP),
+- panics or memory corruption on data from the network.
 
-Poza zakresem — bo są udokumentowanymi decyzjami projektowymi, nie błędami:
+Out of scope — because they're documented design decisions, not bugs:
 
-- wyciek metadanych do serwera ([`THREAT_MODEL.md`](docs/THREAT_MODEL.md)),
-- ujawnienie IP rozmówcy przy połączeniu bezpośrednim,
-- utrata historii po utracie wszystkich urządzeń,
-- ryzyko dostarczania kodu w kliencie webowym.
+- metadata leaking to the server ([`THREAT_MODEL.md`](docs/THREAT_MODEL.md)),
+- revealing the other person's IP address on a direct connection,
+- losing history after losing all devices,
+- the code-delivery risk of the web client.
 
-Jeśli uważasz, że któraś z tych decyzji jest błędna, załóż zwykłe zgłoszenie do
-dyskusji.
+If you think one of these decisions is wrong, open a regular issue to discuss it.
 
-## Kryptografia
+## Cryptography
 
-Nie piszemy własnej kryptografii. Używamy:
+We don't write our own cryptography. We use:
 
 - [OpenMLS](https://openmls.tech/) — MLS / RFC 9420
-- [iroh](https://iroh.computer/) — transport QUIC
-- `opaque-ke` — uwierzytelnienie hasłem bez ujawniania hasła
+- [`snow`](https://github.com/mcginty/snow) — the Noise IK handshake in the P2P transport
+- `opaque-ke` — password authentication without revealing the password
 
-Pull requesty wprowadzające własne prymitywy kryptograficzne będą odrzucane.
+Pull requests that introduce home-made cryptographic primitives will be rejected.

@@ -254,9 +254,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Language
 
-**Code, comments, commit messages and UI strings are in Polish.** Identifiers use
-Polish names (`Wiadomosc`, `zapiszRozmowe`, `PrzyciskGlowny`). Match the existing
-style — do not introduce English identifiers into Polish modules.
+**English is the project's main language** for documentation (`README.md`,
+`docs/`, this file), commit messages, PR descriptions and the default UI language.
+
+**Code stays Polish for now:** identifiers use Polish names (`Wiadomosc`,
+`zapiszRozmowe`, `PrzyciskGlowny`) and comments are Polish. Match the existing
+style inside a module — do not introduce English identifiers into Polish modules.
+Moving the code itself to English is a separate, deliberate decision, not
+something to do piecemeal.
+
+**UI strings are bilingual, English by default.** Every visible string goes through
+`t(pl, en)` with both versions side by side at the point of use — `web/src/lib/jezyk.ts`,
+`android/.../Jezyk.kt`, `ios/Mekamb/Rdzen/Jezyk.swift`. No key catalogue: with two
+languages it would cost more than it gives. The choice is stored (default English);
+Polish is offered in settings and on the welcome screen. On web, `t()` reads the
+language at render time, so never call it at module level (a constant computed at
+import keeps the start-up language) — use a function or getter. Code that
+recognises error messages by their text must match both languages
+(`web/src/lib/rozruch.ts`).
 
 Doc comments explain **why**, not what. Most modules open with a `# Dlaczego …`
 section stating the decision and the alternative rejected. Keep that habit.
@@ -325,6 +340,31 @@ no more updates can be published.
 Emulator needs `-gpu swiftshader_indirect`; the default GPU path fails with a
 context error on this host.
 
+### iOS (`ios/`)
+
+```bash
+cd ios && xcodegen generate          # project.yml is the source of truth
+xcodebuild -project Mekamb.xcodeproj -scheme Mekamb \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build build
+xcodebuild test -project Mekamb.xcodeproj -scheme Mekamb \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build
+```
+
+The build's first phase runs `skrypty/zbuduj-rdzen.sh`: it builds `mekamb-ffi` as a
+static library for `aarch64-apple-ios` and `-ios-sim`, generates the Swift bindings
+(`Wygenerowane/`) and assembles `Rdzen/MekambFFI.xcframework`. Both are gitignored.
+WebRTC comes from the `stasel/WebRTC` Swift package, pinned to an exact version in
+`project.yml`. Debug talks to `http://localhost:8787` (the simulator reaches the
+host's localhost); override with `MEKAMB_ADRES_API=…`.
+
+Every screen has `#Preview`s backed by `ModelAplikacji.podglad()` (sample data
+written through the real `Historia`, in a throwaway vault). The same data runs the
+whole app in the simulator with the Debug launch argument `-MekambPodglad`.
+
+The local web client must be served from `http://127.0.0.1:5174`, not
+`localhost:5174` — that's the origin `server/wrangler.jsonc` allows through CORS
+(`.claude/launch.json` → `web-lokalny`).
+
 ## Architecture
 
 ### Crypto is written once, in Rust
@@ -335,13 +375,13 @@ core/       identity, MLS groups, framing, envelopes, attachments, safety
 opaque/     OPAQUE (RFC 9807) — same code for server and both clients
 transport/  UDP + STUN + Noise IK, hand-written (replaced iroh)
 core/bindings/wasm     → web
-core/bindings/uniffi   → Android
+core/bindings/uniffi   → Android (Kotlin) and iOS (Swift, XCFramework)
 ```
 
 Two parallel MLS implementations would drift, so the UI is native per platform
 and the security layer is not. **When adding anything cryptographic or
 wire-format, put it in `core` and expose it through both bindings** — never
-reimplement it in TypeScript or Kotlin.
+reimplement it in TypeScript, Kotlin or Swift.
 
 Concretely: envelope encoding, attachment sealing and QR generation all live in
 Rust for this reason. `add_member` returns *already-enveloped* commit and welcome
@@ -397,9 +437,9 @@ proves nothing: the server would have issued both. This was a column and two
 comments for a long time before it was any code; an unsigned record now means
 "mailbox only", never "trust it".
 
-**The history format version must be bumped on both clients in the same change.**
-`web/src/lib/historia.ts` and `android/.../Historia.kt` must agree on shape *and*
-number. This has already broken once: Android gained a field while keeping
+**The history format version must be bumped on every client in the same change.**
+`web/src/lib/historia.ts`, `android/.../Historia.kt` and `ios/Mekamb/Rdzen/Historia.swift`
+must agree on shape *and* number. This has already broken once: Android gained a field while keeping
 version 1, so both clients claimed the same number for incompatible shapes and
 the optical history transfer to a freshly paired device silently produced empty
 history.
@@ -452,73 +492,57 @@ channel so commits keep their order.
 
 ## UI system
 
-Both clients implement **Nocturne**, from the design project. Tokens are written
-out explicitly in `web/src/styles.css` and `android/.../Nocturne.kt` — changing
-the design means rewriting tokens on both sides, not re-picking shades.
+All three clients implement the **"Neutral"** visual system. Its normative spec is
+[`docs/UI_NEUTRALNY.md`](docs/UI_NEUTRALNY.md): role tokens for light and dark,
+typography, shapes, component patterns per platform, layout and motion. Tokens are
+written out explicitly in `web/src/styles.css`, `android/.../Nocturne.kt` (the file
+kept its old name) and `ios/Mekamb/Widoki/Kolory.swift` — changing the design means
+rewriting tokens on all three, not re-picking shades on one.
 
-Its defining rule: **the accent is a line, never a fill.** Primary actions are
-outlined. A filled accent button immediately reads as belonging to a different
-system.
+Its defining rule: **the primary action is a `glowny` fill (near-black in light,
+near-white in dark), at most one per screen.** Everything else is an outline or a
+ghost. Colour is reserved for states (`alarm`, `sukces`, `ostrzezenie`). The own
+message bubble is the same `glowny` fill and the other person's is `wglebienie`, so
+**nothing else in a thread may be a `glowny` fill** except the send arrow. The call
+screen is the one place with coloured fills: green accepts, red declines/hangs up.
 
-**The conversation is the one deliberate exception, and only on web so far.**
-A message bubble is not an action — it is an utterance, and its author has to be
-readable at a glance across a screen full of identical rectangles. An outline
-cannot do that: two outlined bubbles differ only by which side they sit on, and
-the side disappears the moment a sentence is long enough to fill the width. So
-`--babel-wlasny` is a **fill** (`#0E7490`, the brand cyan two steps down —
-`#06B6D4` under white text is 2.4:1, unreadable; this is 5.4:1, and it is the
-same shade in both themes because an utterance should not change author with the
-time of day). The unread badge is filled for the same reason: it answers "did
-someone say something to me", not "here is a button".
+The web is built on Tailwind v4 with shadcn/ui-style components in
+`web/src/components/ui/` (Radix primitives, Sonner toasts, Vaul drawers, cmdk
+command palette, NumberFlow counters). shadcn's variables are mapped onto the
+Polish role tokens, so the role names stay canonical.
 
-The price is a rule, not a licence: **because the bubble is a fill, nothing
-beside it may be.** Every button in the thread — call, video, participants, the
-sidebar branches — stays an outline. The one exception is the send arrow, and it
-is filled in exactly the colour of the bubble it is about to create.
+Bubble anatomy (`web/src/lib/watek.ts`, `Watek.kt`, `Watek.swift` — one pure
+function per platform, with tests): one radius (`--promien-babel`, 18) for every
+bubble; a run from one side is held together by **spacing** (2px inside a run, 12px
+between runs) and closed by a **tail on the last bubble only**. The time lives on a
+centred separator ("Today 08:42") on a day change and after an hour of silence.
+Delivery state is a **word** under the last own message.
 
-Bubble anatomy that follows from this (`web/src/styles.css`, `web/src/lib/watek.ts`):
-the radius is one value (`--promien-babel`, 18px) for every bubble; a run of
-messages from one side is held together by **spacing** (2px inside a run,
-`--odstep-3` between runs) and closed by a **tail on the last bubble only** —
-a tail on each one splits a series into three separate utterances. The clock left
-the bubble: it lives on a centred separator ("Dziś 08:42") that appears on a day
-change and after an hour of silence, with the exact time of a single message in
-its `title`. Delivery state left the bubble too, and became a **word** under the
-last own message — "dostarczono" and "przeczytano" are a difference you have to
-understand, not one you can recognise from two shades of the same tick.
+**Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`, `--glowny` —
+never `--neutral-600`. With two themes a ramp step has no stable meaning, so every
+use would need a conditional, and one missed conditional is a dark patch on a light
+screen.
 
-**Android still runs the older Nocturne bubbles** (outline, cut corner,
-per-bubble clock). The tokens are therefore out of sync on purpose: bringing
-`Nocturne.kt` across is a follow-up, not something that happened here.
-
-The design of record is a canvas under `design/kanwa/` — artboards as
-`*.dc.html` plus `canvas.json`. Change the design there too when you change the
-stylesheet, or the two drift and the canvas starts describing controls the app
-does not have.
-
-**Tokens are roles, not ramp steps.** `--tekst-drugi`, `--linia`,
-`--babel-wlasny` — never `--neutral-600`. With two themes a ramp step has no
-stable meaning: "600" is lighter than the background in dark and must be darker
-in light, so every such use would need a conditional, and one missed conditional
-is a dark patch on a light screen. A rule written once works in both themes.
-Android mirrors this with `KoloryNocturne` behind a `CompositionLocal`
-(`Nocturne.kolory.…`).
-
-**The theme choice is stored, not its result.** `auto`/`ZA_SYSTEMEM` is resolved
-at render time. Storing the resolved value leaves the app light forever for
-someone whose phone switched to dark that evening — the user asked to follow the
-system, not to be light.
+**The theme choice is stored, not its result.** `auto`/`ZA_SYSTEMEM` is resolved at
+render time. Storing the resolved value leaves the app light forever for someone
+whose phone switched to dark that evening. The language choice works the same way.
 
 The light palette is written **twice** in `styles.css` (once under
-`prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP
-forbids inline scripts, so nothing can set the theme before first paint. The
-copies are kept in sync by `web/src/lib/motyw.test.ts`, not by discipline.
+`prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP forbids
+inline scripts, so nothing can set the theme before first paint. The copies are kept
+in sync by `web/src/lib/motyw.test.ts`, not by discipline — it has already caught
+the two copies drifting apart.
+
+The design canvas under `design/kanwa/` still shows the old Nocturne artboards and
+needs redrawing in the neutral system; until then `docs/UI_NEUTRALNY.md` is the
+design of record.
 
 ### Icons
 
 `design/ikony.mjs` is the **single source** of icon paths. `node design/generuj.mjs`
-writes `web/src/Ikony.tsx` and `android/.../Ikony.kt`; both are committed, and
-`web/src/lib/ikony.test.ts` fails CI if either drifts from the source. Editing a
+writes `web/src/Ikony.tsx`, `android/.../Ikony.kt` and `ios/Mekamb/Ikony.swift`;
+all three are committed, and `web/src/lib/ikony.test.ts` fails CI if any drifts
+from the source. Editing a
 generated file by hand is a mistake the test catches immediately.
 
 Paths are drawn in place — Phosphor is not available on Android without a font
@@ -544,7 +568,7 @@ lenient enough to accept genuinely broken codes — error correction repairs the
 **Open stored conversations after restoring the client.** `MekambClient::restore`
 brings back the full MLS state but an **empty** map of open conversations — that
 map was only ever filled by creating a group or accepting a Welcome. Without the
-`otworzZnaneRozmowy` call on both clients, a restarted client has everything on
+`otworzZnaneRozmowy` call on every client, a restarted client has everything on
 disk and can neither send nor receive: every call fails with "nie ma takiej
 rozmowy w tym kliencie", and incoming envelopes match nothing and are dropped in
 silence. Conversation ids come from local history; `Conversation::load` returns
@@ -591,9 +615,10 @@ not want to hand over.
 Encrypting the payload does not hide **when** an envelope moved. A receipt sent
 the instant something is read is readable from traffic alone. So clients batch
 receipts and send them after a **random** delay of up to 30 s
-(`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`) — random, not
+(`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`,
+`ios/Mekamb/Rdzen/Potwierdzenia.swift`) — random, not
 fixed, because a fixed delay only shifts the correlation instead of breaking it.
-Both platforms must keep the same bounds, or one leaks more than the other under
+All platforms must keep the same bounds, or one leaks more than the other under
 the same promise in the UI.
 
 The tick's own message id comes from the core: `sendText` returns
@@ -606,14 +631,18 @@ seeing others'. The protocol does not enforce it and cannot.
 
 ## Not implemented
 
-Push notifications (needs `google-services.json`). Camera-based QR scanning on
-Android — the code scanned by the system camera arrives through the `mekamb://`
-intent instead.
+Push notifications (needs `google-services.json` on Android, APNs on iOS).
+Camera-based QR scanning on Android — the code scanned by the system camera arrives
+through the `mekamb://` intent instead.
+
+iOS is mailbox-only for now (no direct UDP transport, like the web client), has no
+optical pairing, only shows received attachments as a file entry, and its calls ring
+only while the app is open (no CallKit yet). The open items live in `TODO.md`.
 
 Delivery receipts: the tick on an own bubble means "left this device", not
 "delivered" and not "read". The double-tick icon (`dostarczone`) exists in the
 set but nothing sets it yet — the mailbox would have to report the ack back to
 the sender.
 
-Previously listed here and since built: A/V calling on Android, search in the
-conversation list (both clients).
+Previously listed here and since built: A/V calling on Android and iOS, search in
+the conversation list (all clients), the native iOS client.

@@ -1,48 +1,48 @@
 # mekamb-chat — backend
 
-Cloudflare Workers. Licencja **AGPL-3.0** ([`LICENSE-AGPL`](LICENSE-AGPL)) — kto
-postawi własną instancję, musi opublikować swoje zmiany. W komunikatorze
-podmieniony serwer to realny wektor ataku, więc jego kod ma dać się zweryfikować.
+Cloudflare Workers. License **AGPL-3.0** ([`LICENSE-AGPL`](LICENSE-AGPL)) — anyone
+who runs their own instance has to publish their changes. In a messenger a swapped
+server is a real attack vector, so its code must be verifiable.
 
-## Co ten serwer robi, a czego nie
+## What this server does and doesn't do
 
-Jest **infrastrukturą pomocniczą, nie pośrednikiem w rozmowie**. W typowym
-przypadku wiadomości go omijają — idą wprost między urządzeniami przez iroh.
+It is **supporting infrastructure, not a party to the conversation**. In the
+typical case messages bypass it — they go directly between devices.
 
-| Robi | Nie robi |
+| Does | Doesn't |
 |---|---|
-| Ustala kolejność commitów MLS | Nie odszyfrowuje niczego |
-| Przechowuje szyfrogramy dla offline'owych | Nie przechowuje historii rozmów |
-| Wydaje key packages i adresy urządzeń | Nie jest zaufanym źródłem tych adresów — podpisy weryfikuje klient |
-| Uwierzytelnia dostęp do infrastruktury | Nie widzi hasła (OPAQUE) i nie odblokowuje wiadomości |
+| Orders MLS commits | Decrypt anything |
+| Stores ciphertext for offline devices | Store conversation history |
+| Hands out key packages and device addresses | Act as a trusted source for those addresses — clients verify the signatures |
+| Authenticates access to the infrastructure | See the password (OPAQUE) or unlock messages |
 
-## Uruchomienie
+## Running
 
 ```bash
 npm install
 npm test
 ```
 
-Testy działają na `workerd` — tym samym silniku co produkcja, więc gwarancje
-Durable Objects są sprawdzane realnie, a nie na atrapie.
+The tests run on `workerd` — the same engine as production, so Durable Object
+guarantees are checked for real, not against a mock.
 
-## Wdrożenie
+## Deployment
 
-### 1. Baza
+### 1. Database
 
 ```bash
 npx wrangler d1 create mekamb
 ```
 
-Zwrócony `database_id` wpisz do [`wrangler.jsonc`](wrangler.jsonc), a potem:
+Put the returned `database_id` into [`wrangler.jsonc`](wrangler.jsonc), then:
 
 ```bash
 npx wrangler d1 migrations apply mekamb --remote
 ```
 
-### 2. Sekrety
+### 2. Secrets
 
-**Żaden z nich nie może trafić do repozytorium.**
+**None of them may end up in the repository.**
 
 ```bash
 npx wrangler secret put TOTP_ENCRYPTION_KEY
@@ -50,89 +50,96 @@ npx wrangler secret put TOKEN_SIGNING_KEY
 npx wrangler secret put OPAQUE_SERVER_KEY
 ```
 
-Sekret OPAQUE ma określoną strukturę — nie jest to zwykły losowy ciąg. Generuje
-go biblioteka:
+The OPAQUE secret has a specific structure — it isn't just a random string. The
+library generates it:
 
 ```bash
 cargo run -q -p mekamb-opaque --bin genkey
 ```
 
-> **Zmiana `OPAQUE_SERVER_KEY` unieważnia wszystkie konta.** Z niego wyprowadzany
-> jest materiał wiążący hasła użytkowników z tym wdrożeniem. Potraktuj go jak
-> dane, których utrata jest nieodwracalna.
+> **Changing `OPAQUE_SERVER_KEY` invalidates every account.** The material that
+> binds users' passwords to this deployment is derived from it. Treat it as data
+> whose loss is irreversible.
 
-### 3. Publikacja
+Delivery tokens are configured with `DELIVERY_TOKEN_KEY` (issuing) and
+`DELIVERY_TOKEN_REQUIRED` (enforcing). They're separate on purpose: a server that
+starts refusing untokened deposits the moment it's deployed cuts off every client
+that hasn't updated yet.
 
-Wdrożeniem zajmuje się [`deploy-server.yml`](../.github/workflows/deploy-server.yml)
-przy każdym scaleniu do `main`. Potrzebuje sekretu `CLOUDFLARE_API_TOKEN`
-(i `CLOUDFLARE_ACCOUNT_ID`, gdy konto ma dostęp do kilku kont Cloudflare)
-w Settings → Secrets and variables → Actions.
+### 3. Publishing
 
-Ręcznie — na pierwszy raz i w awarii:
+[`deploy-server.yml`](../.github/workflows/deploy-server.yml) deploys on every
+merge to `main`. It needs the `CLOUDFLARE_API_TOKEN` secret (and
+`CLOUDFLARE_ACCOUNT_ID` when the token has access to several Cloudflare accounts)
+in Settings → Secrets and variables → Actions.
+
+By hand — the first time and in an emergency:
 
 ```bash
 npx wrangler d1 migrations apply mekamb --remote
 npx wrangler deploy
 ```
 
-> **Serwer musi wdrażać się razem z klientami.** Klient webowy publikuje się sam
-> przy każdym scaleniu, APK powstaje przy etykiecie — a Worker wdrażany „gdy
-> ktoś pamiętał" zostawał w tyle za kontraktem, który zmieniał się po stronie
-> klienta. Tak powstało zgłoszenie #18: wdrożony Worker wymagał w zajęciu epoki
-> pola, którego klienci już nie wysyłali, więc **nie dało się dodać kontaktu ani
-> założyć rozmowy**, a komunikat mówił o „niepustej liście członków".
+> **The server has to be deployed together with the clients.** The web client
+> publishes itself on every merge, the APK is built on a tag — and a Worker
+> deployed "whenever someone remembered" fell behind a contract that kept changing
+> on the client side. That's how issue #18 happened: the deployed Worker required
+> a field in the epoch claim that clients no longer sent, so **you couldn't add a
+> contact or start a conversation**, and the message talked about a "non-empty
+> member list".
 >
-> Szybkie sprawdzenie, czy pod adresem stoi aktualna wersja:
+> A quick check whether the current version is live:
 >
 > ```bash
-> curl -s -o /dev/null -w '%{http_code}\n' "$API_URL/tokens/key"   # 404 = stary Worker
+> curl -s -o /dev/null -w '%{http_code}\n' "$API_URL/tokens/key"   # 404 = old Worker
 > ```
 
-## Uwierzytelnianie
+## Authentication
 
-Trzy rundy. Hasło nie opuszcza urządzenia w żadnej postaci.
+Three rounds. The password never leaves the device in any form.
 
 ```
-rejestracja:  register/start → register/finish → register/confirm (kod TOTP)
-logowanie:    login/start    → login/finish    → login/totp       (token)
+registration:  register/start → register/finish → register/confirm (TOTP code)
+sign-in:       login/start    → login/finish    → login/totp       (token)
 ```
 
-Kilka decyzji, które łatwo omyłkowo „poprawić":
+A few decisions that are easy to "fix" by mistake:
 
-- **Logowanie nieistniejącą nazwą przechodzi tę samą ścieżkę** co prawdziwe,
-  z atrapą rekordu. Skrót w tym miejscu przywróciłby możliwość sprawdzania,
-  które konta istnieją.
-- **Kod TOTP użyty raz nie działa ponownie** w tym samym oknie czasowym.
-  Skutek: po aktywacji konta trzeba poczekać na nowy kod, do 30 sekund.
-  Tego wymaga RFC 6238 §5.2.
-- **Sesje logowania są jednorazowe** — konsumowane przez `DELETE ... RETURNING`,
-  więc równoległe żądania nie użyją tego samego rekordu dwa razy.
+- **Signing in with a non-existent name goes down the same path** as a real one,
+  with a dummy record. A shortcut here would bring back the ability to check which
+  accounts exist.
+- **A TOTP code used once doesn't work again** within the same time window.
+  Consequence: after activating an account you have to wait for a new code, up to
+  30 seconds. RFC 6238 §5.2 requires this.
+- **Sign-in sessions are single-use** — consumed by `DELETE ... RETURNING`, so
+  parallel requests can't use the same record twice.
 
-## OPAQUE: jedna implementacja, trzy platformy
+## OPAQUE: one implementation, four platforms
 
-Kryptografia siedzi w [`opaque/`](../opaque) (Rust, RFC 9807). Serwer używa jej
-przez WebAssembly, przeglądarka przez WebAssembly, Android przez UniFFI.
+The cryptography lives in [`opaque/`](../opaque) (Rust, RFC 9807). The server uses
+it through WebAssembly, the browser through WebAssembly, Android and iOS through
+UniFFI.
 
-To nie jest wybór estetyczny, tylko wniosek z nieudanej próby. Wcześniej serwer
-miał implementację w TypeScripcie (`@cloudflare/opaque-ts`), która realizuje
-**draft-irtf-cfrg-opaque-07** z 2021 roku. Klient natywny musiałby użyć rustowej,
-realizującej **RFC 9807**. Między draftem a RFC zmienił się format komunikatów,
-więc te dwie implementacje nigdy by się nie dogadały — nie „mniej bezpiecznie",
-tylko logowanie, które nigdy nie przechodzi.
+That isn't an aesthetic choice, it's the conclusion of a failed attempt. The server
+used to have a TypeScript implementation (`@cloudflare/opaque-ts`), which
+implements **draft-irtf-cfrg-opaque-07** from 2021. A native client would have had
+to use the Rust one, which implements **RFC 9807**. The message format changed
+between the draft and the RFC, so those two implementations would never have talked
+to each other — not "less securely", just a sign-in that never succeeds.
 
-### Jak WASM w ogóle działa w Workers
+### How WASM works in Workers at all
 
-Środowisko zabrania **kompilowania** WebAssembly w runtime — na tym poległa
-wcześniejsza próba z biblioteką inline'ującą WASM jako base64. Wolno natomiast
-zaimportować moduł skompilowany przez bundler i utworzyć instancję ręcznie;
-robi to [`src/opaque-wasm/index.js`](src/opaque-wasm/index.js).
+The environment forbids **compiling** WebAssembly at runtime — that's what an
+earlier attempt with a library inlining WASM as base64 failed on. What is allowed
+is importing a module compiled by the bundler and instantiating it by hand;
+[`src/opaque-wasm/index.js`](src/opaque-wasm/index.js) does that.
 
-Rozróżnienie jest istotne: zakaz dotyczy generowania kodu, a nie uruchamiania
-kodu przygotowanego wcześniej.
+The distinction matters: the ban is on generating code, not on running code
+prepared in advance.
 
-### Regeneracja modułu
+### Regenerating the module
 
-Po zmianach w `opaque/`:
+After changes in `opaque/`:
 
 ```bash
 cargo build -p mekamb-opaque-wasm --target wasm32-unknown-unknown --release
@@ -140,5 +147,5 @@ wasm-bindgen target/wasm32-unknown-unknown/release/mekamb_opaque_wasm.wasm \
   --out-dir server/src/opaque-wasm --target bundler --no-typescript
 ```
 
-Plik `index.js` i `index.d.ts` są pisane ręcznie i **nie są nadpisywane** —
-`wasm-bindgen` o nich nie wie.
+`index.js` and `index.d.ts` are written by hand and **are not overwritten** —
+`wasm-bindgen` doesn't know about them.

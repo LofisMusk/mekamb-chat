@@ -1,555 +1,582 @@
-# Protokół mekamb-chat, wersja 1
+# The mekamb-chat protocol, version 1
 
-Dokument normatywny. Implementacja w innym języku powinna dać się napisać
-wyłącznie na jego podstawie.
+A normative document. An implementation in another language should be writable
+from this document alone.
 
-## 1. Fundamenty
+## 1. Foundations
 
-| Warstwa | Wybór |
+| Layer | Choice |
 |---|---|
-| Kryptografia grup | MLS, RFC 9420 (OpenMLS) |
+| Group cryptography | MLS, RFC 9420 (OpenMLS) |
 | Ciphersuite | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` (0x0001) |
-| Transport | własny: UDP + STUN + Noise IK, skrzynka jako fallback |
-| Ładunek aplikacyjny | protobuf, [`proto/chat.proto`](../proto/chat.proto) |
-| Uwierzytelnienie do infrastruktury | OPAQUE (RFC 9807) + TOTP (RFC 6238) |
+| Transport | our own: UDP + STUN + Noise IK, the mailbox as fallback |
+| Application payload | protobuf, [`proto/chat.proto`](../proto/chat.proto) |
+| Authentication to the infrastructure | OPAQUE (RFC 9807) + TOTP (RFC 6238) |
 
-Ciphersuite jest obowiązkowy w RFC 9420, więc protokół pozostaje
-interoperacyjny z innymi implementacjami MLS.
+The ciphersuite is mandatory-to-implement in RFC 9420, so the protocol stays
+interoperable with other MLS implementations.
 
-## 2. Tożsamość i wyprowadzanie kluczy
+## 2. Identity and key derivation
 
-Urządzenie przechowuje **jedno** 32-bajtowe ziarno. Wszystkie klucze powstają
-z niego przez HKDF-SHA256, bez soli, z rozłącznymi etykietami:
+A device stores **one** 32-byte seed. All keys are derived from it with
+HKDF-SHA256, without a salt, using disjoint labels:
 
 ```
-klucz_podpisu_mls = HKDF-SHA256(ikm = ziarno, info = "mekamb-chat/v1/mls-signature", L = 32)
-klucz_transportu  = HKDF-SHA256(ikm = ziarno, info = "mekamb-chat/v1/iroh-node",     L = 32)
+mls_signature_key = HKDF-SHA256(ikm = seed, info = "mekamb-chat/v1/mls-signature", L = 32)
+transport_key     = HKDF-SHA256(ikm = seed, info = "mekamb-chat/v1/iroh-node",     L = 32)
 ```
 
-> Etykieta transportu nosi historyczną nazwę `iroh-node`. **Nie wolno jej
-> zmienić**: wszystkim istniejącym urządzeniom zmieniłby się klucz pod ręką.
-> Etykiety są niezmienne z założenia — zmiana schematu wymaga nowej wersji.
+> The transport label carries the historical name `iroh-node`. **It must not be
+> changed**: every existing device would get a different key underneath it.
+> Labels are immutable by design — a change of scheme needs a new version.
 
-Oba są 32-bajtowymi ziarnami Ed25519; klucz publiczny wyprowadza się standardowo.
+Both are 32-byte Ed25519 seeds; the public key is derived the standard way.
 
-**Etykiety są rozłączne celowo.** `NodeId` iroh i klucz podpisu MLS to obie pary
-Ed25519, więc kusi użycie jednej. Ten sam klucz w dwóch protokołach otwiera drogę
-do przeniesienia podpisu między kontekstami. Rozdzielenie kosztuje jedno
-wywołanie HKDF.
+**The labels are disjoint on purpose.** The transport node key and the MLS
+signature key are both Ed25519 pairs, so it's tempting to use one. The same key in
+two protocols opens the door to carrying a signature across contexts. Separating
+them costs one HKDF call.
 
-**Etykiety są wersjonowane i niezmienne.** Zmiana schematu wyprowadzania wymaga
-nowej etykiety (`/v2/`), nigdy modyfikacji istniejącej — inaczej urządzeniom
-zmieniłyby się klucze pod ręką i wypadłyby ze wszystkich grup.
+**The labels are versioned and immutable.** Changing the derivation scheme needs a
+new label (`/v2/`), never a modification of an existing one — otherwise devices'
+keys would change underneath them and they'd drop out of every group.
 
-Wyprowadzanie jest deterministyczne: import ziarna z kopii zapasowej odtwarza
-dokładnie tę samą tożsamość.
+Derivation is deterministic: importing the seed from a backup recreates exactly
+the same identity.
 
 ### Credential
 
-Credential MLS jest typu `BasicCredential`, a jego zawartość to:
+The MLS credential is a `BasicCredential`, and its content is:
 
 ```
 user_id ":" device_id
 ```
 
-Oba pola: niepuste, UTF-8, **bez dwukropka**. Zakaz dwukropka jest wymogiem
-bezpieczeństwa, nie kosmetyką — bez niego `user_id` = `"alice:telefon"`
-pozwalałby podszyć się pod inną parę użytkownik-urządzenie.
+Both fields: non-empty, UTF-8, **no colon**. The colon ban is a security
+requirement, not cosmetics — without it a `user_id` of `"alice:phone"` would allow
+impersonating a different user–device pair.
 
-Odbiorca ustala autora wyłącznie na podstawie credentiala zweryfikowanego przez
-MLS. Żadne pole spoza kanału MLS nie jest źródłem prawdy o nadawcy.
+The recipient determines the author only from the credential verified by MLS. No
+field from outside the MLS channel is a source of truth about the sender.
 
-## 3. Rozmowy
+`user_id` is the **username**, never the server's database UUID: it is the same
+string that names the mailbox (§ 10).
 
-**DM to grupa MLS o rozmiarze 2.** Nie ma osobnej ścieżki kryptograficznej dla
-rozmów prywatnych i grupowych.
+## 3. Conversations
 
-Parametry grupy — identyczne przy zakładaniu i dołączaniu:
+**A DM is an MLS group of size 2.** There's no separate cryptographic path for
+private and group conversations.
 
-- `padding_size` = 256 bajtów. MLS szyfruje treść, ale nie ukrywa jej długości;
-  dopełnienie zaciera różnicę między „ok" a dłuższą wypowiedzią.
-- `use_ratchet_tree_extension` = `true`. Drzewo ratchetu podróżuje w wiadomości
-  zamiast być pobierane osobno — konieczne w architekturze P2P-first, gdzie
-  serwer bywa nieosiągalny.
+Group parameters — identical when creating and when joining:
+
+- `padding_size` = 256 bytes. MLS encrypts content but doesn't hide its length;
+  padding blurs the difference between "ok" and a longer message.
+- `use_ratchet_tree_extension` = `true`. The ratchet tree travels in the message
+  instead of being fetched separately — necessary in a P2P-first architecture
+  where the server is sometimes unreachable.
 
 ### Key packages
 
-Każde urządzenie publikuje zapas key packages, które pozwalają dodać je do grupy
-gdy jest offline (odpowiednik prekeys w Signalu).
+Every device publishes a supply of key packages that let it be added to a group
+while it's offline (the equivalent of prekeys in Signal).
 
-Key package jest **jednorazowy**. Serwer musi egzekwować jednokrotne wydanie —
-ponowne użycie psuje gwarancje forward secrecy.
+A key package is **single-use**. The server must enforce handing it out once —
+reuse breaks the forward-secrecy guarantees.
 
-### Dodawanie osoby do rozmowy
+### Adding a person to a conversation
 
-Ta sama ścieżka obsługuje założenie DM-a i rozbudowę grupy — bo DM to grupa
-o rozmiarze 2.
+The same path handles creating a DM and growing a group — because a DM is a group
+of size 2.
 
 ```
-1. Pobierz key package KAŻDEGO urządzenia dodawanej osoby
-2. Przygotuj commit jednym wywołaniem (stage_add_members)
-3. Wyślij do GroupRelay: { epoka } — i nic poza tym
-4a. Przyjęta  → scal lokalnie, roześlij commit do skrzynek pozostałych członków,
-                a Welcome do nowej osoby
-4b. Odrzucona → porzuć commit; cudzy commit dotrze skrzynką, po nim ponów
+1. Fetch a key package for EVERY device of the person being added
+2. Prepare the commit with one call (stage_add_members)
+3. Send to GroupRelay: { epoch } — and nothing else
+4a. Accepted → merge locally, fan the commit out to the other members' mailboxes,
+               and the Welcome to the new person
+4b. Rejected → discard the commit; the other commit arrives through the mailbox, then retry
 ```
 
-**Do relaya idzie sam numer epoki.** Ani commit, ani skład grupy: rozstrzyga on
-wyłącznie KOLEJNOŚĆ, a rozsyłkę robi nadawca, który skład zna z drzewa MLS.
-Wcześniej szło tędy jedno i drugie — i była to jedyna w systemie struktura
-mówiąca serwerowi wprost, kto z kim rozmawia.
+**Only the epoch number goes to the relay.** Neither the commit nor the group
+membership: the relay decides only ORDER, and the fan-out is done by the sender,
+who knows the membership from the MLS tree. Both used to go through it — and that
+was the only structure in the system telling the server directly who talks to whom.
 
-Nadawca rozsyła commit **z pominięciem siebie i nowej osoby**: sam scalił go
-u siebie, a nowa dostaje Welcome, bo commitu wprowadzającego ją do grupy nie
-potrafi przetworzyć.
+The sender fans the commit out **skipping itself and the new person**: it has
+merged the commit itself, and the new person gets the Welcome, because it can't
+process the commit that brings it into the group.
 
-**Odmowa musi porzucić przygotowany commit** — i to dotyczy każdej odmowy,
-o której wiadomo, że epoka nie została zajęta, nie tylko wyścigu. Commit
-przygotowany i nieporzucony blokuje w MLS całą rozmowę: nie da się już ani
-zmienić składu, ani wysłać zwykłej wiadomości. Odpowiedź, która nie rozstrzyga
-(5xx, brak sieci), nie zmienia stanu MLS: relay mógł epokę zająć, zanim
-przestał odpowiadać. Reguła: `web/src/lib/relay.ts` i `android/.../Relay.kt`.
+**A refusal must discard the prepared commit** — and that applies to every refusal
+known to mean the epoch wasn't claimed, not just a race. A commit that was prepared
+and not discarded blocks the whole conversation in MLS: neither membership changes
+nor ordinary messages are possible. A response that doesn't decide (5xx, no
+network) doesn't change MLS state: the relay may have claimed the epoch before it
+stopped responding. The rule: `web/src/lib/relay.ts`, `android/.../Relay.kt`,
+`ios/Mekamb/Rdzen/Relay.swift`.
 
-**Nowa osoba nie widzi wcześniejszych wiadomości.** To wynika wprost z MLS:
-dołącza w bieżącej epoce i nie ma materiału klucza z poprzednich. Zamierzone.
+**The new person doesn't see earlier messages.** That follows directly from MLS:
+they join at the current epoch and have no key material from previous ones.
+Intended.
 
-## 4. Podział ruchu
+## 4. Traffic split
 
-To jest sedno architektury.
+This is the core of the architecture.
 
-| Rodzaj | Kanał | Dlaczego |
+| Kind | Channel | Why |
 |---|---|---|
-| Wiadomości aplikacyjne | własny transport P2P | Przemienne w obrębie epoki, nie wymagają porządku |
-| Media rozmów | WebRTC P2P | Wolumen i opóźnienia |
-| Sygnalizacja rozmów | kanał MLS | Musi być uwierzytelniona |
-| Commity MLS | `GroupRelay` (Durable Object) | Wymagają jednego autorytatywnego porządku |
-| Wiadomości do offline'owych | `UserInbox` (Durable Object) | Ktoś musi je przechować |
+| Application messages | own P2P transport | Commutative within an epoch, need no ordering |
+| Call media | WebRTC P2P | Volume and latency |
+| Call signalling | MLS channel | Must be authenticated |
+| MLS commits | `GroupRelay` (Durable Object) | Need one authoritative order |
+| Messages for offline devices | `UserInbox` (Durable Object) | Someone has to store them |
 
-### Doręczanie przez skrzynkę wymaga potwierdzenia
+### Mailbox delivery requires an acknowledgement
 
-Koperta trafia do kolejki **zawsze**, także wtedy, gdy odbiorca ma otwarte
-połączenie. Wysyłka w gniazdo jest przyspieszeniem, nie doręczeniem: `send`
-kończy się powodzeniem, gdy bajty trafią do bufora, a nie gdy klient je
-przetworzy i zapisze.
+An envelope **always** goes into the queue, even when the recipient has an open
+connection. Sending into the socket is an acceleration, not delivery: `send`
+succeeds when the bytes reach the buffer, not when the client has processed and
+stored them.
 
-Wpis znika z kolejki dopiero po potwierdzeniu (`ack:<id>`), które klient wysyła
-**po** utrwaleniu stanu MLS. Bez tego wystarczyłoby zamknąć kartę między
-odebraniem a zapisem, żeby wiadomość przepadła — nadawca miałby ją za
-dostarczoną i nikt by jej nie powtórzył.
+The client acknowledges an envelope (`ack:<id>`) only **after** persisting MLS
+state. Without that, closing the tab between receiving and saving would be enough
+to lose a message — the sender would consider it delivered and nobody would
+repeat it.
 
-Ceną jest możliwość otrzymania tej samej koperty dwa razy — i to wymaga po
-stronie klienta więcej uwagi, niż się wydaje.
+The price is the possibility of receiving the same envelope twice — and that
+needs more care on the client than it seems.
 
-Powtórzona koperta zostaje przez MLS odrzucona (ratchet już się przesunął),
-więc klient jej **nie potwierdzi** — a wtedy wróci przy następnym połączeniu.
-I przy kolejnym. Klient musi więc liczyć nieudane próby i po kilku potwierdzić
-kopertę mimo wszystko, uznając ją za martwą.
+A repeated envelope is rejected by MLS (the ratchet has already moved), so the
+client **won't acknowledge** it — and then it comes back on the next connection.
+And the next. So the client must count failed attempts and, after a few,
+acknowledge the envelope anyway, treating it as dead.
 
-Nie po pierwszej próbie: koperta może wyprzedzić commit, który jest jej
-potrzebny, i przejść dopiero za drugim razem.
+Not after the first attempt: an envelope may overtake the commit it needs and
+succeed only on the second try.
 
-Nieudane przetworzenie koperty **nie jest błędem do pokazania użytkownikowi**.
-Powtórzenie, nieaktualna epoka i pakiet spreparowany przez kogoś z sieci
-wyglądają tak samo, a użytkownik nie ma na żadne z nich wpływu.
+Failing to process an envelope **is not an error to show the user**. A repeat, a
+stale epoch and a packet crafted by someone on the network look the same, and the
+user has no influence over any of them.
 
-### Cykl życia commitu
+### Commit life cycle
 
-Commit zmienia epokę, więc dwa równoległe commity muszą zostać rozstrzygnięte.
-Rozstrzyga `GroupRelay`, bo Durable Object jest jednowątkowy.
+A commit changes the epoch, so two parallel commits must be resolved. `GroupRelay`
+resolves them, because a Durable Object is single-threaded.
 
 ```
-1. Klient przygotowuje commit          → stage_add_members / stage_remove_member
-2. Zgłasza relayowi numer epoki
-3a. Relay potwierdza (był pierwszy)    → confirm_pending_commit  → epoka +1,
-                                          rozsyłka do skrzynek
-3b. Relay odmawia (rozstrzygalnie)     → discard_pending_commit  → epoka bez zmian,
-                                          przetwórz cudzy commit i ponów
-3c. Relay nie odpowiada (5xx, sieć)    → nie ruszaj stanu MLS: nie wiadomo,
-                                          czy epoka została zajęta
+1. Client prepares a commit             → stage_add_members / stage_remove_member
+2. Reports the epoch number to the relay
+3a. Relay confirms (it was first)       → confirm_pending_commit  → epoch +1,
+                                          fan-out to mailboxes
+3b. Relay refuses (decisively)          → discard_pending_commit  → epoch unchanged,
+                                          process the other commit and retry
+3c. Relay doesn't answer (5xx, network) → don't touch MLS state: it's unknown
+                                          whether the epoch was claimed
 ```
 
-**Commit nie jest scalany przed potwierdzeniem.** Scalenie od razu przy
-odrzuceniu zostawiłoby klienta w epoce, której reszta grupy nie zna — czyli poza
-rozmową.
+**A commit isn't merged before confirmation.** Merging immediately on rejection
+would leave the client in an epoch the rest of the group doesn't know — that is,
+outside the conversation.
 
-**Commit nie może też zostać przygotowany i zapomniany.** Dopóki wisi, MLS
-odmawia w tej rozmowie wszystkiego — również wysłania zwykłej wiadomości —
-więc klient, który przy odmowie tylko pokaże błąd, psuje rozmowę do restartu.
+**A commit also can't be prepared and forgotten.** While it's pending, MLS refuses
+everything in that conversation — including sending an ordinary message — so a
+client that only shows an error on refusal breaks the conversation until restart.
 
-### Transport P2P
+### P2P transport
 
-| Warstwa | Rozwiązanie |
+| Layer | Solution |
 |---|---|
-| Gniazdo | UDP |
-| Poznanie własnego adresu | STUN (RFC 5389) |
-| Zestawienie połączenia | jednoczesne pakiety, przebijanie NAT |
-| Szyfrowanie i uwierzytelnienie | Noise IK (`Noise_IK_25519_ChaChaPoly_BLAKE2s`) |
+| Socket | UDP |
+| Learning one's own address | STUN (RFC 5389) |
+| Setting up the connection | simultaneous packets, NAT hole punching |
+| Encryption and authentication | Noise IK (`Noise_IK_25519_ChaChaPoly_BLAKE2s`) |
 
-Wzorzec **IK** jest wybrany celowo: inicjator zna z góry statyczny klucz
-odpowiadającego — bierze go z katalogu. Jeśli katalog skłamał, **handshake nie
-przejdzie**, więc serwer nie podstawi się w środek połączenia.
+The **IK** pattern is chosen on purpose: the initiator knows the responder's static
+key in advance — it takes it from the directory. If the directory lied, **the
+handshake fails**, so the server can't put itself in the middle of the connection.
 
-Druga warstwa szyfrowania nie dubluje MLS. MLS chroni treść; Noise chroni
-**kopertę**, która musi być czytelna dla odbiorcy przed odszyfrowaniem, a więc
-niesie `group_id` jawnie. Bez Noise obserwator sieci odtworzyłby graf rozmów.
+The directory record with a device's transport key and addresses is signed with
+that device's MLS signature key, and the client verifies it against the key from
+the conversation's MLS tree — never against a key that arrived next to the
+signature. An unsigned record means "mailbox only".
 
-**Nie ma przekaźnika.** Przy symetrycznym NAT po obu stronach przebicie się nie
-uda i wchodzi skrzynka. Własny relay wymagałby serwera z UDP, a architektura
-stoi na Cloudflare Workers, które UDP nie obsługują.
+The second layer of encryption doesn't duplicate MLS. MLS protects content; Noise
+protects the **envelope's routing fields**, which the recipient must read before
+decrypting. Without Noise a network observer could correlate envelopes into a
+conversation graph.
 
-## 5. Ładunek aplikacyjny
+**There is no relay.** With a symmetric NAT on both sides hole punching fails and
+the mailbox takes over. Our own relay would need a server with UDP, and the
+architecture runs on Cloudflare Workers, which don't support UDP.
 
-Pełna definicja: [`proto/chat.proto`](../proto/chat.proto). Ładunek **zawsze**
-podróżuje wewnątrz wiadomości aplikacyjnej MLS.
+## 5. Application payload
 
-Odbiorca odrzuca ładunek, gdy:
+Full definition: [`proto/chat.proto`](../proto/chat.proto). The payload **always**
+travels inside an MLS application message.
+
+The recipient rejects the payload when:
 - `protocol_version` ≠ 1,
-- `body` jest puste (nierozpoznany wariant `oneof`),
-- `message_id` nie ma dokładnie 16 bajtów.
+- `body` is empty (an unrecognised `oneof` variant),
+- `message_id` isn't exactly 16 bytes.
 
-`sent_at_ms` to **deklaracja nadawcy**, nie fakt — nadawca może wpisać dowolną
-wartość. Do porządkowania w interfejsie należy używać kolejności odbioru,
-a znacznika wyłącznie do wyświetlenia.
+`sent_at_ms` is **the sender's claim**, not a fact — the sender can write any value.
+Use the order of receipt for ordering in the interface, and the timestamp only for
+display.
 
-## 6. Załączniki
+## 6. Attachments
 
-Plik jest szyfrowany **przed** wysłaniem na serwer, świeżym kluczem AES-256-GCM.
+A file is encrypted **before** it's sent to the server, with a fresh AES-256-GCM key.
 
 ```
-1. Klient losuje klucz (32 B) i nonce (12 B)
-2. Szyfruje plik; `mime_type` wchodzi do danych uwierzytelnionych (AAD)
-3. Wgrywa SAM SZYFROGRAM na serwer → dostaje `blob_id`
-4. Wysyła `AttachmentBody` z kluczem, nonce'em, typem i nazwą — kanałem MLS
+1. The client draws a key (32 B) and a nonce (12 B)
+2. Encrypts the file; `mime_type` goes into the authenticated data (AAD)
+3. Uploads ONLY THE CIPHERTEXT to the server → gets a `blob_id`
+4. Sends an `AttachmentBody` with the key, nonce, type and name — over the MLS channel
 ```
 
-Właściwości, które ta konstrukcja musi zachować:
+Properties this construction must keep:
 
-- **Świeży klucz na każdy plik.** Powtórzenie pary (klucz, nonce) w AES-GCM nie
-  osłabia szyfru „trochę" — pozwala odzyskać strumień klucza i sfałszować
-  dowolną wiadomość. Losowanie klucza per plik usuwa tę możliwość z definicji,
-  zamiast polegać na poprawnym liczeniu licznika.
-- **Typ pliku jest uwierzytelniony.** `mime_type` trafia do AAD, więc podmiana
-  deklarowanego typu unieważnia szyfrogram. Bez tego pośrednik mógłby podać
-  wideo jako obraz i skierować je do innego dekodera niż zamierzony.
-- **Nazwa pliku i typ nie trafiają na serwer.** Są metadanymi treści, więc
-  zostają w kanale MLS. R2 przechowuje wyłącznie bajty i czas wgrania.
-- **Limit 25 MB.** Mieści zdjęcia i krótkie wideo bez przesyłania
-  wieloczęściowego. Większe pliki wymagałyby wysyłki prosto do R2 z pominięciem
-  Workera — to osobna funkcja, nie zmiana stałej.
+- **A fresh key for every file.** Repeating a (key, nonce) pair in AES-GCM doesn't
+  weaken the cipher "a bit" — it lets you recover the keystream and forge any
+  message. Drawing a key per file removes that possibility by definition, instead
+  of relying on counting correctly.
+- **The file type is authenticated.** `mime_type` goes into the AAD, so changing the
+  declared type invalidates the ciphertext. Without that an intermediary could pass
+  a video off as an image and route it to a different decoder than intended.
+- **The file name and type don't reach the server.** They're content metadata, so
+  they stay in the MLS channel. R2 stores only the bytes and the upload time.
+- **A 25 MB limit.** Fits photos and short videos without multipart upload. Bigger
+  files would need uploading straight to R2, bypassing the Worker — that's a
+  separate feature, not a change of constant.
 
-Serwer nadaje `blob_id` sam. Pozwolenie klientowi na wybór nazwy umożliwiałoby
-nadpisanie cudzego bloba albo zgadywanie istniejących.
+The server assigns the `blob_id` itself. Letting the client choose the name would
+allow overwriting someone else's blob or guessing existing ones.
 
-### Metadane zdjęć
+### Photo metadata
 
-Ze zdjęć usuwamy metadane **przed** zaszyfrowaniem, domyślnie i bez pytania.
+We strip metadata from photos **before** encryption, by default and without asking.
 
-Powód jest prosty: EXIF w zdjęciu z telefonu niesie współrzędne GPS
-z dokładnością do kilku metrów, model aparatu i czas wykonania. Szyfrowanie nie
-pomaga na dane, które sami umieszczamy w środku szyfrogramu — docierają do
-odbiorcy razem z obrazem i mogą powędrować dalej.
+The reason is simple: EXIF in a phone photo carries GPS coordinates accurate to a
+few metres, the camera model and the time it was taken. Encryption doesn't help
+with data we put inside the ciphertext ourselves — it reaches the recipient along
+with the image and can travel further.
 
-Czyszczenie przepisuje strukturę pliku, przepuszczając wyłącznie fragmenty
-potrzebne do wyświetlenia. **Piksele zostają bit w bit takie same** — inaczej
-niż przy przekodowaniu, które kosztowałoby jakość.
+Stripping rewrites the file structure, letting through only the parts needed to
+display it. **The pixels stay bit-for-bit identical** — unlike re-encoding, which
+would cost quality.
 
-| Format | Zostaje | Wylatuje |
+| Format | Kept | Removed |
 |---|---|---|
-| JPEG | JFIF, profil ICC, tablice i nagłówki ramki | APP1 (EXIF, XMP), APP13 (IPTC), komentarze, reszta APPn |
-| PNG | chunki krytyczne, barwy, APNG | `tEXt`, `zTXt`, `iTXt`, `eXIf`, `tIME` |
+| JPEG | JFIF, ICC profile, tables and frame headers | APP1 (EXIF, XMP), APP13 (IPTC), comments, other APPn |
+| PNG | critical chunks, colour, APNG | `tEXt`, `zTXt`, `iTXt`, `eXIf`, `tIME` |
 
-Obie listy są **listami dozwolonych**, nie zakazanych. Przy odwrotnym podejściu
-każdy nowy, nieznany typ segmentu przechodziłby domyślnie — czyli dokładnie ten
-przypadek, którego chcemy uniknąć.
+Both lists are **allow lists**, not deny lists. With the opposite approach every
+new, unknown segment type would get through by default — exactly the case we want
+to avoid.
 
-### Metadane wideo (MP4, MOV)
+### Video metadata (MP4, MOV)
 
-Kontenery ISO BMFF czyścimy inaczej niż obrazy, i to jest istotne.
+We clean ISO BMFF containers differently from images, and that matters.
 
-MP4 trzyma w tablicach `stco` i `co64` **bezwzględne offsety** do danych obrazu
-w `mdat`. Wycięcie czegokolwiek przed `mdat` przesunęłoby wszystko, co jest za
-nim, a tablice wskazywałyby w próżnię — plik przestałby się odtwarzać.
+MP4 keeps **absolute offsets** into the picture data in `mdat` in its `stco` and
+`co64` tables. Cutting anything out before `mdat` would shift everything after it,
+and the tables would point into the void — the file would stop playing.
 
-Dlatego boksy z metadanymi **nadpisujemy typem `free` i zerujemy ich
-zawartość**. Rozmiar zostaje ten sam, więc żaden offset się nie zmienia,
-a odtwarzacze pomijają `free` z definicji.
+That's why we **overwrite metadata boxes with the `free` type and zero their
+content**. The size stays the same, so no offset changes, and players skip `free`
+by definition.
 
-| Poziom | Zostaje | Wylatuje |
+| Level | Kept | Removed |
 |---|---|---|
-| najwyższy | `ftyp`, `moov`, `mdat`, `moof`, `mfra`, `sidx` | `uuid` (XMP), `meta`, `free` |
+| top | `ftyp`, `moov`, `mdat`, `moof`, `mfra`, `sidx` | `uuid` (XMP), `meta`, `free` |
 | `moov` | `mvhd`, `trak`, `mvex`, `iods` | `udta` (GPS, model), `meta`, `uuid` |
 | `trak` | `tkhd`, `mdia`, `edts`, `tref` | `udta`, `meta`, `uuid` |
 
-Osobno wykrywamy **ścieżki z metadanymi czasowymi**: `trak`, którego
-`mdia/hdlr` ma typ `meta` lub `mebx`. Formalnie to zwykła ścieżka, więc lista
-dozwolonych by jej nie odsiała — a kamery sportowe zapisują tam pełny przebieg
-trasy GPS, czyli największy możliwy wyciek.
+We separately detect **timed-metadata tracks**: a `trak` whose `mdia/hdlr` has the
+`meta` or `mebx` type. Formally it's an ordinary track, so the allow list wouldn't
+filter it out — and action cameras store the full GPS route there, the biggest
+possible leak.
 
-Zerujemy zawartość, a nie tylko przestawiamy typ boksu: same przestawienie
-zostawiłoby współrzędne w pliku, tyle że w miejscu pomijanym przez odtwarzacz.
-Pierwsze lepsze narzędzie do odzyskiwania danych by je znalazło.
+We zero the content rather than just changing the box type: changing the type
+alone would leave the coordinates in the file, just in a place the player skips.
+Any data-recovery tool would find them.
 
-Koszt: plik nie chudnie. To rozsądna cena za pewność, że nagranie nadal działa.
+Cost: the file doesn't shrink. A reasonable price for certainty that the
+recording still works.
 
-**Nieudane czyszczenie nie blokuje wysyłki.** Plik w nietypowym wariancie
-kontenera lepiej dostarczyć niż odrzucić — pod warunkiem, że interfejs powie,
-iż akurat ten poszedł z metadanymi.
+**Failed stripping doesn't block sending.** It's better to deliver a file in an
+unusual container variant than to reject it — provided the interface says that
+this particular one went with its metadata.
 
 ## 7. Safety number
 
-Kod do porównania poza aplikacją, liczony wyłącznie z tożsamości uczestników.
+A code to compare outside the app, computed only from the participants' identities.
 
 ```
 material = "mekamb-chat/v1/safety-number"
-         || dla każdego uczestnika (posortowanych, bez duplikatów):
+         || for each participant (sorted, deduplicated):
               len(identity) || identity || len(signature_key) || signature_key
 
 digest = SHA-512(material)
-powtórz 5200 razy:  digest = SHA-512(digest || etykieta)
+repeat 5200 times:  digest = SHA-512(digest || label)
 
-kod = 12 grup po 5 cyfr, każda z kolejnych 5 bajtów skrótu modulo 100000
+code = 12 groups of 5 digits, each from the next 5 bytes of the digest modulo 100000
 ```
 
-Decyzje, które są tu istotne:
+The decisions that matter here:
 
-- **Sortowanie i deduplikacja.** Bez nich dwie osoby w tej samej rozmowie
-  zobaczyłyby różne kody i porównanie nigdy by się nie udało.
-- **Prefiksy długości.** Bez nich dałoby się przesunąć granicę między nazwą
-  a kluczem i spreparować inny skład dający ten sam kod.
-- **Powtórzone haszowanie.** Kod ma ~200 bitów, czyli mniej niż klucz — atak
-  polega na szukaniu innej pary kluczy dającej ten sam wynik. Iteracje mnożą
-  koszt takiego poszukiwania. Domieszka etykiety w każdej rundzie wymusza
-  przejście całego łańcucha zamiast zrównoleglenia.
-- **Klucze z drzewa MLS, nie z katalogu.** Gdyby serwer podstawił cudze
-  urządzenie, znalazłoby się ono w drzewie i zmieniło kod. Odczyt z katalogu
-  pozwalałby serwerowi pokazać jedno, a wprowadzić do grupy co innego.
+- **Sorting and deduplication.** Without them two people in the same conversation
+  would see different codes and the comparison would never succeed.
+- **Length prefixes.** Without them you could shift the boundary between name and
+  key and craft a different membership giving the same code.
+- **Repeated hashing.** The code has ~200 bits, less than a key — the attack is to
+  search for another key pair giving the same result. The iterations multiply the
+  cost of that search. Mixing in the label every round forces walking the whole
+  chain instead of parallelising it.
+- **Keys from the MLS tree, not the directory.** If the server slipped in someone
+  else's device, it would be in the tree and change the code. Reading from the
+  directory would let the server show one thing and put something else into the group.
 
-Kod zmienia się przy każdej zmianie składu rozmowy — uczestnicy mają wtedy
-porównać go ponownie.
+The code changes whenever the conversation's membership changes — participants
+should compare it again then.
 
-## 8. Rozmowy audio/wideo
+## 8. Voice/video calls
 
-WebRTC, topologia mesh, maksymalnie 4 uczestników. Bez serwera mediów.
+WebRTC, mesh topology, at most 4 participants. No media server.
 
-Każda para uczestników zestawia **osobne** połączenie i ma **osobne zaufanie**:
-zerwanie jednego przez niezgodny odcisk certyfikatu nie kończy rozmowy
-z pozostałymi.
+Every pair of participants sets up a **separate** connection with **separate
+trust**: dropping one because of a mismatched certificate fingerprint doesn't end
+the call with the others.
 
-Sygnalizacja niesie pole `target`. Wiadomości MLS trafiają do całej grupy, więc
-bez adresata trzecia osoba próbowałaby przetworzyć ofertę przeznaczoną dla kogoś
-innego. Puste `target` znaczy „dla wszystkich" i służy do zaproszenia.
+Signalling carries a `target` field. MLS messages go to the whole group, so
+without an addressee a third person would try to process an offer meant for
+someone else. An empty `target` means "for everyone" and is used for invitations.
 
-Sygnalizacja (`CallSignalBody`) idzie **kanałem MLS**. Dzięki temu odcisk DTLS
-jest uwierzytelniony kryptograficznie: podmiot kontrolujący warstwę transportową
-nie podstawi się w środek połączenia, bo nie sfałszuje wiadomości MLS.
+Signalling (`CallSignalBody`) goes **over the MLS channel**. That makes the DTLS
+fingerprint cryptographically authenticated: whoever controls the transport layer
+can't put themselves in the middle of the connection, because they can't forge an
+MLS message.
 
-### Weryfikacja odcisku
+### Fingerprint verification
 
 ```
-1. Dzwoniący tworzy ofertę SDP
-2. Wyciąga z niej własny odcisk DTLS
-3. Wysyła SDP i odcisk RAZEM, wewnątrz wiadomości MLS
-4. Odbiorca porównuje odcisk z SDP z tym z kanału MLS
-5a. Zgodne     → zestawia połączenie
-5b. Niezgodne  → zrywa, BEZ pytania użytkownika
+1. The caller creates an SDP offer
+2. Extracts its own DTLS fingerprint from it
+3. Sends the SDP and the fingerprint TOGETHER, inside an MLS message
+4. The recipient compares the fingerprint in the SDP with the one from the MLS channel
+5a. Match     → sets up the connection
+5b. Mismatch  → drops it, WITHOUT asking the user
 ```
 
-Trzy szczegóły, które decydują o skuteczności:
+Three details decide whether this works:
 
-- **Sprawdzamy wszystkie odciski w SDP, nie pierwszy.** SDP może nieść odcisk
-  na poziomie sesji i osobne dla każdej ścieżki mediów. Wystarczyłoby dopisać
-  drugą ścieżkę z własnym odciskiem, gdyby sprawdzać tylko pierwszy.
-- **Weryfikacja poprzedza ustawienie opisu zdalnego.** Odwrotna kolejność
-  tworzyłaby — choćby na moment — połączenie z niezweryfikowaną stroną.
-- **Tylko SHA-256.** Lista dozwolonych z jedną pozycją nie pozwala zejść
-  na algorytm, dla którego kolizję da się znaleźć.
+- **We check every fingerprint in the SDP, not the first.** SDP can carry a
+  session-level fingerprint and separate ones per media section. Adding a second
+  section with your own fingerprint would be enough if only the first were checked.
+- **Verification comes before setting the remote description.** The reverse order
+  would create — even for a moment — a connection to an unverified party.
+- **SHA-256 only.** An allow list with one entry doesn't allow downgrading to an
+  algorithm for which a collision can be found.
 
-**Niezgodność odcisku DTLS = natychmiastowe zerwanie połączenia, bez pytania
-użytkownika.** Pytanie w tym miejscu oznaczałoby przerzucenie decyzji
-kryptograficznej na osobę, która nie ma jak jej ocenić — a odpowiedź „tak"
-byłaby najczęstsza.
+**A DTLS fingerprint mismatch = the connection is dropped immediately, without
+asking the user.** A question at this point would hand a cryptographic decision to
+someone who has no way of judging it — and "yes" would be the most common answer.
 
-### Adres IP a droga połączenia
+### IP address and connection path
 
-Połączenie bezpośrednie ujawnia adres IP rozmówcy. Przy przejściu przez TURN
-adres widzi przekaźnik zamiast rozmówcy. Interfejs pokazuje, która droga jest
-w użyciu — milczenie sugerowałoby, że nie ujawnia się nic.
+A direct connection reveals the other person's IP address. Through TURN, the relay
+sees the address instead of the other person. The interface shows which path is
+in use — silence would suggest nothing is revealed.
 
 - STUN: `stun.cloudflare.com`
-- TURN: Cloudflare Realtime, poświadczenia krótkożyjące wydawane przez Worker
+- TURN: Cloudflare Realtime, short-lived credentials issued by the Worker
 
-Limit 4 osób wynika z pasma: przy 5 uczestnikach każdy wysyła 4 strumienie
-w górę, co przekracza możliwości typowego łącza domowego.
+The limit of 4 people comes from bandwidth: with 5 participants each sends 4
+streams upstream, which exceeds a typical home connection.
 
-### Adresy urządzenia
+### Device addresses
 
-Katalog przechowuje **dwa** adresy: w sieci lokalnej i publiczny z STUN.
+The directory stores **two** addresses: on the local network and the public one
+from STUN.
 
-Sam adres publiczny nie wystarcza. Dwa urządzenia w tej samej sieci wifi
-musiałyby wtedy dojść do siebie przez router, zawracając pakiety na zewnątrz
-i z powrotem — czego wiele routerów nie robi. Adres lokalny ustalamy sztuczką
-z gniazdem UDP „połączonym" z adresem w internecie: żaden pakiet nie wychodzi,
-a system ujawnia interfejs, którym poszedłby ruch.
+The public address alone isn't enough. Two devices on the same Wi-Fi would then
+have to reach each other through the router, sending packets out and back in —
+which many routers don't do. We find the local address with a trick: a UDP socket
+"connected" to an address on the internet — no packet leaves, and the system
+reveals the interface the traffic would take.
 
-## 9. Uwierzytelnienie do infrastruktury
+## 9. Authentication to the infrastructure
 
 ```
-rejestracja:  register/start → register/finish → register/confirm
-              (OPAQUE)         (konto pending,    (kod z authenticatora
-                                sekret TOTP)       aktywuje konto)
+registration:  register/start → register/finish → register/confirm
+               (OPAQUE)         (pending account,  (authenticator code
+                                 TOTP secret)       activates the account)
 
-logowanie:    login/start    → login/finish    → login/totp
-              (OPAQUE runda 1) (OPAQUE runda 2)  (drugi składnik → token)
+sign-in:       login/start    → login/finish    → login/totp
+               (OPAQUE round 1) (OPAQUE round 2)  (second factor → token)
 ```
 
-**Serwer i wszystkie klienty używają tej samej implementacji** — `opaque-ke`
-w Rust, wystawionej przez WebAssembly (Worker, przeglądarka) i UniFFI (Android).
+**The server and all clients use the same implementation** — `opaque-ke` in Rust,
+exposed through WebAssembly (Worker, browser) and UniFFI (Android, iOS).
 
-Dwie niezależne implementacje tego samego protokołu nie są zgodne na poziomie
-bajtów tylko dlatego, że obie „robią OPAQUE". Sprawdziliśmy to na własnej
-skórze: implementacja TypeScript realizowała draft-07, rustowa RFC 9807, a między
-nimi zmienił się format komunikatów. Wspólny kod usuwa całą klasę problemów.
+Two independent implementations of the same protocol aren't byte-compatible just
+because both "do OPAQUE". We learned this the hard way: the TypeScript
+implementation followed draft-07, the Rust one RFC 9807, and the message format
+changed between them. Shared code removes a whole class of problems.
 
-Właściwości, które ta ścieżka musi zachować:
+Properties this path must keep:
 
-- **Serwer nie widzi hasła** ani w chwili rejestracji, ani logowania. Z rekordu
-  w bazie nie da się prowadzić ataku słownikowego offline — inaczej niż z hasha.
-- **Nieistniejąca nazwa użytkownika przechodzi tę samą ścieżkę** co istniejąca,
-  z atrapą rekordu (`RegistrationRecord.createFake`). Bez tego kształt lub czas
-  odpowiedzi zdradzałby, które konta istnieją.
-- **Kod TOTP jest jednorazowy w swoim oknie.** Zapisujemy numer ostatnio użytego
-  okna i odrzucamy wszystko, co nie jest późniejsze (RFC 6238 §5.2). Skutek
-  widoczny dla użytkownika: po aktywacji konta trzeba poczekać na nowy kod.
-- **Sesja logowania jest jednorazowa** — konsumowana niepodzielnie przez
+- **The server never sees the password**, neither at registration nor at sign-in.
+  An offline dictionary attack can't be run from the database record — unlike from
+  a hash.
+- **A non-existent username goes down the same path** as an existing one, with a
+  dummy record (`RegistrationRecord.createFake`). Without that, the shape or timing
+  of the response would reveal which accounts exist.
+- **A TOTP code is single-use within its window.** We store the number of the last
+  used window and reject anything that isn't later (RFC 6238 §5.2). The visible
+  consequence: after activating an account you have to wait for a new code.
+- **A sign-in session is single-use** — consumed atomically by
   `DELETE ... RETURNING`.
 
-**Hasło i TOTP nie odblokowują wiadomości.** Autoryzują wyłącznie dostęp do
-infrastruktury: skrzynki offline, katalogu i publikowania key packages. Klucze
-wiadomości nigdy nie opuszczają urządzenia, więc przejęcie konta nie daje
-dostępu do historii.
+**The password and TOTP don't unlock messages.** They authorise only access to the
+infrastructure: the offline mailbox, the directory and publishing key packages.
+Message keys never leave the device, so taking over an account gives no access to
+history.
 
-## 10. Wiele urządzeń jednego konta
+### Delivery tokens
 
-Członkiem grupy MLS jest **urządzenie**, nie osoba: credential to
-`user_id:device_id`. Skrzynka jest natomiast **per użytkownik**, bo nadawca zna
-tylko nazwę. Z tego rozjazdu wynika wszystko poniżej.
+Depositing into a mailbox carries **no account token** — the server must not learn
+who writes to whom; the sender is authenticated inside MLS. The right to deposit is
+proved by a single-use **delivery token** instead, issued on a blinded value
+(`opaque/src/tokeny.rs`): at issuance the server can't see what it signed, at
+redemption it can't see for whom. The client verifies a Chaum–Pedersen proof that
+the server used its published key, and pins that key on first download.
 
-### 10.1 Skrzynka i kursory
+Reading a mailbox (`GET /inbox/:userId/connect`) requires the **owner's** account
+token, passed as `Sec-WebSocket-Protocol` because browsers can't set
+`Authorization` on a WebSocket.
 
-`UserInbox` trzyma kursor na urządzenie (tabela `kursory`). Potwierdzenie
-przesuwa kursor **tego** urządzenia; koperta znika dopiero, gdy minie kursory
-wszystkich urządzeń, które odezwały się w ciągu `MAILBOX_RETENTION_DAYS`.
+## 10. Multiple devices on one account
 
-Kursor powstaje przy **pierwszym połączeniu** i dopiero od tej chwili
-urządzenie trzyma kolejkę. To jest wymóg dla kolejności parowania: nowe
-urządzenie musi podłączyć się do skrzynki, zanim stare wyśle Welcome.
+A member of an MLS group is a **device**, not a person: the credential is
+`user_id:device_id`. The mailbox, on the other hand, is **per user**, because the
+sender knows only the name. Everything below follows from that mismatch.
 
-Identyfikator urządzenia serwer bierze z **podpisanego tokenu**, nigdy
-z zapytania.
+### 10.1 The mailbox and per-device reads
 
-### 10.2 Echo własnych wiadomości
+The mailbox is an append-only log. `UserInbox` records, per device, **the set of
+envelope ids that device has read** (`device_reads`). An acknowledgement marks one
+envelope as read for **that** device — it isn't a high-water mark: clients
+acknowledge out of order on purpose (an envelope that failed to process is held for
+a retry while a later one is acknowledged), so a gap stays a gap and comes back on
+the next connection. Only retention (`MAILBOX_RETENTION_DAYS`) deletes an envelope,
+because the mailbox doesn't know group membership and so can't know how many
+devices still owe a read.
 
-Nadawca wrzuca kopertę także do **własnej** skrzynki, inaczej pozostałe jego
-urządzenia nigdy się o niej nie dowiedzą. Koperta wraca więc do nadawcy, który
-nie potrafi jej odszyfrować — MLS nie pozwala przetworzyć własnej wiadomości.
-Klient rozpoznaje ją po skrócie SHA-256 z bajtów koperty i potwierdza bez
-przetwarzania.
+The server takes the device identifier from the **signed token**, never from the
+request.
 
-To jest jedyna metadana, którą ta zmiana dokłada serwerowi: jeden depozyt pod
-własną nazwą użytkownika, czyli „ta osoba coś wysłała".
+### 10.2 Echo of one's own messages
 
-### 10.3 Parowanie
+The sender also drops the envelope into their **own** mailbox, otherwise their
+other devices would never learn about it. So the envelope comes back to the sender,
+who can't decrypt it — MLS doesn't allow processing one's own message. The client
+recognises it by the SHA-256 of the envelope bytes and acknowledges it without
+processing.
 
-Parowanie **nie kopiuje ziarna**. Nowe urządzenie ma własne ziarno z logowania
-i wchodzi do rozmów jako osobny liść MLS — oba urządzenia działają dalej
-równolegle.
+That's the only metadata this adds for the server: one deposit under one's own
+username, i.e. "this person sent something".
 
-1. Nowe urządzenie loguje się, rejestruje w katalogu, publikuje key packages
-   i **podłącza się do skrzynki** (zakłada kursor — § 10.1).
-2. Pokazuje kod `mekamb://parowanie?d=<device_id>&k=<x25519_pub>` z efemerycznym
-   kluczem publicznym.
-3. Stare urządzenie skanuje kod, generuje własną parę efemeryczną i wyprowadza
-   klucz transferu: `HKDF-SHA256(X25519(sekret, obcy_pub), "mekamb-chat/v1/parowanie-transfer")`.
-   Wspólny sekret złożony z samych zer jest odrzucany (punkt małego rzędu).
-4. Stare urządzenie dodaje nowy liść do **każdej** rozmowy: `addMembers` → commit →
-   zajęcie epoki w `GroupRelay` → rozesłanie commitu i Welcome. Sekwencyjnie,
-   bo każda rozmowa to osobna epoka.
-5. Stare urządzenie nadaje historię transferem optycznym (§ 10.4).
+### 10.3 Pairing
 
-Nazwy użytkownika w kodzie nie ma: stare urządzenie zna ją, bo paruje z własnym
-kontem.
+Pairing **doesn't copy the seed**. The new device has its own seed from sign-in and
+joins conversations as a separate MLS leaf — both devices keep working side by side.
 
-**Kierunek kodu jest częścią zabezpieczenia.** Kod pokazuje nowe urządzenie,
-czyli to, które będzie *odbierać*. Ktoś, kto sfilmuje ekran nadajnika przez całą
-transmisję, ma wszystkie ramki i nie ma czym ich odszyfrować.
+1. The new device signs in, registers in the directory, publishes key packages and
+   **connects to the mailbox**.
+2. It shows the code `mekamb://parowanie?d=<device_id>&k=<x25519_pub>` with an
+   ephemeral public key.
+3. The old device scans the code, generates its own ephemeral pair and derives the
+   transfer key: `HKDF-SHA256(X25519(secret, peer_pub), "mekamb-chat/v1/parowanie-transfer")`.
+   An all-zero shared secret is rejected (a small-order point).
+4. The old device adds the new leaf to **every** conversation: `addMembers` → commit
+   → claiming the epoch in `GroupRelay` → fanning out the commit and Welcome.
+   Sequentially, because each conversation is a separate epoch.
+5. The old device sends the history by optical transfer (§ 10.4).
 
-Rozmówcy zobaczą zmianę safety numberu — doszedł liść. To poprawne i musi być
-widoczne.
+The username isn't in the code: the old device knows it, because it pairs with its
+own account.
 
-### 10.4 Transfer optyczny
+**The direction of the code is part of the protection.** The new device — the one
+that will *receive* — shows the code. Someone who films the sender's screen for the
+whole transmission has every frame and nothing to decrypt them with.
 
-Historia sprzed parowania **nie idzie przez serwer w żadnej postaci**. Nowe
-urządzenie nie było wtedy w grupie, więc nie da się jej dosłać kanałem MLS.
+Contacts will see the safety number change — a leaf was added. That's correct and
+must be visible.
 
-Potok nadawcy: `deflate` → `AES-256-GCM` → podział na bloki → kody fountain →
-kod QR wersji 40 przy korekcji L (2953 bajty na ramkę).
+### 10.4 Optical transfer
 
-Ramka, 59 bajtów nagłówka i ładunek:
+History from before pairing **doesn't go through the server in any form**. The new
+device wasn't in the group then, so it can't be resent over the MLS channel.
+
+The sender's pipeline: `deflate` → `AES-256-GCM` → split into blocks → fountain
+codes → QR code version 40 at error correction L (2953 bytes per frame).
+
+A frame is a 59-byte header plus payload:
 
 ```
-0   1   wersja formatu
-1   4   k — liczba bloków (u32 BE)
-5   2   rozmiar bloku (u16 BE)
-7   4   długość szyfrogramu (u32 BE)
-11  12  nonce AES-GCM
-23  32  SHA-256 szyfrogramu — tożsamość transferu
-55  4   ziarno ramki (u32 BE)
-59  ..  ładunek
+0   1   format version
+1   4   k — number of blocks (u32 BE)
+5   2   block size (u16 BE)
+7   4   ciphertext length (u32 BE)
+11  12  AES-GCM nonce
+23  32  SHA-256 of the ciphertext — the transfer's identity
+55  4   frame seed (u32 BE)
+59  ..  payload
 ```
 
-Ziarno mniejsze od `k` znaczy ramkę **systematyczną**: niesie wprost blok o tym
-numerze. Czyste ujęcie kończy transfer w dokładnie `k` klatkach. Pozostałe ramki
-to XOR podzbioru wybranego generatorem SplitMix64 zasianym ziarnem, o stopniu
-z rozkładu ideal soliton z 5-procentowym dodatkiem na stopień 1.
+A seed smaller than `k` means a **systematic** frame: it carries the block with that
+number directly. A clean capture finishes the transfer in exactly `k` frames. The
+remaining frames are the XOR of a subset chosen by a SplitMix64 generator seeded
+with the seed, with a degree from the ideal soliton distribution plus a 5% extra
+for degree 1.
 
-Rozkład liczony jest **w liczbach całkowitych**. `ln` nie jest identyczne bit
-w bit między platformami, a rozjazd na ostatnim bicie daje inny stopień ramki
-i dekoder, który nie odtwarza niczego.
+The distribution is computed **in integers**. `ln` isn't bit-identical across
+platforms, and a difference in the last bit gives a different frame degree and a
+decoder that reconstructs nothing.
 
-Klucz publiczny nadawcy jedzie jawnie, jako co ósma klatka
-(`mekamb://parowanie-nadawca?k=…`). Z dwóch kluczy **publicznych** nie da się
-wyliczyć sekretu, a raz pokazany na początku przepadłby dla każdego, kto
-spóźnił się o sekundę.
+The sender's public key travels in the clear, as every eighth frame
+(`mekamb://parowanie-nadawca?k=…`). The secret can't be computed from two
+**public** keys, and if it were shown once at the start, anyone a second late would
+miss it.
 
-Odbiornik przyjmuje klucz dopiero przy składaniu — zbieranie ramek go nie
-potrzebuje, a przy parowaniu klucz przychodzi tą samą kamerą co ramki.
+The receiver takes the key only when assembling — collecting frames doesn't need
+it, and during pairing the key comes through the same camera as the frames.
 
-### 10.5 Odebranie dostępu
+### 10.5 Revoking access
 
-`removeDevice` usuwa liść po tożsamości `user_id:device_id` — nie po indeksie
-liścia, bo kolejność w `members()` nie jest numeracją liści.
+`removeDevice` removes the leaf by its `user_id:device_id` identity — not by leaf
+index, because the order in `members()` isn't the leaf numbering.
 
-Kolejność: **najpierw** commity MLS we wszystkich rozmowach, **potem**
-`DELETE /devices/:id`. Odwrotnie stracilibyśmy sposób na zaadresowanie
-urządzenia. Samo wykreślenie z katalogu niczego nie odbiera — skład grupy żyje
-w drzewie MLS, którego serwer nie zna.
+Order: **first** the MLS commits in every conversation, **then**
+`DELETE /devices/:id`. The other way round we'd lose the means to address the
+device. Removing it from the directory alone revokes nothing — group membership
+lives in the MLS tree, which the server doesn't know.
 
-Usunięcie samego siebie jest błędem. Usunięcie urządzenia nieobecnego w danej
-rozmowie błędem nie jest.
+Removing yourself is an error. Removing a device that isn't in a given conversation
+is not.
 
-### 10.6 Scalanie historii
+### 10.6 Merging history
 
-Suma zbiorów po `message_id`, sortowana po `(czas, id)`. Znacznik przeczytania
-idzie w górę. Ślady po rozmowach A/V **nie** są scalane — są faktem o jednym
-urządzeniu. Limit 500 wiadomości obowiązuje **po** scaleniu, nie przed.
+The union of sets by `message_id`, sorted by `(time, id)`. The read marker goes up.
+Voice/video call traces are **not** merged — they're a fact about one device. The
+500-message limit applies **after** merging, not before.
 
-Format historii jest wspólny dla obu klientów i jego wersja musi być podnoszona
-po obu stronach w jednej zmianie.
+The history format is shared by all clients, and its version must be bumped on
+every client in the same change.
 
-## 11. Wersjonowanie
+## 11. Versioning
 
-Każda koperta niesie wersję protokołu. Odbiorca odrzuca nieznaną wersję główną
-zamiast zgadywać — czytelny błąd jest lepszy niż ciche błędne parsowanie.
+Every envelope carries the protocol version. The recipient rejects an unknown major
+version instead of guessing — a readable error is better than silent mis-parsing.
 
-Zmiany łamiące zgodność wymagają podniesienia `PAYLOAD_VERSION` oraz nowych
-etykiet HKDF.
+Breaking changes require bumping `PAYLOAD_VERSION` and new HKDF labels.

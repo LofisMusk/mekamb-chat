@@ -1,133 +1,146 @@
-# System wizualny „Neutralny" — specyfikacja wspólna dla web, Android i iOS
+# The "Neutral" visual system — shared spec for web, Android and iOS
 
-Ten dokument jest **normatywny dla wyglądu**. Zastępuje Nocturne (cyjan jako
-linia) i wariant „Mekamb Mobile" (kolorowy akcent jako plama). Każdy klient
-implementuje te same role pod tymi samymi nazwami — zmiana wyglądu to zmiana
-tokenów tutaj i na trzech platformach, nie dobieranie odcieni od nowa.
+This document is **normative for how the apps look**. It replaces Nocturne (cyan
+as a line) and the "Mekamb Mobile" variant (a coloured accent as a fill). Every
+client implements the same roles under the same names — changing the look means
+changing the tokens here and on all three platforms, not re-picking shades on one.
 
-## Dlaczego neutralny
+## Why neutral
 
-Komunikator, którego sednem jest to, *czego nie widać* (szyfrowanie, brak
-metadanych), nie potrzebuje marki krzyczącej kolorem. Neutralna skala szarości
-(baza „neutral" z shadcn/ui) robi trzy rzeczy naraz:
+A messenger whose whole point is *what you can't see* (encryption, no metadata)
+doesn't need a brand that shouts with colour. A neutral greyscale (the "neutral"
+base from shadcn/ui) does three things at once:
 
-- kontrast bierze się z jasności, więc działa tak samo w obu motywach i dla osób
-  z zaburzeniami widzenia barw;
-- kolor zostaje zarezerwowany dla **stanów** (błąd, zweryfikowano, ostrzeżenie) —
-  gdy pojawia się czerwień, coś naprawdę jest nie tak;
-- trzy platformy łatwiej utrzymać w zgodzie, bo nie ma odcienia akcentu, który
-  na każdym ekranie trzeba osobno dostrajać pod kontrast (patrz historia
-  `#06B6D4` → `#0891B2` → `#0E7490` w Nocturne).
+- contrast comes from lightness, so it works the same in both themes and for
+  people with colour-vision deficiencies;
+- colour is reserved for **states** (error, verified, warning) — when red shows
+  up, something really is wrong;
+- three platforms are easier to keep in sync, because there's no accent shade
+  that has to be tuned for contrast separately on every screen (see the history
+  of `#06B6D4` → `#0891B2` → `#0E7490` in Nocturne).
 
-Odrzucona alternatywa: zostawić akcent jako opcję użytkownika na wszystkich
-platformach. Android ją ma (osiem kolorów) i może ją zachować jako preferencję,
-ale **domyślny jest „Neutralny"**, a web i iOS na razie nie mają wyboru.
+Rejected alternative: keep the accent as a user option on every platform. Android
+has one (eight colours) and may keep it as a preference, but **the default is
+"Neutral"**, and web and iOS have no picker for now.
 
-## Główna zasada
+## The main rule
 
-**Akcja główna jest wypełniona kolorem `glowny` (prawie czerń w jasnym, prawie
-biel w ciemnym). Na ekranie jest najwyżej jedna taka akcja.** Reszta to
-przyciski obrysowane (`linia`) albo „duchy" (bez tła, tło `wglebienie` przy
-najechaniu). To odwraca zasadę Nocturne świadomie: w neutralnej palecie
-obrys nie odróżnia akcji głównej od drugorzędnej, bo nie ma koloru, który
-by ją wyróżnił — robi to jasność plamy.
+**The primary action is filled with `glowny` (near-black in light, near-white in
+dark). There is at most one such action per screen.** Everything else is an
+outlined button (`linia`) or a "ghost" (no background, `wglebienie` on hover).
+This deliberately inverts Nocturne: in a neutral palette an outline can't tell
+the primary action from a secondary one, because there's no colour to set it
+apart — the lightness of the fill does.
 
-Dymek własnej wiadomości jest wypełniony tym samym `glowny`; dymek rozmówcy
-— `wglebienie`. Autor jest rozpoznawalny po jasności, nie po stronie.
-**Dlatego w wątku nie ma żadnej innej plamy `glowny`** poza strzałką wysyłania
-(która tworzy właśnie taki dymek). Przyciski połączenia, wideo, uczestników są
-duchami.
+The own-message bubble is filled with the same `glowny`; the other person's is
+`wglebienie`. The author is recognisable by lightness, not by side. **That's why
+there is no other `glowny` fill in the thread** apart from the send arrow (which
+creates exactly that bubble). Call, video and participants buttons are ghosts.
 
-## Tokeny kolorów (role)
+The one exception is the call screen: accept is a green fill and decline/hang up
+is a red fill. "Green answers, red declines" is a convention people recognise
+without reading, in a hurry — stronger than this system.
 
-| Rola | Jasny | Ciemny | Do czego |
+## Colour tokens (roles)
+
+| Role | Light | Dark | Used for |
 |---|---|---|---|
-| `tlo` | `#FFFFFF` | `#0A0A0A` | tło aplikacji |
-| `karta` | `#FFFFFF` | `#171717` | karty, panele, arkusze, popovery |
-| `wglebienie` | `#F5F5F5` | `#262626` | pola tekstowe, dymek rozmówcy, hover, tor segmentu |
-| `wglebienie-mocne` | `#E5E5E5` | `#404040` | wciśnięty stan, aktywny element listy |
-| `tekst` | `#0A0A0A` | `#FAFAFA` | tekst główny |
-| `tekst-drugi` | `#737373` | `#A3A3A3` | podpisy, podgląd wiadomości, godziny (≥ 4,5:1) |
-| `tekst-trzeci` | `#A3A3A3` | `#737373` | wyłącznie dekoracyjne/nieistotne (placeholder) |
-| `linia` | `#E5E5E5` | `#FFFFFF1A` (biel 10%) | obramowania, separatory |
-| `linia-mocna` | `#D4D4D4` | `#FFFFFF26` (biel 15%) | obramowanie pola z fokusem, przycisk obrysowany |
-| `pierscien` | `#A3A3A3` | `#737373` | pierścień fokusu (2px, offset 2px) |
-| `glowny` | `#171717` | `#E5E5E5` | akcja główna, dymek własny, znacznik nieprzeczytanych |
-| `glowny-tekst` | `#FAFAFA` | `#171717` | tekst na `glowny` |
-| `alarm` | `#DC2626` | `#F87171` | błąd, akcja niszcząca (tekst/obrys) |
-| `alarm-tlo` | `#FEF2F2` | `#450A0A` | tło komunikatu błędu |
-| `sukces` | `#16A34A` | `#4ADE80` | „zweryfikowano", „połączono" |
-| `ostrzezenie` | `#D97706` | `#FBBF24` | wersja testowa, niezweryfikowany klucz |
-| `nakladka` | `#000000 / 40%` | `#000000 / 60%` | tło pod arkuszem/dialogiem |
+| `tlo` | `#FFFFFF` | `#0A0A0A` | app background |
+| `karta` | `#FFFFFF` | `#171717` | cards, panels, sheets, popovers |
+| `wglebienie` | `#F5F5F5` | `#262626` | text fields, the other person's bubble, hover, segment track |
+| `wglebienie-mocne` | `#E5E5E5` | `#404040` | pressed state, active list item |
+| `tekst` | `#0A0A0A` | `#FAFAFA` | primary text |
+| `tekst-drugi` | `#737373` | `#A3A3A3` | captions, message previews, times (≥ 4.5:1) |
+| `tekst-trzeci` | `#A3A3A3` | `#737373` | decorative/non-essential only (placeholders) |
+| `linia` | `#E5E5E5` | `#FFFFFF1A` (white 10%) | borders, separators |
+| `linia-mocna` | `#D4D4D4` | `#FFFFFF26` (white 15%) | focused field border, outlined button |
+| `pierscien` | `#A3A3A3` | `#737373` | focus ring (2px, 2px offset) |
+| `glowny` | `#171717` | `#E5E5E5` | primary action, own bubble, unread badge |
+| `glowny-tekst` | `#FAFAFA` | `#171717` | text on `glowny` |
+| `alarm` | `#DC2626` | `#F87171` | error, destructive action (text/outline) |
+| `alarm-tlo` | `#FEF2F2` | `#450A0A` | error message background |
+| `sukces` | `#16A34A` | `#4ADE80` | "verified", "connected" |
+| `ostrzezenie` | `#D97706` | `#FBBF24` | test build, unverified key |
+| `nakladka` | `#000000 / 40%` | `#000000 / 60%` | backdrop under a sheet/dialog |
 
-Dymki: `babel` = `wglebienie` + `tekst`; `babel-wlasny` = `glowny` + `glowny-tekst`.
-Znacznik nieprzeczytanych: `glowny` + `glowny-tekst`, pigułka.
+Bubbles: `babel` = `wglebienie` + `tekst`; `babel-wlasny` = `glowny` + `glowny-tekst`.
+Unread badge: `glowny` + `glowny-tekst`, pill-shaped.
 
-## Typografia
+The role names are Polish because the code is; they are identical on all three
+platforms (`web/src/styles.css`, `Nocturne.kt`, `ios/Mekamb/Widoki/Kolory.swift`).
 
-- Web: **Geist** (zmienna, z pakietu `@fontsource-variable/geist`, serwowana z
-  własnego originu — CSP nie pozwala na zewnętrzne fonty), mono: Geist Mono dla
-  kodów bezpieczeństwa i odcisków.
-- iOS: SF Pro (systemowy), SF Mono dla kodów. Android: systemowy (Roboto),
-  monospace dla kodów.
-- Skala (pt/sp/px): 12 podpis · 13 meta · 15 treść (dymek, lista) · 17 nagłówek
-  sekcji/nawigacji · 22 tytuł ekranu · 28 tytuł powitania. Wagi: 400 / 500 / 600.
-  Tytuły ekranów 600 z `letter-spacing` −0,02em.
+## Typography
 
-## Kształt i odstępy
+- Web: **Geist** (variable, from `@fontsource-variable/geist`, served from our own
+  origin — the CSP doesn't allow external fonts), mono: Geist Mono for safety
+  numbers and fingerprints.
+- iOS: SF Pro (system), SF Mono for codes. Android: system (Roboto), monospace for codes.
+- Scale (pt/sp/px): 12 caption · 13 meta · 15 body (bubble, list) · 17 section/navigation
+  heading · 22 screen title · 28 welcome title. Weights: 400 / 500 / 600.
+  Screen titles 600 with `letter-spacing` −0.02em.
 
-- Promienie: `promien-s` 6, `promien-m` 10 (przyciski, pola, karty), `promien-l` 14
-  (arkusze, dialogi — górne rogi arkusza 16), `promien-babel` 18, pigułka 999.
-- Odstępy: skala 4 — 4, 8, 12, 16, 24, 32. Margines treści 16 na telefonie, 24 na desktopie.
-- Cele dotyku ≥ 44×44.
-- Cienie: jasny `0 1px 2px #0000000D` dla kart unoszących się (popover, menu,
-  toast); ciemny — brak cienia, zamiast niego obrys `linia`.
+## Shape and spacing
 
-## Anatomia dymków (bez zmian względem obecnego weba)
+- Radii: `promien-s` 6, `promien-m` 10 (buttons, fields, cards), `promien-l` 14
+  (sheets, dialogs — a sheet's top corners 16), `promien-babel` 18, pill 999.
+- Spacing on a 4 scale — 4, 8, 12, 16, 24, 32. Content margin 16 on a phone, 24 on desktop.
+- Touch targets ≥ 44×44.
+- Shadows: light `0 1px 2px #0000000D` for floating cards (popover, menu, toast);
+  dark — no shadow, a `linia` border instead.
 
-Jeden promień dla wszystkich dymków; seria z jednej strony trzymana odstępem
-2px, między seriami 12px; ogonek tylko na ostatnim dymku serii. Godzina na
-wyśrodkowanym separatorze („Dziś 08:42") przy zmianie dnia i po godzinie ciszy.
-Stan doręczenia słowem pod ostatnią własną wiadomością („dostarczono",
-„przeczytano"), w `tekst-drugi`, 12.
+## Bubble anatomy (unchanged from the previous web version)
 
-## Wzorce komponentów i ich odpowiedniki na platformach
+One radius for every bubble; a run from one side is held together by 2px spacing,
+12px between runs; a tail only on the last bubble of a run. The time sits on a
+centred separator ("Today 08:42") on a day change and after an hour of silence.
+Delivery state is a word under the last own message ("delivered", "read"), in
+`tekst-drugi`, 12.
 
-| Wzorzec | Web | Android (Compose) | iOS (SwiftUI) |
+## Component patterns and their platform counterparts
+
+| Pattern | Web | Android (Compose) | iOS (SwiftUI) |
 |---|---|---|---|
-| Przyciski: główny / obrysowany / duch / niszczący | shadcn `Button` (warianty `default`/`outline`/`ghost`/`destructive`) | własne `PrzyciskGlowny`/`PrzyciskObrys`/`PrzyciskDuch` na tokenach | własne `ButtonStyle` na tokenach |
-| Powiadomienie chwilowe (toast) | **Sonner**, góra-środek na telefonie, dół-prawo na desktopie | własny toast u góry (nie Material `Snackbar`), ten sam wygląd: karta + linia + cień | nakładka u góry, `.transition(.move(edge: .top))` |
-| Arkusz od dołu (akcje, załączniki, szczegóły) | **Vaul** `Drawer` na szerokości < 768px; na desktopie Radix `Dialog` | `ModalBottomSheet` z uchwytem, tło `karta` | `.sheet` z `.presentationDetents` i `.presentationDragIndicator(.visible)` |
-| Dialog potwierdzenia | Radix `AlertDialog` | `AlertDialog` przestylowany tokenami | `.confirmationDialog` / `.alert` |
-| Menu kontekstowe / kebab | Radix `DropdownMenu` / `ContextMenu` | `DropdownMenu` przestylowany | `Menu` / `.contextMenu` |
-| Paleta poleceń / szukanie | **cmdk** (`⌘K`/`Ctrl+K`): rozmowy, akcje, ustawienia | pole szukania u góry listy | `.searchable` na liście |
-| Liczniki (nieprzeczytane, uczestnicy) | **NumberFlow** | `AnimatedContent` z przesunięciem pionowym | `.contentTransition(.numericText())` |
-| Podpowiedź (tooltip) | Radix `Tooltip` | brak (długie przytrzymanie → opis) | brak |
-| Przełącznik / segment | Radix `Switch` / `ToggleGroup` | `Switch` / własny segment | `Toggle` / `Picker(.segmented)` |
-| Awatar | inicjały na `wglebienie-mocne`, okrąg | to samo | to samo |
-| Tło ekranu powitania | delikatny wzór kropek (Magic UI *Dot Pattern*) w `linia` | `Canvas` z kropkami | `Canvas` z kropkami |
+| Buttons: primary / outline / ghost / destructive | shadcn `Button` (`default`/`outline`/`ghost`/`destructive`) | own `PrzyciskGlowny`/`PrzyciskObrys`/`PrzyciskDuch` on the tokens | own `ButtonStyle`s on the tokens |
+| Transient notification (toast) | **Sonner**, top-centre on phones, bottom-right on desktop | own toast at the top (not Material `Snackbar`), same look: card + line + shadow | overlay at the top, `.transition(.move(edge: .top))` |
+| Bottom sheet (actions, attachments, details) | **Vaul** `Drawer` under 768px; Radix `Dialog` on desktop | `ModalBottomSheet` with a handle, `karta` background | `.sheet` with `.presentationDetents` and `.presentationDragIndicator(.visible)` |
+| Confirmation dialog | Radix `AlertDialog` | `AlertDialog` restyled with the tokens | `.confirmationDialog` / `.alert` |
+| Context / overflow menu | Radix `DropdownMenu` / `ContextMenu` | `DropdownMenu` restyled | `Menu` / `.contextMenu` |
+| Command palette / search | **cmdk** (`⌘K`/`Ctrl+K`): conversations, actions, settings | search field above the list | search field above the list |
+| Counters (unread, participants) | **NumberFlow** | `AnimatedContent` with a vertical slide | `.contentTransition(.numericText())` |
+| Tooltip | Radix `Tooltip` | none (long-press → description) | none |
+| Switch / segment | Radix `Switch` / `ToggleGroup` | `Switch` / own segment | `Toggle` / `Picker(.segmented)` |
+| Avatar | initials on `wglebienie-mocne`, circle | same | same |
+| Welcome screen background | subtle dot pattern (Magic UI *Dot Pattern*) in `linia` | `Canvas` with dots | `Canvas` with dots |
 
-Biblioteki „galeryjne" (Magic UI, Aceternity, 21st.dev, Beautiful UI, RareUI)
-służą jako źródło **pojedynczych, stonowanych** wzorców kopiowanych do repo
-(kropki w tle powitania, delikatny shimmer przy ładowaniu). Żadnych gradientów,
-neonów ani animowanych obramowań — to łamałoby neutralność.
+The "gallery" libraries (Magic UI, Aceternity, 21st.dev, Beautiful UI, RareUI) are
+a source of **single, restrained** patterns copied into the repo (the dot pattern
+behind the welcome screen, a subtle shimmer while loading). No gradients, neon or
+animated borders — that would break the neutrality.
 
-## Układ
+## Layout
 
-- **Telefon** (< 768px, oraz Android/iOS): lista rozmów → wątek jako osobny
-  ekran ze stosu nawigacji. Dolny pasek: Rozmowy · Ustawienia (iOS `TabView`,
-  Android `NavigationBar` przestylowany: aktywna ikona `tekst`, nieaktywna
-  `tekst-drugi`, bez kolorowej pigułki).
-- **Desktop** (≥ 1024px): trzy kolumny — wąska szyna nawigacji (64) · lista
-  rozmów (320) · wątek; panel szczegółów rozmowy (uczestnicy, kod
-  bezpieczeństwa) jako czwarta kolumna (360) albo arkusz z prawej.
-- Nagłówek wątku: awatar + nazwa + podtytuł (`tekst-drugi`), po prawej duchy:
-  połączenie, wideo, szczegóły.
-- Pole pisania: `wglebienie`, promień 20, bez obramowania; obok strzałka
-  wysyłania jako okrąg `glowny` 36×36 (jedyna plama w wątku).
+- **Phone** (< 768px, and Android/iOS): conversation list → thread as a separate
+  screen on the navigation stack. Bottom bar: Chats · Settings (iOS `TabView`,
+  Android `NavigationBar` restyled: active icon `tekst`, inactive `tekst-drugi`,
+  no coloured pill). The screen title sits in one row with its actions (the "+"),
+  at the very top — not on a separate row under the bar.
+- **Desktop** (≥ 1024px): three columns — a narrow navigation rail (64) ·
+  conversation list (320) · thread; conversation details (participants, safety
+  number) as a fourth column (360) from 1280px, otherwise in a sheet.
+- Thread header: avatar + name + subtitle (`tekst-drugi`); on the right, ghosts:
+  call, video. Details open by tapping the name.
+- Composer: `wglebienie`, radius 20, no border; next to it the send arrow as a
+  `glowny` circle 36×36 (the only fill in the thread).
 
-## Ruch
+## Language
 
-150 ms dla stanów (hover, wciśnięcie), 250 ms dla wejść (arkusz, toast),
-krzywa `cubic-bezier(0.32, 0.72, 0, 1)` (jak w Vaul). `prefers-reduced-motion` /
-„Ogranicz ruch" wyłącza przesunięcia, zostawia przenikanie.
+English is the default interface language on every client; Polish is a full
+alternative, chosen in settings and on the welcome screen (so someone who doesn't
+read English can reach it before signing in). Both strings sit side by side at the
+point of use — `t(pl, en)` on all three platforms — rather than in a key catalogue.
+
+## Motion
+
+150 ms for states (hover, press), 250 ms for entrances (sheet, toast), curve
+`cubic-bezier(0.32, 0.72, 0, 1)` (as in Vaul). `prefers-reduced-motion` /
+"Reduce Motion" turns off slides and keeps fades.

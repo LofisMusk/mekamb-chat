@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.imePadding
@@ -75,8 +76,8 @@ fun EkranPowitania(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OdznakaMarki()
-            Text("mekamb", style = MaterialTheme.typography.titleLarge)
-        }
+            Spacer(Modifier.size(Odstep.l))
+            Text("mekamb", style = MaterialTheme.typography.displaySmall)
 
         Spacer(Modifier.size(Odstep.xxl))
         // Przyciski wejścia: akcja główna wypełniona z „+", reszta neutralna —
@@ -138,6 +139,25 @@ fun PrzelacznikJezyka(jezyk: Jezyk, onJezyk: (Jezyk) -> Unit, modifier: Modifier
 }
 
 /**
+ * Kompaktowy przełącznik PL/EN.
+ *
+ * Ten sam segment co w ustawieniach, tylko o stałej szerokości — na powitaniu
+ * nie jest pytaniem do rozstrzygnięcia, tylko furtką dla kogoś, kto nie czyta
+ * po polsku.
+ */
+@Composable
+fun PrzelacznikJezyka(jezyk: Jezyk, onJezyk: (Jezyk) -> Unit, modifier: Modifier = Modifier) {
+    KontrolkaSegmentowa(
+        opcje = Jezyk.entries,
+        wybrana = jezyk,
+        etykieta = { it.etykieta },
+        onWybor = onJezyk,
+        modifier = modifier,
+        szerokoscSegmentu = 56.dp,
+    )
+}
+
+/**
  * Nowe konto.
  *
  * Ograniczenia są w treści etykiet, a nie ukryte do momentu odrzucenia:
@@ -147,6 +167,8 @@ fun PrzelacznikJezyka(jezyk: Jezyk, onJezyk: (Jezyk) -> Unit, modifier: Modifier
 fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
     var username by remember { mutableStateOf("") }
     var haslo by remember { mutableStateOf("") }
+    // Zgoda na wersję testową; na produkcji WERSJA_TESTOWA jest false i brama znika.
+    var zgodaTestowa by remember { mutableStateOf(false) }
     val stan = model.stan
 
     Column(
@@ -158,7 +180,7 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         PasekZPowrotem(t("Nowe konto", "New account")) { model.pokaz(Ekran.POWITANIE) }
 
         Column(
-            modifier = Modifier.padding(horizontal = Odstep.xl),
+            modifier = Modifier.padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
             Pole(t("Nazwa użytkownika", "Username"), username, { username = it })
@@ -167,7 +189,7 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
         }
 
         Spacer(Modifier.size(Odstep.l))
-        Column(modifier = Modifier.padding(horizontal = Odstep.xl)) {
+        Column(modifier = Modifier.padding(horizontal = Odstep.l)) {
         Wskazowka(
             t(
                 "Hasło nie opuszcza tego urządzenia (OPAQUE). Serwer nigdy go nie zobaczy — " +
@@ -177,6 +199,11 @@ fun EkranRejestracji(model: ChatViewModel, modifier: Modifier = Modifier) {
             ),
             Ikony.Klucz,
         )
+
+        if (WERSJA_TESTOWA) {
+            Spacer(Modifier.size(Odstep.m))
+            ZgodaTestowa(zgodaTestowa, { zgodaTestowa = it })
+        }
 
         Spacer(Modifier.size(Odstep.l))
         PrzyciskGlowny(
@@ -219,7 +246,7 @@ private fun SilaHasla(haslo: String) {
                     .weight(1f)
                     .height(3.dp)
                     .background(
-                        if (i < wypelnione) Nocturne.kolory.akcent else Nocturne.kolory.linia,
+                        if (i < wypelnione) Nocturne.kolory.glowny else Nocturne.kolory.wglebienieMocne,
                         RoundedCornerShape(2.dp),
                     ),
             )
@@ -227,12 +254,12 @@ private fun SilaHasla(haslo: String) {
 
         Text(
             text = if (haslo.length >= MINIMUM_HASLA) {
-                "wystarczy"
+                t("wystarczy", "long enough")
             } else {
-                "min. $MINIMUM_HASLA znaków"
+                t("min. $MINIMUM_HASLA znaków", "min. $MINIMUM_HASLA characters")
             },
             style = MaterialTheme.typography.labelSmall,
-            color = if (haslo.length >= MINIMUM_HASLA) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
+            color = if (haslo.length >= MINIMUM_HASLA) Nocturne.kolory.tekst else Nocturne.kolory.tekstDrugi,
         )
     }
 }
@@ -254,7 +281,7 @@ fun EkranLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(horizontal = Odstep.xl),
+            .padding(horizontal = Odstep.l),
         verticalArrangement = Arrangement.Center,
     ) {
         OdznakaMarki()
@@ -301,7 +328,7 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
                 .imePadding()
-                .padding(horizontal = Odstep.xl),
+                .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.l),
         ) {
             Pole(t("Sześć cyfr", "Six digits"), kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
@@ -328,7 +355,8 @@ fun EkranKoduLogowania(model: ChatViewModel, modifier: Modifier = Modifier) {
 /**
  * Pasek z powrotem i tytułem w wybranym języku.
  *
- * Wysokość celu dotyku 44 dp z projektu — powyżej minimum Androida.
+ * Strzałka jest „duchem" 44×44 — powrót nie jest akcją główną ekranu, więc nie
+ * może z nią konkurować.
  */
 @Composable
 fun PasekZPowrotem(
@@ -337,7 +365,7 @@ fun PasekZPowrotem(
     onWstecz: () -> Unit,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(vertical = Odstep.m),
+        modifier = modifier.fillMaxWidth().padding(horizontal = Odstep.xs, vertical = Odstep.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {

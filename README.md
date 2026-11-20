@@ -1,78 +1,101 @@
 # mekamb-chat
 
-Otwartoźródłowy komunikator z szyfrowaniem end-to-end i architekturą **P2P-first**.
+An open-source, end-to-end encrypted messenger with a **P2P-first** architecture.
 
-> **Status: w budowie, bez audytu.** Nie używaj tam, gdzie ujawnienie treści
-> miałoby poważne konsekwencje. Patrz [`SECURITY.md`](SECURITY.md).
+> # ⚠️ This is the `dev` test branch — NOT for personal use
+>
+> This branch **deliberately weakens security** to make testing easier (the
+> server's `TRYB_DEWELOPERSKI` flag, see [`server/src/dev.ts`](server/src/dev.ts)):
+>
+> - **skips 2FA** — sign-in accepts any TOTP code,
+> - **disables sign-in rate limits**,
+> - **activates accounts without confirmation**,
+> - exposes a `/dev/seed` endpoint with ready-made accounts with **known passwords**
+>   (`test1` / `test2`, password `test1234`).
+>
+> Run it **only** on a separate test deployment (`wrangler deploy --env dev`,
+> a separate D1 database) and **never have private conversations on it**. The app
+> built from this branch shows a warning about this and asks for confirmation
+> before creating an account. For real use there's the **`main`** branch, where
+> these back doors don't exist.
 
-## Założenia
+> **Status: under construction, not audited.** Don't use it where disclosure of
+> the content would have serious consequences. See [`SECURITY.md`](SECURITY.md).
 
-- **Każda rozmowa zaszyfrowana E2EE** — MLS (RFC 9420), bez własnej kryptografii
-- **Ruch bezpośrednio między urządzeniami** — iroh przebija NAT w ~90–95% przypadków
-- **DM-y i grupy wieloosobowe** — DM to po prostu grupa MLS o rozmiarze 2
-- **Zdjęcia i wideo** — szyfrowane osobnym kluczem na plik; usuwamy z nich lokalizację i dane urządzenia
-- **Rozmowy audio i wideo** — WebRTC mesh do 4 osób, bez serwera mediów
-- **Logowanie: nazwa + hasło + kod TOTP** — hasło przez OPAQUE, więc serwer go nie widzi
-- **Klucze tylko na urządzeniu** — serwer nie ma czego wydać ani zgubić
-- **Zero kosztów hostingu** — darmowe tiery Cloudflare, GitHub Pages i relayów iroh
+## Principles
 
-## Architektura w skrócie
+- **Every conversation end-to-end encrypted** — MLS (RFC 9420), no home-made cryptography
+- **Traffic goes directly between devices** — hole punching gets through NAT in roughly 90–95% of cases
+- **DMs and multi-person groups** — a DM is simply an MLS group of size 2
+- **Photos and video** — encrypted with a separate key per file; location and device data are stripped
+- **Voice and video calls** — WebRTC mesh for up to 4 people, no media server
+- **Sign-in: username + password + TOTP code** — the password goes through OPAQUE, so the server never sees it
+- **Keys only on the device** — the server has nothing to hand over or lose
+- **Zero hosting cost** — free tiers of Cloudflare and GitHub Pages
 
-Serwer jest infrastrukturą pomocniczą, nie pośrednikiem w rozmowie.
+## Architecture at a glance
 
-| Rodzaj ruchu | Kanał |
+The server is supporting infrastructure, not a party to the conversation.
+
+| Traffic | Channel |
 |---|---|
-| Wiadomości, media rozmów | Bezpośrednio między urządzeniami (iroh, WebRTC) |
-| Commity MLS (zmiany składu grupy) | `GroupRelay` — jedyny punkt ustalający kolejność |
-| Wiadomości do offline'owych | `UserInbox` |
-| Katalog, key packages, push | Worker + D1 |
+| Messages, call media | Directly between devices (own UDP transport, WebRTC) |
+| MLS commits (group membership changes) | `GroupRelay` — the only ordering point |
+| Messages for offline devices | `UserInbox` |
+| Directory, key packages, push | Worker + D1 |
 
-Uzasadnienie podziału i pełny opis: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
-Co jest chronione, a co **nie**: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+Rationale and the full description: [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+What is protected and what is **not**: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+The visual system shared by all clients: [`docs/UI_NEUTRALNY.md`](docs/UI_NEUTRALNY.md).
 
-## Klienci
+## Clients
 
-| Platforma | Technologia | Dystrybucja |
+| Platform | Technology | Distribution |
 |---|---|---|
-| Android | Kotlin + Compose, rdzeń przez UniFFI | Podpisany APK w Releases |
-| iOS, desktop, przeglądarka | PWA, rdzeń przez WebAssembly | GitHub Pages |
+| Android | Kotlin + Compose, core via UniFFI | Signed APK in Releases |
+| iOS | Swift + SwiftUI, core via UniFFI (XCFramework) | Built from Xcode (no App Store build yet) |
+| Desktop, browser, iOS without Xcode | PWA, core via WebAssembly | GitHub Pages |
 
-Na iOS świadomie nie ma aplikacji natywnej: darmowe Apple ID nie daje dostępu do
-APNs, więc sideloadowana apka nie dostarczałaby powiadomień. PWA dodana do ekranu
-głównego **ma** Web Push (Safari 16.4+) — na darmowej ścieżce daje więcej niż
-wersja natywna.
+The native iOS app is new and mailbox-only for now (no direct UDP transport, no
+push, no optical pairing). Push needs APNs, which a free Apple ID doesn't give —
+until that exists, the PWA added to the home screen is the way to get Web Push
+on iPhone (Safari 16.4+).
 
-## Struktura
+The interface language is English by default; Polish is available in settings and
+on the welcome screen on every client.
+
+## Layout
 
 ```
-core/       Rust — kryptografia: tożsamość, MLS, framing, koperty
-opaque/     Rust — OPAQUE (RFC 9807), jedna implementacja dla serwera i klientów
-core/bindings/  WASM (przeglądarka) i UniFFI (Android) — jeden rdzeń, dwa wiązania
-transport/  Rust — sieć P2P: iroh QUIC, koperty, wybór drogi dostarczenia
-server/     Cloudflare Workers — auth, katalog, skrzynka, kolejność commitów
-web/        PWA (iOS, desktop)
+core/       Rust — cryptography: identity, MLS, framing, envelopes
+opaque/     Rust — OPAQUE (RFC 9807), one implementation for server and clients
+core/bindings/  WASM (browser) and UniFFI (Android, iOS) — one core, two bindings
+transport/  Rust — P2P networking: UDP, STUN, Noise IK, delivery path selection
+server/     Cloudflare Workers — auth, directory, mailbox, commit ordering
+web/        PWA (desktop, browser)
 android/    Kotlin
-docs/       Protokół i model zagrożeń
-proto/      Normatywny format wiadomości
+ios/        Swift (project generated from ios/project.yml with xcodegen)
+docs/       Protocol, threat model, visual system
+proto/      Normative message format
 ```
 
-Kryptografia jest napisana **raz**, w Rust. Interfejs użytkownika jest natywny,
-warstwa bezpieczeństwa nie — dwie równoległe implementacje MLS rozjechałyby się
-w najwrażliwszym miejscu systemu.
+Cryptography is written **once**, in Rust. The user interface is native per
+platform, the security layer is not — parallel MLS implementations would drift
+apart in the most sensitive place in the system.
 
-`core` i `transport` są rozdzielone celowo: rdzeń kryptograficzny buduje się pod
-WASM bez żadnego toolchainu C, a ciężka zależność sieciowa nie obciąża kodu,
-który potrzebuje wyłącznie MLS.
+`core` and `transport` are separate on purpose: the cryptographic core builds for
+WASM without any C toolchain, and the heavy networking dependency doesn't weigh on
+code that only needs MLS.
 
-## Budowanie
+## Building
 
-Wymagane: Rust 1.85+.
+Required: Rust 1.85+.
 
 ```bash
 cargo test
 ```
 
-Uruchomienie całości lokalnie (backend + klient webowy):
+Running everything locally (backend + web client):
 
 ```bash
 cd server && npx wrangler d1 migrations apply mekamb --local && npx wrangler dev
@@ -82,55 +105,61 @@ cd server && npx wrangler d1 migrations apply mekamb --local && npx wrangler dev
 cd web && npm run dev
 ```
 
-Sprawdzenie rdzenia pod przeglądarkę — działa wszędzie, bez dodatkowych narzędzi:
+iOS (needs Xcode and `xcodegen`; the build compiles the Rust core first):
+
+```bash
+cd ios && xcodegen generate && open Mekamb.xcodeproj
+```
+
+Checking the core for the browser — works anywhere, no extra tools:
 
 ```bash
 cargo check -p mekamb-core --target wasm32-unknown-unknown
 ```
 
-Transport pod WASM wymaga clanga potrafiącego celować w wasm32 (systemowy clang
-na macOS tego nie umie — potrzebny LLVM np. z Homebrew). CI sprawdza to
-na Linuksie:
+The transport for WASM needs a clang that can target wasm32 (the system clang on
+macOS can't — you need LLVM, e.g. from Homebrew). CI checks this on Linux:
 
 ```bash
 CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar cargo check -p mekamb-transport --target wasm32-unknown-unknown
 ```
 
-## Postęp
+## Progress
 
-- [x] **Faza 0** — szkielet repozytorium, CI, dokumentacja protokołu
-- [x] **Faza 1** — rdzeń: tożsamość, wyprowadzanie kluczy, grupy MLS, framing
-- [x] **Faza 2** — własny transport P2P: UDP, STUN, Noise, fallback na skrzynkę
-- [x] **Faza 3** — backend: Durable Objects, katalog, OPAQUE + TOTP
-- [x] **Faza 4** — PWA: rejestracja, logowanie, DM tekstowy, deploy na Pages
-- [x] **Faza 5** — Android: APK się buduje, loguje i utrzymuje transport P2P
-- [x] **Faza 6** — załączniki: zdjęcia i wideo szyfrowane end-to-end
-- [x] **Faza 7** — grupy wieloosobowe: dodawanie członków, rozsyłanie do grupy
-- [~] **Faza 8** — safety numbers (zostaje linkowanie urządzeń przez QR)
-- [~] **Faza 9** — rozmowy 1:1: negocjacja i weryfikacja odcisku sprawdzone, przechwyt mediów nie
-- [~] **Faza 10** — rozmowy grupowe mesh do 4 osób (jak wyżej)
-- [ ] **Faza 11** — hardening: powtarzalne buildy, audyt, wdrożenie produkcyjne
+- [x] **Phase 0** — repository skeleton, CI, protocol documentation
+- [x] **Phase 1** — core: identity, key derivation, MLS groups, framing
+- [x] **Phase 2** — own P2P transport: UDP, STUN, Noise, fallback to the mailbox
+- [x] **Phase 3** — backend: Durable Objects, directory, OPAQUE + TOTP
+- [x] **Phase 4** — PWA: registration, sign-in, text DMs, deployment to Pages
+- [x] **Phase 5** — Android: the APK builds, signs in and keeps the P2P transport up
+- [x] **Phase 6** — attachments: photos and video encrypted end-to-end
+- [x] **Phase 7** — multi-person groups: adding members, fan-out to the group
+- [~] **Phase 8** — safety numbers (device linking by QR is what's left)
+- [~] **Phase 9** — 1:1 calls: negotiation and fingerprint verification tested, media capture not
+- [~] **Phase 10** — group mesh calls for up to 4 people (as above)
+- [~] **Phase 11** — native iOS app: sign-in, conversations, calls; transport, pairing and push still missing
+- [ ] **Phase 12** — hardening: reproducible builds, audit, production deployment
 
-## Wdrożenie
+## Deployment
 
 | | |
 |---|---|
-| Klient webowy | https://lofismusk.github.io/mekamb-chat/ |
+| Web client | https://lofismusk.github.io/mekamb-chat/ |
 | Backend | https://mekamb.grubyogon10.workers.dev |
 
-**Załączniki są wyłączone**, dopóki na koncie Cloudflare nie zostanie włączone
-R2. Do tego czasu endpointy zwracają czytelne 503 zamiast się wywracać.
-Po włączeniu: odkomentuj `r2_buckets` w [`server/wrangler.jsonc`](server/wrangler.jsonc)
-i wykonaj `wrangler deploy`.
+**Attachments are disabled** until R2 is enabled on the Cloudflare account. Until
+then the endpoints return a readable 503 instead of crashing. Once it's enabled:
+uncomment `r2_buckets` in [`server/wrangler.jsonc`](server/wrangler.jsonc) and run
+`wrangler deploy`.
 
-Rejestracja jest otwarta — każdy może założyć konto. To świadomy stan na czas
-testów; ograniczenie do zaproszeń jest odnotowane jako otwarta kwestia.
+Registration is open — anyone can create an account. That's a deliberate state for
+the testing period; limiting it to invitations is noted as an open question.
 
-## Licencja
+## License
 
-- `core/`, `web/`, `android/` — Apache-2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
+- `core/`, `web/`, `android/`, `ios/` — Apache-2.0 ([`LICENSE-APACHE`](LICENSE-APACHE))
 - `server/` — AGPL-3.0 ([`server/LICENSE-AGPL`](server/LICENSE-AGPL))
 
-AGPL na serwerze wymusza publikację modyfikacji przez każdego, kto postawi własną
-instancję. W komunikatorze podmieniony serwer to realny wektor ataku, więc jego
-kod powinien dać się zweryfikować.
+AGPL on the server forces anyone who runs their own instance to publish their
+changes. In a messenger a swapped server is a real attack vector, so its code
+should be verifiable.

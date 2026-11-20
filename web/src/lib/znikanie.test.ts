@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ustawJezyk } from "./jezyk";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   graniceOdciecia,
@@ -25,6 +26,10 @@ const KLUCZ = kluczRozmowy(GRUPA);
 beforeEach(() => {
   dysk = null;
 });
+
+// Etykiety sprawdzamy po polsku — angielski jest domyślny, więc wybór wprost.
+beforeAll(() => ustawJezyk("pl"));
+afterAll(() => ustawJezyk("en"));
 
 describe("graniceOdciecia", () => {
   // Sedno: granica to „najstarsza chwila do zachowania" = teraz − czas życia.

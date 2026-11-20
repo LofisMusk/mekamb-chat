@@ -35,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 
 /**
  * Kontakty i skład rozmowy.
@@ -215,7 +218,7 @@ fun EkranNowaGrupa(
                     ) {
                         Awatar(model.nick(osoba), rozmiar = 32.dp)
                         Text(model.nick(osoba), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Icon(
+                        PrzyciskIkona(
                             Ikony.Zamknij,
                             contentDescription = t("Usuń z grupy", "Remove from group"),
                             tint = Nocturne.kolory.tekstTrzeci,
@@ -298,6 +301,17 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
                     nazwa = stan.nazwyGrup[Historia.klucz(groupId)].orEmpty(),
                     onZapisz = { model.zmienNazweGrupy(groupId, it) },
                 )
+            }
+
+            // Liczba przewija się przy zmianie składu — zmiana składu zmienia też
+            // kod bezpieczeństwa niżej, więc ma być zauważona.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    t("Uczestnicy", "Members"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Nocturne.kolory.tekstDrugi,
+                )
+                Licznik(uczestnicy.size, styl = MaterialTheme.typography.labelMedium, kolor = Nocturne.kolory.tekst)
             }
 
             uczestnicy.forEach { osoba ->
@@ -385,10 +399,15 @@ fun EkranUczestnikow(model: ChatViewModel, modifier: Modifier = Modifier, onWste
 
                     // Cyfry w dwóch wierszach po sześć grup — tak da się je
                     // przeczytać przez telefon bez gubienia miejsca.
+                    // Krój o stałej szerokości: cyfry stoją w kolumnach i porównuje
+                    // się je grupami, a nie zgaduje, gdzie się zaczyna piąta.
                     Text(
                         kod.split(" ").chunked(6).joinToString("\n") { it.joinToString(" ") },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Nocturne.kolory.akcentTekst,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            lineHeight = 24.sp,
+                        ),
+                        color = Nocturne.kolory.tekst,
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Nocturne.kolory.wglebienie, MaterialTheme.shapes.small)
@@ -509,7 +528,7 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Odstep.s),
             ) {
-                Pole("Ile", ile, { ile = it.filter { z -> z.isDigit() } }, cyfry = true, modifier = Modifier.width(84.dp))
+                Pole(t("Ile", "How many"), ile, { ile = it.filter { z -> z.isDigit() } }, cyfry = true, modifier = Modifier.width(84.dp))
                 JEDNOSTKI_ZNIKANIA.forEach { j ->
                     Chip(j.etykieta, aktywny = jednostka == j.mnoznik) { jednostka = j.mnoznik }
                 }
@@ -524,10 +543,11 @@ private fun SekcjaZnikania(sekundy: Long?, onZmien: (Long?) -> Unit) {
 }
 
 /**
- * „Chip" wyboru — obrysowany, akcent jako linia (reguła Nocturne).
+ * „Chip" wyboru — pigułka.
  *
- * Zaznaczony chip niesie linię akcentu, nie plamę; „Wyłącz" niesie alarm, też
- * jako linię.
+ * Zaznaczony jest wypełniony `wglebienie-mocne`, nie `glowny`: to wybór
+ * wartości, a nie akcja — plama `glowny` należy do „Ustaw" pod spodem.
+ * „Wyłącz" niesie alarm jako tekst i obrys.
  */
 @Composable
 private fun Chip(
@@ -542,17 +562,19 @@ private fun Chip(
         else -> Nocturne.kolory.liniaMocna
     }
     val tekstKolor = when {
-        niszczacy -> MaterialTheme.colorScheme.error
-        aktywny -> Nocturne.kolory.akcentTekst
-        else -> Nocturne.kolory.tekstDrugi
+        niszczacy -> k.alarm
+        aktywny -> k.tekst
+        else -> k.tekstDrugi
     }
     Text(
         tekst,
-        style = MaterialTheme.typography.labelLarge,
+        style = MaterialTheme.typography.labelMedium,
         color = tekstKolor,
         textAlign = TextAlign.Center,
         modifier = Modifier
-            .border(1.dp, kolor, RoundedCornerShape(999.dp))
+            .clip(ksztalt)
+            .background(if (aktywny) k.wglebienieMocne else Color.Transparent, ksztalt)
+            .border(1.dp, obrys, ksztalt)
             .clickable(onClick = onClick)
             .padding(horizontal = Odstep.m, vertical = Odstep.s),
     )

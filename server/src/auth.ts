@@ -9,6 +9,7 @@ import { getCookie } from "hono/cookie";
 import * as opaque from "./opaque-wasm/index.js";
 
 import { base64ToBytes, bytesToBase64, decryptSecret, encryptSecret, hashRefreshToken, issueToken } from "./crypto";
+import { trybDeweloperski } from "./dev";
 import type { Env } from "./env";
 import { requireAuth } from "./middleware";
 import { clearRefreshCookie, issueRefreshToken, REFRESH_COOKIE_NAME } from "./session";
@@ -73,6 +74,11 @@ function serverKey(env: Env): Uint8Array {
 
 /** Sprawdza limit prób dla danego klucza. */
 async function withinRateLimit(env: Env, key: string): Promise<boolean> {
+  // Tryb dev: bez limitów, żeby zautomatyzowane testy nie zablokowały się same
+  // serią logowań. W produkcji flaga nie jest ustawiona — limit działa normalnie.
+  if (trybDeweloperski(env)) {
+    return true;
+  }
   const limiter = env.RATE_LIMITER.get(env.RATE_LIMITER.idFromName(key));
   const result = await limiter.consume(key, LOGIN_BUCKET.capacity, LOGIN_BUCKET.refillPerSecond);
   return result.allowed;
@@ -142,10 +148,14 @@ auth.post("/register/finish", async (c) => {
   const totpSecret = generateSecret();
   const userId = crypto.randomUUID();
 
+  // Tryb dev: konto od razu aktywne, żeby pominąć krok skanowania QR i kodu.
+  // Produkcja zostaje przy 'pending' — aktywacja dopiero po potwierdzeniu TOTP.
+  const status = trybDeweloperski(c.env) ? "active" : "pending";
+
   try {
     await c.env.DB.prepare(
       `INSERT INTO users (id, username, opaque_record, totp_secret_enc, created_at, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         userId,
@@ -153,6 +163,7 @@ auth.post("/register/finish", async (c) => {
         bytesToBase64(record),
         await encryptSecret(c.env.TOTP_ENCRYPTION_KEY, totpSecret),
         Date.now(),
+        status,
       )
       .run();
   } catch {
@@ -215,20 +226,26 @@ auth.post("/register/confirm", async (c) => {
     .bind(body.username)
     .first<{ id: string; totp_secret_enc: string; status: string }>();
 
-  if (user === null || user.status !== "pending") {
+  const dev = trybDeweloperski(c.env);
+
+  // W trybie dev konto jest już aktywne po register/finish — nie ma tu stanu
+  // 'pending' do potwierdzania, więc nie wymagamy go, a kodu nie sprawdzamy.
+  if (user === null || (!dev && user.status !== "pending")) {
     return c.json({ error: "nie ma czego potwierdzać" }, 400);
   }
 
-  const secret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_enc);
-  const result = verifyCode(secret, body.code);
+  if (!dev) {
+    const secret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_enc);
+    const result = verifyCode(secret, body.code);
 
-  if (!result.valid) {
-    return c.json({ error: "nieprawidłowy kod" }, 401);
+    if (!result.valid) {
+      return c.json({ error: "nieprawidłowy kod" }, 401);
+    }
+
+    await c.env.DB.prepare("UPDATE users SET status = 'active', totp_last_counter = ? WHERE id = ?")
+      .bind(result.counter, user.id)
+      .run();
   }
-
-  await c.env.DB.prepare("UPDATE users SET status = 'active', totp_last_counter = ? WHERE id = ?")
-    .bind(result.counter, user.id)
-    .run();
 
   // Konto aktywne — użytkownik spełnił oba składniki, więc od razu dostaje
   // sesję w tym samym kształcie co `login/totp`.
@@ -383,22 +400,27 @@ auth.post("/login/totp", async (c) => {
     return c.json({ error: "nieprawidłowe dane logowania" }, 401);
   }
 
-  const secret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_enc);
-  const result = verifyCode(secret, body.code);
+  // Tryb dev: 2FA pomijane — dowolny kod przechodzi, żeby nie trzeba było mieć
+  // authenticatora do testów. Ekran kodu w kliencie zostaje (żaden klient nie
+  // wymaga zmian), wystarczy wpisać cokolwiek. Produkcja sprawdza kod normalnie.
+  if (!trybDeweloperski(c.env)) {
+    const secret = await decryptSecret(c.env.TOTP_ENCRYPTION_KEY, user.totp_secret_enc);
+    const result = verifyCode(secret, body.code);
 
-  if (!result.valid || result.counter === null) {
-    return c.json({ error: "nieprawidłowy kod" }, 401);
+    if (!result.valid || result.counter === null) {
+      return c.json({ error: "nieprawidłowy kod" }, 401);
+    }
+
+    // Podsłuchany kod działa przez całe swoje okno. Odrzucamy okno już użyte,
+    // żeby powtórzenie było bezużyteczne.
+    if (isReplay(result.counter, user.totp_last_counter)) {
+      return c.json({ error: "kod został już użyty" }, 401);
+    }
+
+    await c.env.DB.prepare("UPDATE users SET totp_last_counter = ? WHERE id = ?")
+      .bind(result.counter, session.user_id)
+      .run();
   }
-
-  // Podsłuchany kod działa przez całe swoje okno. Odrzucamy okno już użyte,
-  // żeby powtórzenie było bezużyteczne.
-  if (isReplay(result.counter, user.totp_last_counter)) {
-    return c.json({ error: "kod został już użyty" }, 401);
-  }
-
-  await c.env.DB.prepare("UPDATE users SET totp_last_counter = ? WHERE id = ?")
-    .bind(result.counter, session.user_id)
-    .run();
 
   // Udane logowanie zwalnia limit — inaczej seria pomyłek karałaby użytkownika
   // jeszcze długo po tym, jak w końcu wszedł.

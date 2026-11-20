@@ -1,3 +1,4 @@
+import { t } from "./jezyk";
 /**
  * Klient HTTP i WebSocket do Workera.
  *
@@ -39,7 +40,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(response.status, body.error ?? `żądanie nie powiodło się (${response.status})`);
+    throw new ApiError(response.status, body.error ?? t(`żądanie nie powiodło się (${response.status})`, `request failed (${response.status})`));
   }
 
   return response.json() as Promise<T>;
@@ -88,7 +89,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      throw new ApiError(response.status, "nie udało się zostawić wiadomości w skrzynce");
+      throw new ApiError(response.status, t("nie udało się zostawić wiadomości w skrzynce", "couldn't leave the message in the mailbox"));
     }
   },
 
@@ -107,7 +108,7 @@ export const api = {
 
     if (!response.ok) {
       const body = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new ApiError(response.status, body.error ?? "nie udało się wgrać załącznika");
+      throw new ApiError(response.status, body.error ?? t("nie udało się wgrać załącznika", "couldn't upload the attachment"));
     }
 
     const { blobId } = (await response.json()) as { blobId: string };
@@ -121,7 +122,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      throw new ApiError(response.status, "nie udało się pobrać załącznika");
+      throw new ApiError(response.status, t("nie udało się pobrać załącznika", "couldn't download the attachment"));
     }
 
     return new Uint8Array(await response.arrayBuffer());

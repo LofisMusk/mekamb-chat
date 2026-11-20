@@ -1,6 +1,7 @@
+import { ustawJezyk } from "./jezyk";
 import jsQR from "jsqr";
 import QRCode from "qrcode";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { qrMatrix, qrMatrixZMaska, qrSvgPath } from "./qr";
 
@@ -74,6 +75,10 @@ function referencja(tekst: string, maska: number): boolean[][] {
  * więc treści z samych wielkich liter i cyfr zakodowałby alfanumerycznie.
  * Wszystkie ładunki tutaj mają małe litery, co ten tryb wyklucza.
  */
+// Komunikaty sprawdzamy po polsku — angielski jest domyślny, więc wybór wprost.
+beforeAll(() => ustawJezyk("pl"));
+afterAll(() => ustawJezyk("en"));
+
 describe("zgodność z niezależnym generatorem", () => {
   const LADUNKI = [
     "mekamb",

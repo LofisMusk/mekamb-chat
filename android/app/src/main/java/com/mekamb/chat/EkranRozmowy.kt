@@ -1,43 +1,37 @@
 package com.mekamb.chat
 
 import android.graphics.BitmapFactory
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.border
-import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +41,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -57,21 +76,28 @@ import uniffi.mekamb_ffi.DeliveryMode
 /**
  * Ekran rozmowy.
  *
- * # Co się zmieniło
+ * # Autor po jasności, nie po stronie
  *
- * Wiadomości były jednakowymi kartami z nazwą autora nad treścią — nie dało się
- * rzutem oka odróżnić swoich od cudzych. Teraz mają stronę, kolor i godzinę,
- * czyli to, po czym rozpoznaje się rozmowę bez czytania.
+ * Dymek własny to plama `glowny` (prawie czerń w jasnym, prawie biel w ciemnym),
+ * dymek rozmówcy — `wglebienie`. Strona znika w chwili, gdy zdanie wypełnia
+ * szerokość; jasność zostaje. Dlatego w wątku nie ma żadnej innej plamy
+ * `glowny` poza strzałką wysyłania — każda inna podszywałaby się pod „to ja
+ * powiedziałem". Połączenie, wideo i szczegóły w nagłówku są „duchami".
  *
- * # Droga dostarczania jest przy nazwie rozmówcy
+ * # Droga dostarczania jest pod nazwą rozmówcy
  *
- * Nie na dole ekranu i nie w ustawieniach. „Bezpośrednio" znaczy, że rozmówca
- * zna Twój adres IP — to informacja o Tobie, więc ma być tam, gdzie patrzysz,
- * pisząc do kogoś.
+ * „Bezpośrednio" znaczy, że rozmówca zna Twój adres IP — to informacja o Tobie,
+ * więc stoi tam, gdzie patrzysz, pisząc do kogoś: w podtytule nagłówka.
  */
 
-/** Godzina wiadomości. Bez daty — dzień rozdziela osobna etykieta. */
+/** Godzina wiadomości. Bez daty — dzień niesie rozdzielacz. */
 private val GODZINA = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+/** Odstęp między dymkami jednej serii — seria czyta się jak jedna wypowiedź. */
+private val ODSTEP_W_SERII = 2.dp
+
+/** Odstęp między seriami. */
+private val ODSTEP_MIEDZY_SERIAMI = Odstep.m
 
 /** Inicjały do awatara. Dwie litery, bo tyle mieści się czytelnie w kółku. */
 internal fun inicjaly(nazwa: String): String =
@@ -93,6 +119,7 @@ fun EkranRozmowy(
     var arkuszZalacznikow by remember { mutableStateOf(false) }
     val stan = model.stan
     val lista = rememberLazyListState()
+    val jezyk = LokalnyJezyk.current
 
     // Wybór pliku oddajemy systemowi. Aplikacja nie prosi o dostęp do galerii
     // ani do pamięci — dostaje adres jednego dokumentu, który użytkownik sam
@@ -106,42 +133,36 @@ fun EkranRozmowy(
     /*
      * Układ liczony raz, nad listą.
      *
-     * Rozdzielacze dni i sklejanie w bloki są decyzjami o sąsiedztwie, więc
-     * mieszkają w `ulozWatek` — tam też są sprawdzone testem i trzymane
-     * w zgodzie z webem.
+     * Rozdzielacze, bloki, ogony i miejsce na stan wysyłki są decyzjami
+     * o sąsiedztwie, więc mieszkają w `ulozWatek` — tam też są sprawdzone testem
+     * i trzymane w zgodzie z webem.
      *
      * Musi stać TUTAJ, a nie w środku `LazyColumn`: przewijanie do najnowszej
      * wiadomości potrzebuje liczby POZYCJI, a nie liczby wiadomości. Rozdzielacz
-     * dnia też zajmuje pozycję, więc liczenie po samych wiadomościach zatrzymuje
+     * też zajmuje pozycję, więc liczenie po samych wiadomościach zatrzymuje
      * listę kilka dymków przed końcem — i to tym bardziej, im dłuższa rozmowa.
      */
-    val uklad = ulozWatek(stan.wiadomosci, System.currentTimeMillis())
+    val uklad = ulozWatek(stan.wiadomosci, System.currentTimeMillis(), jezyk)
+    val wLocie = stan.wLocie
 
     // Nowa wiadomość ma być widoczna bez przewijania. Bez tego rozmowa
     // „stoi" na starej treści i wygląda, jakby nic nie przyszło.
-    LaunchedEffect(uklad.size, stan.wLocie.size) {
-        val ile = uklad.size + stan.wLocie.size
+    LaunchedEffect(uklad.size, wLocie.size) {
+        val ile = uklad.size + wLocie.size
         if (ile > 0) lista.animateScrollToItem(ile - 1)
     }
 
-    // Arkusz zamyka się systemowym „wstecz" wcześniej niż rozmowa — inaczej
-    // pierwsze cofnięcie zabierałoby cały ekran zamiast schować to, co na nim
-    // przed chwilą wyskoczyło.
-    BackHandler(enabled = arkuszZalacznikow) { arkuszZalacznikow = false }
-
-    Box(modifier.fillMaxSize()) {
     /*
      * `imePadding` na całej rozmowie, nie na samym polu pisania.
      *
      * Aplikacja rysuje od krawędzi do krawędzi, a od Androida 15 okno nie
      * zmniejsza się już samo pod klawiaturę mimo `adjustResize` w manifeście.
      * Bez tego pole pisania i przycisk wysyłania chowają się POD klawiaturą,
-     * której otwarcie samo je wywołało — czyli nie da się wysłać wiadomości,
-     * którą właśnie się pisze. Odsunięcie całej kolumny, a nie samego pola,
-     * zabiera ze sobą listę: inaczej ostatni dymek zostaje pod klawiaturą
+     * której otwarcie samo je wywołało. Odsunięcie całej kolumny, a nie samego
+     * pola, zabiera ze sobą listę: inaczej ostatni dymek zostaje pod klawiaturą
      * i nie widać tego, na co się właśnie odpowiada.
      */
-    Column(modifier = Modifier.fillMaxSize().imePadding()) {
+    Column(modifier = modifier.fillMaxSize().imePadding()) {
         PasekRozmowy(
             // Etykieta z nickami/nazwą grupy — pod spodem zostaje nazwa
             // użytkownika (tożsamość MLS).
@@ -162,11 +183,12 @@ fun EkranRozmowy(
 
         LazyColumn(
             state = lista,
-            modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = Odstep.l),
-            verticalArrangement = Arrangement.spacedBy(Odstep.m),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Odstep.l),
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            // Margines w `contentPadding`, a nie w `padding` listy: lista przycina
+            // rysowanie do własnych granic, a ogon dymka wystaje 7 dp poza dymek.
+            contentPadding = PaddingValues(horizontal = Odstep.l, vertical = Odstep.m),
         ) {
-            items(uklad, key = { it.klucz }) { pozycja ->
+            itemsIndexed(uklad, key = { _, p -> p.klucz }) { i, pozycja ->
                 when (pozycja) {
                     is PozycjaWatku.Dzien -> RozdzielaczDnia(pozycja.etykieta)
                     is PozycjaWatku.Dymek ->
@@ -191,7 +213,14 @@ fun EkranRozmowy(
             }
 
             // Wiadomości w locie zawsze na końcu — są najświeższe z definicji.
-            items(stan.wLocie) { w -> BabelWLocie(w) }
+            itemsIndexed(wLocie, key = { _, w -> "w-locie-${w.id}" }) { i, w ->
+                val poWlasnej = if (i == 0) oddajeKoniec else !wLocie[i - 1].blad
+                BabelWLocie(
+                    w = w,
+                    odstepNad = if (poWlasnej) ODSTEP_W_SERII else ODSTEP_MIEDZY_SERIAMI,
+                    ogon = i == wLocie.lastIndex,
+                )
+            }
         }
 
         PoleWysylki(
@@ -203,23 +232,22 @@ fun EkranRozmowy(
         )
     }
 
-        if (arkuszZalacznikow) {
-            ArkuszZalacznikow(
-                onZamknij = { arkuszZalacznikow = false },
-                onWybierz = { typ -> wybierz.launch(typ) },
-            )
-        }
+    if (arkuszZalacznikow) {
+        ArkuszZalacznikow(
+            onZamknij = { arkuszZalacznikow = false },
+            onWybierz = { typ -> wybierz.launch(typ) },
+        )
     }
 }
 
 /**
- * Arkusz wyboru załącznika.
+ * Arkusz wyboru załącznika — od dołu, z uchwytem.
  *
  * Cztery drogi, bo prowadzą do różnych miejsc systemu: galeria zdjęć, galeria
- * nagrań i dowolny plik to trzy różne filtry tego samego wyboru.
+ * nagrań, dźwięk i dowolny plik to cztery różne filtry tego samego wyboru.
  *
- * Notka o szyfrowaniu i metadanych stoi tutaj, a nie po wysłaniu: obietnica
- * pokazana po fakcie nie daje już wyboru.
+ * Notka o metadanych stoi tutaj, a nie po wysłaniu: obietnica pokazana po fakcie
+ * nie daje już wyboru.
  */
 @Composable
 private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit) {
@@ -265,6 +293,15 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
                     onWybierz("*/*")
                 }
             }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
+            KafelekZalacznika(t("Dźwięk", "Audio"), Ikony.Glosnik, Modifier.weight(1f)) {
+                onWybierz("audio/*")
+            }
+            KafelekZalacznika(t("Plik", "File"), Ikony.Plik, Modifier.weight(1f)) {
+                onWybierz("*/*")
+            }
+        }
 
             // Zostaje, bo mówi o tym, co robimy z PLIKIEM, zanim go wyślemy —
             // i o tym, że może się nie udać. To zmienia decyzję: przy takim
@@ -287,23 +324,35 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
 @Composable
 private fun KafelekZalacznika(
     etykieta: String,
-    ikona: androidx.compose.ui.graphics.vector.ImageVector,
+    ikona: ImageVector,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val zrodlo = remember { MutableInteractionSource() }
+    val wcisniety by zrodlo.collectIsPressedAsState()
+    val ksztalt = RoundedCornerShape(Promien.m)
     Column(
         modifier = modifier
-            .border(1.dp, Nocturne.kolory.linia, RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .clip(ksztalt)
+            .background(if (wcisniety) Nocturne.kolory.wglebienie else Nocturne.kolory.karta, ksztalt)
+            .border(1.dp, Nocturne.kolory.linia, ksztalt)
+            .clickable(interactionSource = zrodlo, indication = null, role = Role.Button, onClick = onClick)
             .padding(vertical = Odstep.l),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Odstep.xs),
+        verticalArrangement = Arrangement.spacedBy(Odstep.s),
     ) {
-        Icon(ikona, contentDescription = null, tint = Nocturne.kolory.tekst, modifier = Modifier.size(24.dp))
+        Icon(ikona, contentDescription = null, tint = Nocturne.kolory.tekst, modifier = Modifier.size(22.dp))
         Text(etykieta, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
+/**
+ * Nagłówek wątku: awatar + nazwa + podtytuł, po prawej trzy „duchy".
+ *
+ * Dotknięcie nazwy i ikona szczegółów prowadzą w to samo miejsce (uczestnicy
+ * i kod bezpieczeństwa) — nazwa, bo tak się tego szuka, ikona, bo nazwa nie
+ * wygląda na przycisk.
+ */
 @Composable
 private fun PasekRozmowy(
     nazwa: String,
@@ -352,19 +401,12 @@ private fun PasekRozmowy(
             }
         }
 
-        Box(Modifier.fillMaxWidth().size(1.dp).background(Nocturne.kolory.linia))
+        Linia()
     }
 }
 
 /**
- * Bąbelek wiadomości.
- *
- * Własne po prawej, cudze po lewej, róg przy własnej stronie ścięty — układ,
- * który czyta się bez etykiet. Szerokość ograniczona do 78%, żeby strona
- * pozostała widoczna także przy długiej treści.
- */
-/**
- * Ślad po rozmowie A/V — na środku wątku, jak rozdzielacz dnia.
+ * Ślad po rozmowie A/V — na środku wątku, jak rozdzielacz.
  *
  * Ikona jest DOKŁADNIE ta, którą się w rozmowę weszło: słuchawka przy głosowej,
  * kamera przy wideo. Inny piktogram w podsumowaniu niż na przycisku kazałby się
@@ -374,7 +416,7 @@ private fun PasekRozmowy(
  * oddzwonić. Odbyta jest wyłącznie zapisem w kronice.
  */
 @Composable
-private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
+private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy, pierwszy: Boolean) {
     val odbyta = rozmowa.sekundy != null
 
     val opis = when {
@@ -392,7 +434,7 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = Odstep.xs),
+            .padding(top = if (pierwszy) 0.dp else ODSTEP_MIEDZY_SERIAMI),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -400,10 +442,10 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
             modifier = Modifier
                 .border(
                     1.dp,
-                    if (odbyta) Nocturne.kolory.linia else Nocturne.kolory.alarm.copy(alpha = 0.45f),
-                    RoundedCornerShape(14.dp),
+                    if (odbyta) Nocturne.kolory.linia else Nocturne.kolory.alarm.copy(alpha = 0.4f),
+                    RoundedCornerShape(Promien.pigulka),
                 )
-                .padding(horizontal = Odstep.l, vertical = Odstep.s),
+                .padding(horizontal = Odstep.m, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -413,11 +455,11 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
                 tint = kolor,
                 modifier = Modifier.size(14.dp),
             )
-            Text(opis, style = MaterialTheme.typography.bodySmall, color = kolor)
+            Text(opis, style = MaterialTheme.typography.labelSmall, color = kolor)
             Text(
                 GODZINA.format(Date(wiadomosc.czas)),
                 style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.kolory.tekstTrzeci,
+                color = Nocturne.kolory.tekstDrugi,
             )
         }
     }
@@ -427,19 +469,10 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy) {
 private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean, stanSlowo: String? = null) {
     val wlasna = wiadomosc.wlasna
 
-    /*
-     * Sąsiadujące wiadomości tej samej strony sklejają się w blok.
-     *
-     * Każdy dymek z pełnym promieniem u góry daje listę osobnych kartek;
-     * ścięcie górnego rogu po stronie nadawcy mówi „to dalej ta sama osoba"
-     * bez żadnej etykiety.
-     */
-    val gora = if (ciag) 4.dp else PROMIEN_BABLA
-    val ksztalt = if (wlasna) {
-        RoundedCornerShape(PROMIEN_BABLA, gora, 4.dp, PROMIEN_BABLA)
-    } else {
-        RoundedCornerShape(gora, PROMIEN_BABLA, PROMIEN_BABLA, 4.dp)
+        val zOgonem = Path().apply { op(dymek, wypelnienie, PathOperation.Union) }
+        return Outline.Generic(Path().apply { op(zOgonem, wyciecie, PathOperation.Difference) })
     }
+}
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -450,19 +483,28 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean, stanSlowo: String? = null
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .background(
-                    color = if (wlasna) Nocturne.kolory.babelWlasny else Nocturne.kolory.babel,
-                    shape = ksztalt,
+                    color = if (wlasna) k.babelWlasny else k.babel,
+                    shape = KsztaltDymka(wlasna, ogon),
                 )
-                .padding(horizontal = Odstep.l, vertical = Odstep.m),
+                .clip(RoundedCornerShape(PROMIEN_BABLA))
+                // Bez fali: dotknięcie dymka niczego nie robi, więc nie może
+                // wyglądać, jakby coś zrobiło. Przytrzymanie odsłania godzinę.
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                    onLongClick = { pokazGodzine = !pokazGodzine },
+                )
+                .padding(horizontal = Odstep.m, vertical = Odstep.s),
             verticalArrangement = Arrangement.spacedBy(Odstep.xs),
         ) {
             // Autor tylko na początku bloku i tylko przy cudzych — przy własnych
-            // mówi to strona dymka, a powtórzony przy każdej wiadomości jest szumem.
+            // mówi to jasność dymka, a powtórzony przy każdej wiadomości jest szumem.
             if (!wlasna && !ciag) {
                 Text(
-                    wiadomosc.autor,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Nocturne.kolory.akcentTekst,
+                    autor,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = k.tekstDrugi,
                 )
             }
 
@@ -500,30 +542,44 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean, stanSlowo: String? = null
                 color = Nocturne.kolory.tekstTrzeci,
             )
         }
+
+        val podpis = listOfNotNull(
+            GODZINA.format(Date(wiadomosc.czas)).takeIf { pokazGodzine },
+            stanSlowo,
+        ).joinToString(" · ")
+        if (podpis.isNotEmpty()) {
+            Text(
+                podpis,
+                modifier = Modifier.padding(top = Odstep.xs, start = Odstep.xs, end = Odstep.xs),
+                style = MaterialTheme.typography.labelSmall,
+                color = k.tekstDrugi,
+            )
+        }
     }
 }
 
 /**
- * Rozdzielacz dni — data w linii, nie nad wiadomością.
+ * Rozdzielacz: wyśrodkowane „**Dziś** 08:42".
  *
- * Linia po obu stronach zamiast plamy tła: data nie jest wiadomością i nie ma
+ * Dzień wytłuszczony, godzina zwykła — jedno zdanie, nie dwie etykiety. Bez
+ * linii po bokach i bez plamy: rozdzielacz nie jest wiadomością i nie ma
  * wyglądać jak dymek wysłany przez nikogo.
  */
 @Composable
-private fun RozdzielaczDnia(etykieta: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = Odstep.s),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Odstep.l),
-    ) {
-        Box(Modifier.weight(1f).height(1.dp).background(Nocturne.kolory.linia))
-        Text(
-            etykieta,
-            style = MaterialTheme.typography.labelSmall,
-            color = Nocturne.kolory.tekstTrzeci,
-        )
-        Box(Modifier.weight(1f).height(1.dp).background(Nocturne.kolory.linia))
-    }
+private fun Rozdzielacz(etykieta: String, czas: Long, pierwszy: Boolean) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(etykieta) }
+            append(" ")
+            append(GODZINA.format(Date(czas)))
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (pierwszy) Odstep.xs else Odstep.xl, bottom = Odstep.xs),
+        style = MaterialTheme.typography.labelSmall,
+        color = Nocturne.kolory.tekstDrugi,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
 }
 
 /**
@@ -565,27 +621,30 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
     when {
         bitmapa != null -> Image(
             bitmap = bitmapa!!,
-            contentDescription = zalacznik.nazwaPliku ?: "zdjęcie",
+            contentDescription = zalacznik.nazwaPliku ?: t("zdjęcie", "photo"),
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .widthIn(max = 260.dp)
                 .heightIn(max = 320.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 // Kliknięcie powiększa zdjęcie na pełny ekran.
                 .clickable { naPelnym = true },
         )
 
         else -> Row(
             modifier = Modifier
-                .background(Nocturne.kolory.tlo, RoundedCornerShape(8.dp))
-                .padding(Odstep.m),
+                .background(
+                    if (wlasna) Nocturne.kolory.glownyTekst.copy(alpha = 0.14f) else Nocturne.kolory.tlo,
+                    RoundedCornerShape(Promien.s),
+                )
+                .padding(Odstep.s),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Odstep.s),
         ) {
             Icon(
                 imageVector = Ikony.Spinacz,
                 contentDescription = null,
-                tint = if (wlasna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
+                tint = if (wlasna) Nocturne.kolory.glownyTekst else Nocturne.kolory.tekstDrugi,
                 modifier = Modifier.size(18.dp),
             )
             Text(
@@ -595,7 +654,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
                     else -> "${opisTypu(zalacznik.mimeType)} · ${rozmiarTekstem(zalacznik.rozmiar)}"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (wlasna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstDrugi,
+                color = if (wlasna) Nocturne.kolory.glownyTekst else Nocturne.kolory.tekstDrugi,
             )
         }
     }
@@ -624,7 +683,7 @@ private fun PodgladZalacznika(zalacznik: Zalacznik, wlasna: Boolean) {
             ) {
                 Image(
                     bitmap = doPokazania,
-                    contentDescription = zalacznik.nazwaPliku ?: "zdjęcie",
+                    contentDescription = zalacznik.nazwaPliku ?: t("zdjęcie", "photo"),
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize().padding(Odstep.m),
                 )
@@ -641,33 +700,28 @@ internal fun rozmiarTekstem(bajty: Long): String = when {
 }
 
 /**
- * Bąbelek wiadomości czekającej na potwierdzenie.
+ * Dymek wiadomości czekającej na potwierdzenie wysłania.
  *
- * Przygaszony, dopóki nie ma potwierdzenia — widać, że jest, i widać, że
- * jeszcze nie doszła. Nieudana dostaje obrys w kolorze błędu, bo to stan,
- * z którym trzeba coś zrobić, a nie chwilowy.
+ * Przygaszony, dopóki nie wyszła — widać, że jest, i widać, że jeszcze nie
+ * doszła. Słowo pod nim stoi przy KAŻDYM takim dymku, nie tylko przy ostatnim:
+ * „wysyłam" i „nie wysłano" to stany, przy których milczenie znaczyłoby „doszło".
+ * Nieudana dostaje obrys alarmu, bo to stan, z którym trzeba coś zrobić.
  */
 @Composable
-private fun BabelWLocie(w: WLocie) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Column(
+private fun BabelWLocie(w: WLocie, odstepNad: Dp, ogon: Boolean) {
+    val k = Nocturne.kolory
+    val ksztalt = KsztaltDymka(wlasna = true, ogon = ogon)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = odstepNad),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Box(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .alpha(if (w.blad) 1f else 0.6f)
-                .background(Nocturne.kolory.babelWlasny, RoundedCornerShape(PROMIEN_BABLA, PROMIEN_BABLA, 4.dp, PROMIEN_BABLA))
-                .then(
-                    if (w.blad) {
-                        Modifier.border(
-                            1.dp,
-                            MaterialTheme.colorScheme.error,
-                            RoundedCornerShape(PROMIEN_BABLA, PROMIEN_BABLA, 4.dp, PROMIEN_BABLA),
-                        )
-                    } else {
-                        Modifier
-                    },
-                )
-                .padding(horizontal = Odstep.l, vertical = Odstep.m),
-            verticalArrangement = Arrangement.spacedBy(Odstep.xs),
+                .background(k.babelWlasny, ksztalt)
+                .then(if (w.blad) Modifier.border(1.dp, k.alarm, RoundedCornerShape(PROMIEN_BABLA)) else Modifier)
+                .padding(horizontal = Odstep.m, vertical = Odstep.s),
         ) {
             Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = Nocturne.kolory.babelWlasnyTekst)
 
@@ -689,28 +743,46 @@ private fun BabelWLocie(w: WLocie) {
                 )
             }
         }
-    }
-}
-
-/** Awatar z inicjałami. Zdjęć nie ma i nie będzie — nie ma ich gdzie trzymać. */
-@Composable
-internal fun Awatar(
-    nazwa: String,
-    rozmiar: androidx.compose.ui.unit.Dp,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier.size(rozmiar).background(Nocturne.kolory.awatar, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
         Text(
-            inicjaly(nazwa),
-            style = MaterialTheme.typography.labelMedium,
-            color = androidx.compose.ui.graphics.Color.White,
+            if (w.blad) t("Nie wysłano", "Not sent") else t("Wysyłam…", "Sending…"),
+            modifier = Modifier.padding(top = Odstep.xs, start = Odstep.xs, end = Odstep.xs),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (w.blad) k.alarm else k.tekstDrugi,
         )
     }
 }
 
+/**
+ * Awatar z inicjałami na `wglebienie-mocne`.
+ *
+ * Zdjęć nie ma i nie będzie — nie ma ich gdzie trzymać.
+ */
+@Composable
+internal fun Awatar(
+    nazwa: String,
+    rozmiar: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.size(rozmiar).background(Nocturne.kolory.wglebienieMocne, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            inicjaly(nazwa),
+            style = if (rozmiar >= 44.dp) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelMedium,
+            color = Nocturne.kolory.tekst,
+        )
+    }
+}
+
+/**
+ * Pole pisania: `wglebienie`, promień 20, bez obramowania; obok strzałka.
+ *
+ * Strzałka wysyłania to okrąg `glowny` 36×36 — jedyna plama w wątku, w kolorze
+ * dymka, który zaraz stworzy. Dopóki nie ma czego wysłać, jest przygaszona,
+ * a nie znika: znikająca strzałka przesuwałaby pole pod palcem przy pierwszej
+ * literze.
+ */
 @Composable
 private fun PoleWysylki(
     tresc: String,
@@ -719,19 +791,20 @@ private fun PoleWysylki(
     onWyslij: () -> Unit,
     onZalacz: () -> Unit,
 ) {
-    Column {
-        Box(Modifier.fillMaxWidth().size(1.dp).background(Nocturne.kolory.linia))
+    val k = Nocturne.kolory
+    Column(Modifier.background(k.tlo)) {
+        Linia()
 
         Row(
-            modifier = Modifier.fillMaxWidth().padding(Odstep.m),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.xs, vertical = Odstep.s),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
         ) {
             IconButton(onClick = onZalacz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
                 Icon(Ikony.Spinacz, contentDescription = t("Załącz", "Attach"), tint = Nocturne.kolory.tekstDrugi)
             }
 
-            OutlinedTextField(
+            BasicTextField(
                 value = tresc,
                 onValueChange = onZmiana,
                 modifier = Modifier.weight(1f),
@@ -746,21 +819,18 @@ private fun PoleWysylki(
                 ),
             )
 
-            // Strzałka wysyłania jest wypełniona — dokładnie w kolorze dymka,
-            // który zaraz stworzy. Wyszarzona, dopóki nie ma czego wysłać.
             val aktywny = wlaczone && tresc.isNotBlank()
-            IconButton(
-                onClick = onWyslij,
-                enabled = aktywny,
+            Box(
                 modifier = Modifier.size(Dotyk.ikonaWPasku),
+                contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .background(
-                            if (aktywny) Nocturne.kolory.akcent else Nocturne.kolory.karta2,
-                            CircleShape,
-                        ),
+                        .size(36.dp)
+                        .alpha(if (aktywny) 1f else 0.35f)
+                        .clip(CircleShape)
+                        .background(k.glowny, CircleShape)
+                        .clickable(enabled = aktywny, role = Role.Button, onClick = onWyslij),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

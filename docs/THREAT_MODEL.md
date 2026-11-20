@@ -1,297 +1,302 @@
-# Model zagrożeń
+# Threat model
 
-Dokument mówi wprost, przed czym mekamb-chat chroni, a przed czym **nie**.
-Komunikator, który obiecuje więcej, niż daje, jest gorszy od takiego, który nie
-obiecuje nic — użytkownik podejmuje decyzje na podstawie tych obietnic.
+This document says plainly what mekamb-chat protects against and what it does
+**not**. A messenger that promises more than it delivers is worse than one that
+promises nothing — users make decisions based on those promises.
 
-## Co jest chronione
+## What is protected
 
-| Zasób | Ochrona |
+| Asset | Protection |
 |---|---|
-| Treść wiadomości | E2EE przez MLS. Serwer i relaye widzą wyłącznie szyfrogram |
-| Treść załączników | AES-256-GCM po stronie klienta, świeży klucz na plik; klucz podróżuje w kanale MLS |
-| Nazwa pliku i jego typ | Podróżują w kanale MLS. Serwer widzi wyłącznie nieprzezroczysty blob |
-| Lokalizacja i dane aparatu w zdjęciach | Usuwane przed zaszyfrowaniem, domyślnie (EXIF, XMP, IPTC, chunki tekstowe PNG) |
-| Lokalizacja i dane urządzenia w wideo | Usuwane z MP4 i MOV, razem ze ścieżkami metadanych czasowych (trasy GPS z kamer sportowych) |
-| Media rozmów | WebRTC P2P, odcisk DTLS uwierzytelniony przez MLS i weryfikowany przed zestawieniem połączenia |
-| Historia rozmów | Tylko na urządzeniach. Serwer nie ma czego wydać ani zgubić |
-| Tożsamość nadawcy | Credential MLS weryfikowany kryptograficznie |
-| Kto co odebrał i przeczytał | Potwierdzenia idą jako wiadomości MLS — serwer widzi szyfrogram. Nie niosą znacznika czasu odczytu, bo ten w ogóle nie istnieje w protokole |
-| Hasło | OPAQUE — serwer nie widzi go nawet w pamięci |
-| Wsteczna poufność | Ratchet MLS: przejęcie klucza nie odsłania wcześniejszych wiadomości |
-| Przyszła poufność | Aktualizacje epok odcinają atakującego po usunięciu z grupy |
-
-## Czego NIE chronimy
-
-Ta lista jest ważniejsza od poprzedniej.
-
-### Metadane
-
-Serwer widzi i może logować:
-
-- kto ma konto i kiedy się loguje,
-- które urządzenia należą do którego użytkownika,
-- **do czyjej** skrzynki trafia koperta — skrzynka nazywa się nazwą
-  użytkownika i inaczej nie dałoby się jej doręczyć,
-- adres IP nadawcy: `POST /inbox/:userId` jest celowo **nieuwierzytelniony**,
-  więc serwer nie poznaje tożsamości nadającego, ale widzi połączenie,
-- kiedy i ile bajtów trafia do skrzynki offline,
-- **rozmiar każdego załącznika**.
-
-Serwer **przestał** widzieć identyfikator rozmowy. Koperta niosła go jawnie do
-wersji 2 formatu — wystarczało to, żeby powiązać koperty w rozmowy i zbudować
-graf bez odszyfrowania choćby bajtu. Dziś koperta niesie losową sól i znacznik
-z niej wyprowadzony, inny dla każdej koperty (`core/src/envelope.rs`). Obiekt
-porządkujący epoki nazywa się osobno wyprowadzoną wartością, więc identyfikator
-rozmowy nie dociera do serwera żadną drogą.
-
-Zostaje `kind` koperty: serwer widzi, że ktoś kogoś właśnie dodaje do grupy,
-choć nie wie do której. Odbiorca musi to wiedzieć, zanim będzie miał czym
-cokolwiek dopasować.
-
-Serwer **przestał** widzieć skład grupy. `GroupRelay` trzymał listę członków, bo
-sam rozsyłał commity — była to jedyna struktura mówiąca mu wprost „kto z kim
-rozmawia". Dziś rozsyła nadawca, który skład zna z drzewa MLS, a relay zajmuje
-tylko kolejne epoki przy nieprzezroczystym identyfikatorze. Skład nadal daje się
-zgrubnie odtworzyć z tego, kto do czyich skrzynek nadaje — ale nie leży już
-gotowy w bazie.
-
-Ostatni punkt jest istotniejszy, niż wygląda: sam rozmiar sporo mówi o rodzaju
-pliku — zdjęcie z telefonu, zrzut ekranu i krótkie wideo mają wyraźnie różne
-rzędy wielkości. Ukrycie tego wymagałoby dopełniania plików do stałych progów,
-co przy wideo oznaczałoby przesyłanie wielokrotnie większej ilości danych.
-Świadomie tego nie robimy.
-
-Serwer **nie** widzi treści ani — przy działającym P2P — samych wiadomości.
-
-### Nadawca przy zostawianiu koperty
-
-Nadanie do skrzynki **nie wymaga tokenu** i nie jest to przeoczenie: serwer
-z założenia nie ma się dowiadywać, kto do kogo pisze. Tożsamość nadawcy jest
-uwierzytelniona kryptograficznie **wewnątrz** MLS, gdzie serwer jej nie widzi.
-
-Skoro jednak nadawać może każdy, każdy mógłby zalewać cudzą skrzynkę. Broni
-przed tym **token doręczeniowy**: serwer wydaje go na wartość *oślepioną*, więc
-przy wydaniu nie widzi, co wydał, a przy realizacji nie widzi, komu
-(`opaque/src/tokeny.rs`). Nadający dowodzi „mam prawo nadać", nie mówiąc
-„jestem tym kontem".
-
-Klient sprawdza dowód, że serwer użył swojego opublikowanego klucza. Bez tego
-złośliwy serwer **znakowałby** użytkowników — wydawałby każdemu tokeny innym
-kluczem i rozpoznawał przy realizacji, czyj był token. Klucz jest dodatkowo
-przypinany przy pierwszym pobraniu, więc podstawienie go pod jedną osobę
-wymaga zmiany u wszystkich naraz.
-
-Token jest jednorazowy: tabela `spent_tokens` odrzuca powtórzenie atomowo,
-kluczem głównym. Nie ma w niej nic o nadawcy i nie może się pojawić.
+| Message content | E2EE via MLS. The server and relays see ciphertext only |
+| Attachment content | AES-256-GCM on the client, a fresh key per file; the key travels in the MLS channel |
+| File name and type | Travel in the MLS channel. The server sees only an opaque blob |
+| Location and camera data in photos | Stripped before encryption, by default (EXIF, XMP, IPTC, PNG text chunks) |
+| Location and device data in video | Stripped from MP4 and MOV, together with timed-metadata tracks (GPS tracks from action cameras) |
+| Call media | WebRTC P2P, DTLS fingerprint authenticated through MLS and verified before the connection is set up |
+| Conversation history | Only on devices. The server has nothing to hand over or lose |
+| Sender identity | MLS credential, verified cryptographically |
+| Who received and read what | Receipts go as MLS messages — the server sees ciphertext. They carry no read timestamp, because one doesn't exist in the protocol at all |
+| Password | OPAQUE — the server doesn't see it, not even in memory |
+| Backward secrecy | The MLS ratchet: a compromised key doesn't reveal earlier messages |
+| Forward secrecy | Epoch updates cut the attacker off after removal from the group |
+
+## What we do NOT protect
+
+This list matters more than the previous one.
+
+### Metadata
+
+The server sees and can log:
+
+- who has an account and when they sign in,
+- which devices belong to which user,
+- **whose** mailbox an envelope goes to — the mailbox is named after the username,
+  otherwise it couldn't be delivered,
+- the sender's IP address: `POST /inbox/:userId` is deliberately
+  **unauthenticated**, so the server doesn't learn who is depositing, but it sees
+  the connection,
+- when and how many bytes go into the offline mailbox,
+- **the size of every attachment**.
+
+The server **no longer** sees the conversation identifier. The envelope carried
+it in the clear up to version 2 of the format — that was enough to link envelopes
+into conversations and build a graph without decrypting a single byte. Today the
+envelope carries a random salt and a tag derived from it, different for every
+envelope (`core/src/envelope.rs`). The object that orders epochs is named by a
+separately derived value, so the conversation identifier doesn't reach the server
+by any route.
+
+What remains is the envelope's `kind`: the server sees that someone is adding
+someone to a group right now, although it doesn't know which group. The recipient
+needs to know this before it has anything to match against.
+
+The server **no longer** sees group membership. `GroupRelay` used to keep a member
+list because it fanned out commits itself — it was the only structure that told
+it directly "who talks to whom". Today the sender fans out, knowing the membership
+from the MLS tree, and the relay only claims successive epochs under an opaque
+identifier. Membership can still be roughly reconstructed from who deposits into
+whose mailboxes — but it no longer sits ready-made in the database.
+
+The last point is more significant than it looks: size alone says a lot about the
+type of a file — a phone photo, a screenshot and a short video are in clearly
+different orders of magnitude. Hiding that would require padding files to fixed
+thresholds, which for video would mean transferring many times more data. We
+deliberately don't do that.
+
+The server does **not** see content or — when P2P works — the messages themselves.
+
+### The sender when depositing an envelope
+
+Depositing into a mailbox **requires no account token**, and that isn't an
+oversight: by design the server must not learn who writes to whom. The sender's
+identity is authenticated cryptographically **inside** MLS, where the server
+can't see it.
+
+But since anyone can deposit, anyone could flood someone else's mailbox. A
+**delivery token** defends against that: the server issues it on a *blinded*
+value, so at issuance it doesn't see what it issued, and at redemption it doesn't
+see for whom (`opaque/src/tokeny.rs`). The depositor proves "I'm allowed to
+deposit" without saying "I am this account".
+
+The client checks a proof that the server used its published key. Without it a
+malicious server would **tag** users — issue each one tokens under a different key
+and recognise at redemption whose token it was. The key is also pinned on first
+download, so substituting it for one person requires changing it for everyone at
+once.
+
+A token is single-use: the `spent_tokens` table rejects a replay atomically, by
+primary key. There's nothing about the sender in it, and there can't be.
+
+What this does **not** hide: the depositor's IP address and the fact that someone
+deposited into a particular mailbox at a given moment. Tokens are fetched in
+advance and rarely, so that the authenticated fetch isn't adjacent in time to the
+deposit — but IP correlation remains. That would need traffic mixing, which we
+don't have.
+
+Reading is the other way round — it **requires a token, and the mailbox owner's**.
+The `GET /inbox/:userId/connect` route used to have no authentication at all:
+anyone who knew a username could connect to someone else's mailbox and, with an
+`ack:<id>`, delete envelopes before they reached the owner — the message vanished
+without a trace and the sender saw no error. Tests in `server/test/inbox.test.ts`
+guard this now.
+
+Hiding the remaining metadata would require traffic mixing and padding. Out of
+scope for version 1.
+
+### The moment of reading
+
+Delivery and read receipts are encrypted, so the server doesn't know WHAT is in
+the envelope. It does know **when** the envelope went — and a receipt sent the
+instant something was read would be readable from traffic alone: "device B sent
+something four seconds after the message from A".
 
-Czego to **nie** ukrywa: adresu IP nadającego i tego, że w danej chwili ktoś
-nadał do konkretnej skrzynki. Zapas tokenów bierze się z góry i rzadko, żeby
-uwierzytelnione pobranie nie sąsiadowało w czasie z nadaniem — ale korelacja
-po IP zostaje. Na to potrzeba miksowania ruchu, którego nie mamy.
-
-Odbiór jest odwrotnie — **wymaga tokenu i to właściciela skrzynki**. Trasa
-`GET /inbox/:userId/connect` nie miała żadnego uwierzytelnienia: ktokolwiek znał
-nazwę użytkownika, mógł podłączyć się do cudzej skrzynki i potwierdzeniem
-`ack:<id>` skasować koperty, zanim dotarły do właściciela — wiadomość przepadała
-bez śladu, a nadawca nie widział błędu. Pilnują tego teraz testy
-w `server/test/inbox.test.ts`.
-
-Ukrycie pozostałych metadanych wymagałoby miksowania ruchu i dopełniania.
-Poza zakresem wersji 1.
-
-### Chwila odczytu
-
-Potwierdzenia dostarczenia i odczytu są zaszyfrowane, więc serwer nie wie, CO
-jest w kopercie. Wie natomiast, **kiedy** koperta poszła — a potwierdzenie
-wysłane natychmiast po przeczytaniu byłoby odczytywalne z samego ruchu:
-„urządzenie B nadało coś cztery sekundy po wiadomości od A".
-
-Dlatego klienty **zbierają** potwierdzenia i wysyłają je paczką po **losowym**
-opóźnieniu do 30 sekund (`web/src/lib/potwierdzenia.ts`,
-`android/.../Potwierdzenia.kt`). Losowym, nie stałym: stałe opóźnienie tylko
-przesuwa korelację, zamiast ją zrywać. Jedna koperta na wiele wiadomości ukrywa
-też, ile ich odczytano.
+That's why clients **batch** receipts and send them after a **random** delay of
+up to 30 seconds (`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`,
+`ios/Mekamb/Rdzen/Potwierdzenia.swift`). Random, not fixed: a fixed delay only
+shifts the correlation instead of breaking it. One envelope for many messages also
+hides how many were read.
 
-To **ogranicza** wyciek, a nie usuwa go. Obserwator widzący cały ruch nadal wie,
-że w oknie 30 sekund coś poszło. Kto tego nie chce, wyłącza potwierdzenia
-odczytu w ustawieniach — wtedy nie wysyła ich wcale (i symetrycznie nie widzi
-cudzych). Potwierdzenia **dostarczenia** zostają: powstają przy odbiorze
-koperty, więc nie dokładają zdarzenia w innym momencie niż i tak nastąpiło.
+This **limits** the leak, it doesn't remove it. An observer who sees all traffic
+still knows that something went within the 30-second window. Anyone who doesn't
+want that turns off read receipts in settings — then none are sent at all (and,
+symmetrically, other people's aren't shown). **Delivery** receipts stay: they're
+created when the envelope is received, so they don't add an event at a moment
+other than one that happened anyway.
 
-Sam ładunek potwierdzenia nie niesie znacznika czasu i test w
-`core/src/framing.rs` tego pilnuje — gdyby ktoś go dopisał, opóźnianie wysyłki
-przestałoby cokolwiek dawać.
+The receipt payload itself carries no timestamp, and a test in
+`core/src/framing.rs` enforces that — if someone added one, delaying the send
+would stop achieving anything.
 
-### Adres IP przed rozmówcami
+### Your IP address towards the people you talk to
 
-**Połączenie bezpośrednie ujawnia Twoje IP osobie, z którą rozmawiasz.** To
-świadoma decyzja projektowa, cena P2P.
+**A direct connection reveals your IP to the person you're talking to.** That's a
+deliberate design decision, the price of P2P.
 
-Odwrotność klasycznego modelu: serwer pośredniczący akurat ukrywałby IP.
-Interfejs musi pokazywać, czy rozmowa idzie bezpośrednio, czy przez relay,
-i pozwalać wymusić relay.
+It's the reverse of the classic model: an intermediary server would actually hide
+the IP. The call screen says plainly which path a call takes and who learns the
+IP address.
 
-### Relaye
+### Relays
 
-Nie mamy przekaźnika dla wiadomości: przy symetrycznym NAT ruch idzie przez
-skrzynkę na serwerze, a ta widzi wyłącznie szyfrogram.
+There is no relay for messages: with a symmetric NAT traffic goes through the
+server mailbox, which sees ciphertext only.
 
-Serwery STUN widzą, że dany adres IP zapytał o swój adres publiczny — tyle
-samo, co każdy router po drodze. **Nie muszą być zaufane**: gdyby skłamały,
-połączenie bezpośrednie po prostu by się nie zestawiło.
+STUN servers see that a given IP address asked for its public address — as much
+as any router on the way. **They don't need to be trusted**: if they lied, the
+direct connection simply wouldn't be set up.
 
-TURN Cloudflare, używany wyłącznie do rozmów audio/wideo, widzi IP i wolumen
-ruchu obu stron. Nie widzi mediów — te są zaszyfrowane DTLS-SRTP.
+Cloudflare's TURN, used only for voice/video calls, sees the IP and traffic volume
+of both sides. It doesn't see the media — that's encrypted with DTLS-SRTP.
 
-### Nietypowe warianty kontenerów
+### Unusual container variants
 
-Czyszczenie metadanych obejmuje JPEG, PNG, MP4 i MOV. Plik w wariancie, którego
-parser nie rozpozna, **przechodzi bez zmian** — świadomie, bo zablokowanie
-wysyłki byłoby gorsze niż dostarczenie pliku z metadanymi. Interfejs mówi
-wtedy wprost, że czyszczenie się nie powiodło.
+Metadata stripping covers JPEG, PNG, MP4 and MOV. A file in a variant the parser
+doesn't recognise **goes through unchanged** — deliberately, because blocking the
+send would be worse than delivering a file with metadata. The interface says so
+plainly when stripping failed.
 
-Formaty spoza tej listy (HEIC, WebP, AVI) nie są czyszczone wcale.
+Formats outside that list (HEIC, WebP, AVI) aren't stripped at all.
 
-### Ile plików i jak dużych
+### How many files and how big
 
-Serwer nie wie, **co** przechowuje, ale wie **ile** i **jak długo**. Bloby
-nieodebrane przez 30 dni są kasowane, bo serwer nie ma jak stwierdzić, czy ktoś
-jeszcze po nie sięgnie — nie zna treści wiadomości, które się do nich odwołują.
+The server doesn't know **what** it stores, but it knows **how much** and **for
+how long**. Blobs not fetched for 30 days are deleted, because the server can't
+tell whether anyone will still reach for them — it doesn't know the content of the
+messages that refer to them.
 
-### Dostawcy push
+### Push providers
 
-FCM i Web Push to usługi zewnętrzne. Dlatego ładunek powiadomienia jest
-**wyłącznie budzący**: bez nadawcy, bez treści, bez identyfikatora grupy.
-Klient po wybudzeniu sam pobiera dane.
+FCM and Web Push are external services. That's why the notification payload is
+**wake-up only**: no sender, no content, no group identifier. After waking up the
+client fetches the data itself.
 
-### Urządzenie przejęte przez atakującego
+### A device taken over by an attacker
 
-Kompromitacja urządzenia to koniec gry dla tego urządzenia. Klucze w magazynie
-są szyfrowane (Android Keystore / WebAuthn PRF), ale odblokowana aplikacja ma
-dostęp do własnej historii. E2EE nie chroni przed atakującym po Twojej stronie
-ekranu.
+Device compromise is game over for that device. The keys at rest are encrypted
+(Android Keystore / iOS Keychain / WebAuthn PRF), but an unlocked app has access
+to its own history. E2EE doesn't protect against an attacker on your side of the
+screen.
 
-### Kod dostarczany przez przeglądarkę
+### Code delivered by the browser
 
-Klient webowy pobiera kod kryptograficzny przy każdym wejściu. Złośliwy lub
-przejęty deploy może wykraść klucze, a użytkownik tego nie zauważy.
+The web client downloads its cryptographic code on every visit. A malicious or
+compromised deployment can steal keys without the user noticing.
 
-To **fundamentalnie słabsza** gwarancja niż w aplikacji natywnej, instalowanej
-raz i podpisanej. Ograniczamy ryzyko powtarzalnymi buildami i publikowanymi
-hashami, ale nie da się go usunąć. Użytkownik o najwyższych wymaganiach powinien
-korzystać z klienta natywnego.
+That's a **fundamentally weaker** guarantee than a native app, installed once and
+signed. We reduce the risk with reproducible builds and published hashes, but it
+can't be removed. Users with the highest requirements should use a native client.
 
-### Nagranie ekranu podczas transferu optycznego
+### Recording the screen during the optical transfer
 
-Historia sprzed sparowania idzie z ekranu jednego urządzenia do aparatu
-drugiego. Kto ustawi obok własną kamerę i nagra całą transmisję, ma **wszystkie
-ramki**.
+History from before pairing goes from one device's screen to the other device's
+camera. Anyone who sets up their own camera next to it and records the whole
+transmission has **every frame**.
 
-Ramki są zaszyfrowane kluczem uzgodnionym przez ECDH, a kod z kluczem publicznym
-odbiorcy pokazuje się na **drugim** urządzeniu — filmujący ekran nadajnika go nie
-widział. To wystarcza przeciwko kamerze skierowanej na jeden ekran i **nie
-wystarcza** przeciwko komuś, kto sfilmował oba. Parowanie jest czynnością na
-kilkadziesiąt sekund i wykonuje się je tam, gdzie nikt nie patrzy przez ramię.
+The frames are encrypted with a key agreed through ECDH, and the code with the
+recipient's public key is shown on the **other** device — someone filming the
+sender's screen didn't see it. That's enough against a camera pointed at one screen
+and **not enough** against someone who filmed both. Pairing takes a few dozen
+seconds and is done where nobody is looking over your shoulder.
 
-Czego to nie zastępuje: gdyby ktoś podstawił własne urządzenie i to on
-zeskanował kod zaproszenia, wszedłby do rozmów jako nowy liść. Obroną jest to,
-że zgodę podpisuje urządzenie już zaufane, a **rozmówcy zobaczą zmianę safety
-numberu**. Ten sygnał jest jedynym, który wykrywa taką podmianę, i dlatego nie
-wolno go ukrywać.
+What it doesn't replace: if someone slipped in their own device and scanned the
+invitation code, they'd join conversations as a new leaf. The defence is that an
+already-trusted device signs the consent, and **your contacts will see the safety
+number change**. That signal is the only one that detects such a swap, which is
+why it must never be hidden.
 
-### Metadana „ta osoba coś wysłała"
+### The "this person sent something" metadata
 
-Odkąd nadawca wrzuca kopertę także do własnej skrzynki — inaczej jego drugie
-urządzenie nigdy się o niej nie dowie — serwer widzi jeden depozyt pod nazwą
-nadawcy przy każdej wysłanej wiadomości.
+Since the sender also drops the envelope into their own mailbox — otherwise their
+second device would never learn about it — the server sees one deposit under the
+sender's name for every message sent.
 
-Wcześniej widział wyłącznie depozyty pod nazwami odbiorców. **Kto do kogo pisze,
-nadal pozostaje nieznane** (depozyt nie niesie tożsamości nadawcy, § 9), ale
-„ten użytkownik jest aktywny w tej chwili" stało się czytelne wprost, bez
-wnioskowania z ruchu odbiorców.
+Before, it saw only deposits under recipients' names. **Who writes to whom is
+still unknown** (a deposit carries no sender identity, § 9), but "this user is
+active right now" became readable directly, without inferring it from recipients'
+traffic.
 
-To jest cena za działające drugie urządzenie i jest zapłacona świadomie.
+That's the price of a working second device, and it's paid deliberately.
 
-### Zgubione urządzenie
+### A lost device
 
-**Powstrzymany dopiero po odebraniu dostępu.** Sparowane urządzenie jest
-pełnoprawnym członkiem rozmów: czyta wszystko, co przychodzi, dopóki nie zostanie
-usunięte commitem MLS z każdej rozmowy.
+**Stopped only once its access is revoked.** A paired device is a full member of
+conversations: it reads everything that arrives until it's removed by an MLS
+commit from every conversation.
 
-Usunięcie działa **wprzód**: od nowej epoki urządzenie nie odszyfruje niczego.
-Tego, co już przeczytało i zapisało lokalnie, nie da się cofnąć — historia leży
-na jego dysku, zaszyfrowana kluczem skarbca.
+Removal works **forwards**: from the new epoch the device won't decrypt anything.
+What it has already read and stored locally can't be undone — the history sits on
+its disk, encrypted with the vault key.
 
-Odebranie dostępu wymaga innego, działającego urządzenia. Kto miał tylko jedno
-i je zgubił, nie ma czym podpisać commitu — serwer tego nie zrobi, bo nie zna
-składu grup.
+Revoking access needs another working device. Someone who had only one and lost it
+has nothing to sign the commit with — the server won't do it, because it doesn't
+know group membership.
 
-## Przeciwnicy
+## Adversaries
 
-### Pasywny obserwator sieci
+### Passive network observer
 
-**Powstrzymany co do treści.** Widzi, że ruch istnieje, i szacuje jego wolumen.
-Dopełnienie do 256 bajtów zaciera długości wiadomości.
+**Stopped as far as content goes.** Sees that traffic exists and estimates its
+volume. Padding to 256 bytes blurs message lengths.
 
-### Złośliwy serwer
+### Malicious server
 
-**Powstrzymany co do treści.** Nie odczyta wiadomości i nie sfałszuje autora.
+**Stopped as far as content goes.** It can't read messages or forge the author.
 
-Może natomiast: odmówić usługi, opóźniać lub gubić wiadomości ze skrzynki,
-zbierać metadane oraz **podmienić key package albo rekord katalogowy**, próbując
-podstawić własne urządzenie do grupy.
+It can, however: deny service, delay or drop messages from the mailbox, collect
+metadata, and **swap a key package or a directory record** to try to slip its own
+device into a group.
 
-Ostatni atak wykrywa **safety number** — liczony z kluczy tożsamości
-w drzewie MLS, więc podstawienie cudzego urządzenia go zmienia. Kod jest
-widoczny w interfejsie przy każdej rozmowie.
+The last attack is detected by the **safety number** — computed from the identity
+keys in the MLS tree, so slipping in someone else's device changes it. The number
+is visible in the interface for every conversation.
 
-Ochrona działa **tylko wtedy, gdy uczestnicy faktycznie porównają kod innym
-kanałem** — na żywo, telefonicznie, przez wideo. Porównanie przez sam
-komunikator nic nie daje, bo to dokładnie ten kanał, któremu nie ufamy.
-Aplikacja może kod pokazać i wytłumaczyć; nie może wymusić porównania.
+The protection works **only if participants actually compare the number over
+another channel** — in person, by phone, by video. Comparing it through the
+messenger itself proves nothing, because that's exactly the channel we don't
+trust. The app can show the number and explain it; it can't force a comparison.
 
-### Aktywny atakujący w sieci
+### Active network attacker
 
-**Powstrzymany.** Modyfikacja szyfrogramu jest wykrywana (AEAD), a odcisk DTLS
-przenoszony kanałem MLS blokuje MITM na rozmowach.
+**Stopped.** Modifying ciphertext is detected (AEAD), and the DTLS fingerprint
+carried over the MLS channel blocks MITM on calls.
 
-### Członek grupy
+### A group member
 
-**Nie jest powstrzymany i nie może być.** Każdy członek czyta wiadomości grupy
-i może je skopiować. Usunięcie odcina go od przyszłych wiadomości (nowa epoka),
-ale nie od tych, które już widział.
+**Not stopped, and can't be.** Every member reads the group's messages and can
+copy them. Removal cuts them off from future messages (a new epoch), but not from
+the ones they've already seen.
 
-### Przymus fizyczny
+### Physical coercion
 
-Nie jest w modelu. Brak trybu zaprzeczalnego i ukrytych sejfów.
+Not in the model. No deniable mode and no hidden vaults.
 
-## Znane ryzyka operacyjne
+## Known operational risks
 
-| Ryzyko | Skutek | Reakcja |
+| Risk | Consequence | Response |
 |---|---|---|
-| iOS kasuje magazyn PWA po ~7 dniach | Utrata stanu MLS = utrata historii | Wymuszona kolejność onboardingu, `navigator.storage.persist()`, eksport tożsamości, ostrzeżenie przy starcie |
-| Utrata wszystkich urządzeń | Trwała utrata historii | Zamierzone. Komunikowane przy rejestracji |
-| Rozjazd wersji protokołu | Brak możliwości rozmowy | Wersja w każdej kopercie, jawne odrzucenie nieznanej |
-| Wyczerpanie key packages | Nie da się dodać offline'owego urządzenia | Klient uzupełnia zapas przy każdym logowaniu |
+| iOS wipes PWA storage after ~7 days | Losing MLS state = losing history | Enforced onboarding order, `navigator.storage.persist()`, identity export, a warning at start-up; the native iOS app doesn't have this problem |
+| Losing all devices | Permanent loss of history | Intended. Communicated at registration |
+| Protocol version mismatch | Unable to talk | A version in every envelope, explicit rejection of an unknown one |
+| Running out of key packages | An offline device can't be added | The client tops up the supply on every sign-in |
 
-## Uwaga implementacyjna: wrogie dane wejściowe
+## Implementation note: hostile input
 
-Wszystko, co przychodzi z sieci, jest wrogie z założenia. Parsery mają zwracać
-błąd, nigdy panikować.
+Everything that comes from the network is hostile by assumption. Parsers must
+return an error, never panic.
 
-OpenMLS 0.8 zawiera `debug_assert!(false, "Ciphertext decryption failed")`
-w ścieżce deszyfrowania. Dla biblioteki testowanej na poprawnych wektorach to
-sensowna asercja; dla komunikatora nie — u nas nieudane deszyfrowanie jest
-normalnym skutkiem zmodyfikowanego pakietu. W buildzie release funkcja i tak
-zwraca `AeadError`; problemem jest wyłącznie panika w debug, przez którą
-pojedynczy wrogi pakiet wywracałby aplikację deweloperską.
+OpenMLS 0.8 contains `debug_assert!(false, "Ciphertext decryption failed")` in the
+decryption path. For a library tested on valid vectors that's a sensible
+assertion; for a messenger it isn't — for us a failed decryption is a normal
+result of a modified packet. In a release build the function returns `AeadError`
+anyway; the problem is only the panic in debug, which would let a single hostile
+packet crash a development build.
 
-Dlatego `Cargo.toml` wyłącza `debug-assertions` **punktowo dla pakietu
-`openmls`**, zachowując je w kodzie własnym. Test
-`zmodyfikowany_szyfrogram_jest_odrzucany` pilnuje, żeby zachowanie pozostało
-poprawne.
+That's why `Cargo.toml` turns off `debug-assertions` **specifically for the
+`openmls` package**, keeping them in our own code. The
+`zmodyfikowany_szyfrogram_jest_odrzucany` test makes sure the behaviour stays
+correct.
 
-## Zgłaszanie podatności
+## Reporting vulnerabilities
 
-Patrz [`SECURITY.md`](../SECURITY.md).
+See [`SECURITY.md`](../SECURITY.md).

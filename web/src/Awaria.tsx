@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "./lib/jezyk";
 
 /**
  * Ostatnia zapora przed czarnym ekranem.
@@ -43,23 +44,29 @@ export class Awaria extends Component<{ children: ReactNode }, Stan> {
     const { blad } = this.state;
     if (!blad) return this.props.children;
 
+    // Zwykły `<button>` z klasami zamiast `Button`: zapora ma działać także
+    // wtedy, gdy zawiodło coś we wspólnych komponentach — im mniej zależności,
+    // tym mniejsza szansa, że awaria dosięgnie i jej.
     return (
-      <main className="aplikacja">
-        <h1>Coś się posypało</h1>
-        <p className="podtytul">
-          Interfejs przerwał pracę. Twoje dane są na miejscu — historia i klucze
-          leżą w tej przeglądarce i ta awaria ich nie dotyka.
-        </p>
-
-        <div className="karta">
-          <strong>{blad.message}</strong>
+      <main className="wejscie">
+        <div className="mx-auto flex max-w-md flex-col gap-4 py-10">
+          <h1 className="text-tytul">{t("Coś się posypało", "Something broke")}</h1>
           <p className="wskazowka">
-            Odświeżenie zwykle wystarcza. Jeśli błąd wraca przy tej samej
-            czynności, zapisz powyższą treść — mówi, co dokładnie zawiodło.
+            {t("Interfejs przerwał pracę. Twoje dane są na miejscu — historia i klucze leżą w tej przeglądarce i ta awaria ich nie dotyka.", "The interface stopped working. Your data is safe — history and keys are stored in this browser and this crash doesn't touch them.")}
           </p>
-          <button className="glowny" onClick={() => location.reload()}>
-            Odśwież aplikację
-          </button>
+
+          <div className="karta">
+            <strong className="font-mono text-meta break-words">{blad.message}</strong>
+            <p className="wskazowka">
+              {t("Odświeżenie zwykle wystarcza. Jeśli błąd wraca przy tej samej czynności, zapisz powyższą treść — mówi, co dokładnie zawiodło.", "Reloading usually helps. If the error comes back during the same action, save the text above — it says exactly what failed.")}
+            </p>
+            <button
+              className="h-10 cursor-pointer rounded-md bg-glowny px-4 font-medium text-glowny-tekst"
+              onClick={() => location.reload()}
+            >
+              {t("Odśwież aplikację", "Reload the app")}
+            </button>
+          </div>
         </div>
       </main>
     );

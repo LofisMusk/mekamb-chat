@@ -14,6 +14,7 @@ import {
 } from "./lib/parowanie";
 import { qrMatrix } from "./lib/qr";
 import { loadHistory } from "./lib/vault";
+import { t } from "./lib/jezyk";
 
 /**
  * Parowanie drugiego urządzenia — dwa ekrany jednego obrzędu.
@@ -153,7 +154,7 @@ function useSkaner(aktywny: boolean, naOdczyt: (o: Odczyt) => void, onBlad: (e: 
         await el.play();
 
         const ctx = plotno.getContext("2d", { willReadFrequently: true });
-        if (!ctx) throw new Error("przeglądarka nie daje kontekstu 2D");
+        if (!ctx) throw new Error(t("przeglądarka nie daje kontekstu 2D", "the browser provides no 2D context"));
 
         while (!zatrzymane) {
           await new Promise(requestAnimationFrame);
@@ -262,8 +263,8 @@ export function PodlaczTeUrzadzenie({
         .then((wynik) => {
           setPodsumowanie(
             wynik === null
-              ? "Historii nie dało się odczytać — spróbuj sparować jeszcze raz."
-              : `Doszło ${wynik.wiadomosci} wiadomości w ${wynik.rozmow} nowych rozmowach.`,
+              ? t("Historii nie dało się odczytać — spróbuj sparować jeszcze raz.", "Couldn't read the history — try pairing again.")
+              : t(`Doszło ${wynik.wiadomosci} wiadomości w ${wynik.rozmow} nowych rozmowach.`, `Received ${wynik.wiadomosci} messages in ${wynik.rozmow} new conversations.`),
           );
         })
         .catch(onBlad);
@@ -276,8 +277,8 @@ export function PodlaczTeUrzadzenie({
   if (faza === "gotowe") {
     return (
       <section className="karta">
-        <strong>Urządzenie podłączone</strong>
-        <p className="wskazowka">{podsumowanie ?? "Składam historię…"}</p>
+        <strong>{t("Urządzenie podłączone", "Device connected")}</strong>
+        <p className="wskazowka">{podsumowanie ?? t("Składam historię…", "Putting the history together…")}</p>
       </section>
     );
   }
@@ -286,15 +287,15 @@ export function PodlaczTeUrzadzenie({
     const { odzyskane, wszystkich } = postep;
     return (
       <section className="karta">
-        <strong>Czytam historię</strong>
+        <strong>{t("Czytam historię", "Reading history")}</strong>
         <video ref={wideo} className="podglad-aparatu" playsInline muted />
         <p className="wskazowka">
           {wszystkich === 0
-            ? "Skieruj aparat na ekran starego urządzenia."
-            : `${odzyskane} z ${wszystkich} części.`}
+            ? t("Skieruj aparat na ekran starego urządzenia.", "Point the camera at the old device's screen.")
+            : t(`${odzyskane} z ${wszystkich} części.`, `${odzyskane} of ${wszystkich} parts.`)}
         </p>
         <p className="wskazowka">
-          Zgubiona klatka nic nie psuje — kod nadaje się w kółko, aż uzbiera się całość.
+          {t("Zgubiona klatka nic nie psuje — kod nadaje się w kółko, aż uzbiera się całość.", "A missed frame doesn't hurt — the code repeats until everything is collected.")}
         </p>
       </section>
     );
@@ -302,21 +303,20 @@ export function PodlaczTeUrzadzenie({
 
   return (
     <section className="karta">
-      <strong>Podłącz to urządzenie</strong>
+      <strong>{t("Podłącz to urządzenie", "Connect this device")}</strong>
       <p className="wskazowka">
-        Na urządzeniu, którego już używasz, wybierz „Podłącz nowe urządzenie" i zeskanuj ten kod.
+        {t("Na urządzeniu, którego już używasz, wybierz „Podłącz nowe urządzenie\" i zeskanuj ten kod.", "On a device you already use, choose “Connect a new device” and scan this code.")}
       </p>
 
       <KodTekstowy tresc={zaproszenie} />
 
       <p className="wskazowka">
-        Twoje rozmowy pojawią się tutaj same. Historia sprzed dzisiaj przyjdzie z ekranu
-        tamtego urządzenia — nic z niej nie idzie przez serwer.
+        {t("Twoje rozmowy pojawią się tutaj same. Historia sprzed dzisiaj przyjdzie z ekranu tamtego urządzenia — nic z niej nie idzie przez serwer.", "Your conversations will show up here on their own. History from before today comes from that device's screen — none of it goes through the server.")}
       </p>
 
       <button onClick={() => setFaza("odbiera")}>
         <Ikona nazwa="aparat" rozmiar={16} />
-        Tamto urządzenie pokazuje kod — czytaj
+        {t("Tamto urządzenie pokazuje kod — czytaj", "The other device is showing a code — reading")}
       </button>
     </section>
   );
@@ -433,25 +433,24 @@ export function SparujNoweUrzadzenie({
   if (faza === "nadaje") {
     return (
       <section className="karta">
-        <strong>Pokaż to nowemu urządzeniu</strong>
+        <strong>{t("Pokaż to nowemu urządzeniu", "Show this to the new device")}</strong>
         {klatka && <PlotnoQr bok={klatka.bok} ciemny={ciemny} />}
         <p className="wskazowka">
-          Trzymaj oba ekrany naprzeciw siebie. Historia idzie prosto z ekranu do aparatu —
-          {" "}<strong>nic z niej nie dotyka serwera</strong>.
+          {t("Trzymaj oba ekrany naprzeciw siebie. Historia idzie prosto z ekranu do aparatu —", "Hold both screens facing each other. History goes straight from screen to camera —")}
+          {" "}<strong>{t("nic z niej nie dotyka serwera", "none of it touches the server")}</strong>.
         </p>
         <p className="wskazowka">
-          Około {Math.ceil((ileKlatek * (CO_ILE_KLUCZ / (CO_ILE_KLUCZ - 1))) / KLATEK_NA_SEKUNDE)}{" "}
-          sekund przy dobrym ujęciu. Kod nadaje się w kółko, więc zgubiona klatka nic nie psuje.
+          {t("Około", "About")} {Math.ceil((ileKlatek * (CO_ILE_KLUCZ / (CO_ILE_KLUCZ - 1))) / KLATEK_NA_SEKUNDE)}{" "}
+          {t("sekund przy dobrym ujęciu. Kod nadaje się w kółko, więc zgubiona klatka nic nie psuje.", "seconds with a good angle. The code repeats, so a missed frame doesn't hurt.")}
         </p>
         {dodawanie && dodawanie.pominiete.length > 0 && (
           <p className="wskazowka">
-            {dodawanie.pominiete.length} rozmów nie przyjęło nowego urządzenia. Powtórz parowanie
-            później — te, które już przeszły, zostaną pominięte.
+            {dodawanie.pominiete.length} {t("rozmów nie przyjęło nowego urządzenia. Powtórz parowanie później — te, które już przeszły, zostaną pominięte.", "conversations didn't accept the new device. Pair again later — the ones that already went through will be skipped.")}
           </p>
         )}
         <button onClick={() => setFaza("koniec")}>
           <Ikona nazwa="zamknij" rozmiar={16} />
-          Nowe urządzenie ma komplet
+          {t("Nowe urządzenie ma komplet", "The new device has everything")}
         </button>
       </section>
     );
@@ -460,14 +459,14 @@ export function SparujNoweUrzadzenie({
   if (faza === "dodaje") {
     return (
       <section className="karta">
-        <strong>Wprowadzam do rozmów</strong>
+        <strong>{t("Wprowadzam do rozmów", "Adding to conversations")}</strong>
         <p className="wskazowka">
           {dodawanie
-            ? `${dodawanie.zrobione} z ${dodawanie.wszystkich} rozmów.`
-            : "Uzgadniam z serwerem kolejność zmian…"}
+            ? t(`${dodawanie.zrobione} z ${dodawanie.wszystkich} rozmów.`, `${dodawanie.zrobione} of ${dodawanie.wszystkich} conversations.`)
+            : t("Uzgadniam z serwerem kolejność zmian…", "Agreeing the order of changes with the server…")}
         </p>
         <p className="wskazowka">
-          Każda rozmowa to osobna zmiana składu grupy, więc idą po kolei.
+          {t("Każda rozmowa to osobna zmiana składu grupy, więc idą po kolei.", "Each conversation is a separate membership change, so they go one by one.")}
         </p>
       </section>
     );
@@ -476,12 +475,12 @@ export function SparujNoweUrzadzenie({
   if (faza === "koniec") {
     return (
       <section className="karta">
-        <strong>Gotowe</strong>
+        <strong>{t("Gotowe", "Done")}</strong>
         <p className="wskazowka">
-          Oba urządzenia działają teraz równolegle. Nowe wiadomości trafią na oba same z siebie.
+          {t("Oba urządzenia działają teraz równolegle. Nowe wiadomości trafią na oba same z siebie.", "Both devices now work side by side. New messages will reach both on their own.")}
         </p>
         <p className="wskazowka">
-          Rozmówcy zobaczą zmianę numeru bezpieczeństwa — to normalne, doszło Ci urządzenie.
+          {t("Rozmówcy zobaczą zmianę numeru bezpieczeństwa — to normalne, doszło Ci urządzenie.", "Your contacts will see the safety number change — that's normal, you added a device.")}
         </p>
       </section>
     );
@@ -489,16 +488,15 @@ export function SparujNoweUrzadzenie({
 
   return (
     <section className="karta">
-      <strong>Podłącz nowe urządzenie</strong>
+      <strong>{t("Podłącz nowe urządzenie", "Connect a new device")}</strong>
       <p className="wskazowka">
-        Zaloguj się na nowym urządzeniu, wybierz tam „Podłącz to urządzenie" i zeskanuj kod,
-        który się pokaże.
+        {t("Zaloguj się na nowym urządzeniu, wybierz tam „Podłącz to urządzenie\" i zeskanuj kod, który się pokaże.", "Sign in on the new device, choose “Connect this device” there and scan the code it shows.")}
       </p>
 
       <video ref={wideo} className="podglad-aparatu" playsInline muted />
 
       <label>
-        Albo przepisz kod
+        {t("Albo przepisz kod", "Or type the code")}
         <input
           value={wpisany}
           onChange={(e) => setWpisany(e.target.value)}
@@ -510,13 +508,13 @@ export function SparujNoweUrzadzenie({
       <button
         onClick={() => {
           void przyjmij(wpisany).then((udane) => {
-            if (!udane) onBlad(new Error("to nie jest kod parowania"));
+            if (!udane) onBlad(new Error(t("to nie jest kod parowania", "this isn't a pairing code")));
           });
         }}
         disabled={!wpisany.trim()}
       >
         <Ikona nazwa="dostarczone" rozmiar={16} />
-        Podłącz
+        {t("Podłącz", "Connect")}
       </button>
     </section>
   );
@@ -572,45 +570,43 @@ export function Urzadzenia({
 
   return (
     <div className="karta">
-      <strong>Urządzenia</strong>
+      <strong>{t("Urządzenia", "Devices")}</strong>
       <p className="wskazowka">
-        Tego samego konta można używać na kilku urządzeniach naraz. Każde dostaje własne klucze
-        i wchodzi do rozmów osobno — to nie jest kopia, więc oba działają dalej.
+        {t("Tego samego konta można używać na kilku urządzeniach naraz. Każde dostaje własne klucze i wchodzi do rozmów osobno — to nie jest kopia, więc oba działają dalej.", "You can use the same account on several devices at once. Each gets its own keys and joins conversations separately — it isn't a copy, so both keep working.")}
       </p>
       <p className="wskazowka">
-        Historia sprzed podłączenia idzie prosto z ekranu do aparatu.{" "}
-        <strong>Nic z niej nie trafia na serwer</strong>, nawet zaszyfrowane.
+        {t("Historia sprzed podłączenia idzie prosto z ekranu do aparatu.", "History from before connecting goes straight from screen to camera.")}{" "}
+        <strong>{t("Nic z niej nie trafia na serwer", "None of it reaches the server")}</strong>{t(", nawet zaszyfrowane.", ", not even encrypted.")}
       </p>
 
       <button onClick={() => setRola("stare")}>
         <Ikona nazwa="kodQr" rozmiar={16} />
-        Podłącz nowe urządzenie
+        {t("Podłącz nowe urządzenie", "Connect a new device")}
       </button>
 
       <button onClick={() => setRola("nowe")}>
         <Ikona nazwa="aparat" rozmiar={16} />
-        To urządzenie jest nowe — podłącz je
+        {t("To urządzenie jest nowe — podłącz je", "This device is new — connect it")}
       </button>
 
       {lista.length > 1 && (
         <>
           <p className="wskazowka">
-            Zgubione urządzenie odetnij tutaj. Przestanie odszyfrowywać wszystko, co przyjdzie
-            później — tego, co już przeczytało, nie da się cofnąć.
+            {t("Zgubione urządzenie odetnij tutaj. Przestanie odszyfrowywać wszystko, co przyjdzie później — tego, co już przeczytało, nie da się cofnąć.", "Cut off a lost device here. It will stop decrypting anything that arrives later — what it has already read can't be undone.")}
           </p>
           <ul className="lista-urzadzen">
             {lista.map((u) => (
               <li key={u.deviceId}>
                 <span>{u.deviceId}</span>
                 {u.deviceId === messenger.account.deviceId ? (
-                  <span className="wskazowka">to urządzenie</span>
+                  <span className="wskazowka">{t("to urządzenie", "this device")}</span>
                 ) : (
                   <button
                     disabled={usuwane !== null}
                     onClick={() => void odbierzDostep(u.deviceId)}
                   >
                     <Ikona nazwa="kosz" rozmiar={16} />
-                    {usuwane === u.deviceId ? "Odbieram…" : "Odbierz dostęp"}
+                    {usuwane === u.deviceId ? t("Odbieram…", "Revoking…") : t("Odbierz dostęp", "Revoke access")}
                   </button>
                 )}
               </li>

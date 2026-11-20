@@ -1,3 +1,4 @@
+import { t } from "./jezyk";
 import { kluczRozmowy } from "./historia";
 import { loadEphemeral, saveEphemeral } from "./vault";
 
@@ -44,20 +45,36 @@ export type StanZnikania = Record<string, number>;
  * „Własny" (custom) zostaje osobno w interfejsie — tu są tylko skróty do
  * najczęstszych wartości. Sekundy, bo tego oczekuje odcięcie.
  */
-export const PRESETY_ZNIKANIA: { sekundy: number; etykieta: string }[] = [
-  { sekundy: 5 * 60, etykieta: "5 minut" },
-  { sekundy: 60 * 60, etykieta: "1 godzina" },
-  { sekundy: 8 * 60 * 60, etykieta: "8 godzin" },
-  { sekundy: 24 * 60 * 60, etykieta: "1 dzień" },
-  { sekundy: 7 * 24 * 60 * 60, etykieta: "1 tydzień" },
-  { sekundy: 28 * 24 * 60 * 60, etykieta: "4 tygodnie" },
+// Etykiety są getterami: język interfejsu zmienia się w trakcie działania,
+// a stała policzona przy imporcie zostałaby w tym, który był na starcie.
+const preset = (sekundy: number, pl: string, en: string) => ({
+  sekundy,
+  get etykieta() {
+    return t(pl, en);
+  },
+});
+
+export const PRESETY_ZNIKANIA: { sekundy: number; readonly etykieta: string }[] = [
+  preset(5 * 60, "5 minut", "5 minutes"),
+  preset(60 * 60, "1 godzina", "1 hour"),
+  preset(8 * 60 * 60, "8 godzin", "8 hours"),
+  preset(24 * 60 * 60, "1 dzień", "1 day"),
+  preset(7 * 24 * 60 * 60, "1 tydzień", "1 week"),
+  preset(28 * 24 * 60 * 60, "4 tygodnie", "4 weeks"),
 ];
 
 /** Jednostki dla pola „własny czas". */
-export const JEDNOSTKI_ZNIKANIA: { mnoznik: number; etykieta: string }[] = [
-  { mnoznik: 60, etykieta: "minut" },
-  { mnoznik: 60 * 60, etykieta: "godzin" },
-  { mnoznik: 24 * 60 * 60, etykieta: "dni" },
+const jednostka = (mnoznik: number, pl: string, en: string) => ({
+  mnoznik,
+  get etykieta() {
+    return t(pl, en);
+  },
+});
+
+export const JEDNOSTKI_ZNIKANIA: { mnoznik: number; readonly etykieta: string }[] = [
+  jednostka(60, "minut", "minutes"),
+  jednostka(60 * 60, "godzin", "hours"),
+  jednostka(24 * 60 * 60, "dni", "days"),
 ];
 
 /** Ludzki opis długości znikania — do pokazania w panelu i na liście presetów. */
@@ -67,9 +84,9 @@ export function opisZnikania(sekundy: number): string {
 
   if (sekundy % (24 * 60 * 60) === 0) {
     const dni = sekundy / (24 * 60 * 60);
-    return `${dni} ${dni === 1 ? "dzień" : "dni"}`;
+    return dni === 1 ? t("1 dzień", "1 day") : t(`${dni} dni`, `${dni} days`);
   }
-  if (sekundy % (60 * 60) === 0) return `${sekundy / (60 * 60)} godz.`;
+  if (sekundy % (60 * 60) === 0) return t(`${sekundy / (60 * 60)} godz.`, `${sekundy / (60 * 60)} h`);
   if (sekundy % 60 === 0) return `${sekundy / 60} min`;
   return `${sekundy} s`;
 }

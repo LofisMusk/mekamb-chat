@@ -254,9 +254,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Language
 
-**Code, comments, commit messages and UI strings are in Polish.** Identifiers use
-Polish names (`Wiadomosc`, `zapiszRozmowe`, `PrzyciskGlowny`). Match the existing
-style — do not introduce English identifiers into Polish modules.
+**English is the project's main language** for documentation (`README.md`,
+`docs/`, this file), commit messages, PR descriptions and the default UI language.
+
+**Code stays Polish for now:** identifiers use Polish names (`Wiadomosc`,
+`zapiszRozmowe`, `PrzyciskGlowny`) and comments are Polish. Match the existing
+style inside a module — do not introduce English identifiers into Polish modules.
+Moving the code itself to English is a separate, deliberate decision, not
+something to do piecemeal.
+
+**UI strings are bilingual, English by default.** Every visible string goes through
+`t(pl, en)` with both versions side by side at the point of use — `web/src/lib/jezyk.ts`,
+`android/.../Jezyk.kt`, `ios/Mekamb/Rdzen/Jezyk.swift`. No key catalogue: with two
+languages it would cost more than it gives. The choice is stored (default English);
+Polish is offered in settings and on the welcome screen. On web, `t()` reads the
+language at render time, so never call it at module level (a constant computed at
+import keeps the start-up language) — use a function or getter. Code that
+recognises error messages by their text must match both languages
+(`web/src/lib/rozruch.ts`).
 
 Doc comments explain **why**, not what. Most modules open with a `# Dlaczego …`
 section stating the decision and the alternative rejected. Keep that habit.
@@ -325,6 +340,31 @@ no more updates can be published.
 Emulator needs `-gpu swiftshader_indirect`; the default GPU path fails with a
 context error on this host.
 
+### iOS (`ios/`)
+
+```bash
+cd ios && xcodegen generate          # project.yml is the source of truth
+xcodebuild -project Mekamb.xcodeproj -scheme Mekamb \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build build
+xcodebuild test -project Mekamb.xcodeproj -scheme Mekamb \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build
+```
+
+The build's first phase runs `skrypty/zbuduj-rdzen.sh`: it builds `mekamb-ffi` as a
+static library for `aarch64-apple-ios` and `-ios-sim`, generates the Swift bindings
+(`Wygenerowane/`) and assembles `Rdzen/MekambFFI.xcframework`. Both are gitignored.
+WebRTC comes from the `stasel/WebRTC` Swift package, pinned to an exact version in
+`project.yml`. Debug talks to `http://localhost:8787` (the simulator reaches the
+host's localhost); override with `MEKAMB_ADRES_API=…`.
+
+Every screen has `#Preview`s backed by `ModelAplikacji.podglad()` (sample data
+written through the real `Historia`, in a throwaway vault). The same data runs the
+whole app in the simulator with the Debug launch argument `-MekambPodglad`.
+
+The local web client must be served from `http://127.0.0.1:5174`, not
+`localhost:5174` — that's the origin `server/wrangler.jsonc` allows through CORS
+(`.claude/launch.json` → `web-lokalny`).
+
 ## Architecture
 
 ### Crypto is written once, in Rust
@@ -335,13 +375,13 @@ core/       identity, MLS groups, framing, envelopes, attachments, safety
 opaque/     OPAQUE (RFC 9807) — same code for server and both clients
 transport/  UDP + STUN + Noise IK, hand-written (replaced iroh)
 core/bindings/wasm     → web
-core/bindings/uniffi   → Android
+core/bindings/uniffi   → Android (Kotlin) and iOS (Swift, XCFramework)
 ```
 
 Two parallel MLS implementations would drift, so the UI is native per platform
 and the security layer is not. **When adding anything cryptographic or
 wire-format, put it in `core` and expose it through both bindings** — never
-reimplement it in TypeScript or Kotlin.
+reimplement it in TypeScript, Kotlin or Swift.
 
 Concretely: envelope encoding, attachment sealing and QR generation all live in
 Rust for this reason. `add_member` returns *already-enveloped* commit and welcome
@@ -397,9 +437,9 @@ proves nothing: the server would have issued both. This was a column and two
 comments for a long time before it was any code; an unsigned record now means
 "mailbox only", never "trust it".
 
-**The history format version must be bumped on both clients in the same change.**
-`web/src/lib/historia.ts` and `android/.../Historia.kt` must agree on shape *and*
-number. This has already broken once: Android gained a field while keeping
+**The history format version must be bumped on every client in the same change.**
+`web/src/lib/historia.ts`, `android/.../Historia.kt` and `ios/Mekamb/Rdzen/Historia.swift`
+must agree on shape *and* number. This has already broken once: Android gained a field while keeping
 version 1, so both clients claimed the same number for incompatible shapes and
 the optical history transfer to a freshly paired device silently produced empty
 history.
@@ -592,15 +632,21 @@ whenever the theme changes — including when the *system* changes it under an
 accent exists.
 
 The light palette is written **twice** in `styles.css` (once under
-`prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP
-forbids inline scripts, so nothing can set the theme before first paint. The
-copies are kept in sync by `web/src/lib/motyw.test.ts`, not by discipline.
+`prefers-color-scheme`, once under `[data-motyw="jasny"]`) because the CSP forbids
+inline scripts, so nothing can set the theme before first paint. The copies are kept
+in sync by `web/src/lib/motyw.test.ts`, not by discipline — it has already caught
+the two copies drifting apart.
+
+The design canvas under `design/kanwa/` still shows the old Nocturne artboards and
+needs redrawing in the neutral system; until then `docs/UI_NEUTRALNY.md` is the
+design of record.
 
 ### Icons
 
 `design/ikony.mjs` is the **single source** of icon paths. `node design/generuj.mjs`
-writes `web/src/Ikony.tsx` and `android/.../Ikony.kt`; both are committed, and
-`web/src/lib/ikony.test.ts` fails CI if either drifts from the source. Editing a
+writes `web/src/Ikony.tsx`, `android/.../Ikony.kt` and `ios/Mekamb/Ikony.swift`;
+all three are committed, and `web/src/lib/ikony.test.ts` fails CI if any drifts
+from the source. Editing a
 generated file by hand is a mistake the test catches immediately.
 
 Paths are drawn in place — Phosphor is not available on Android without a font
@@ -626,7 +672,7 @@ lenient enough to accept genuinely broken codes — error correction repairs the
 **Open stored conversations after restoring the client.** `MekambClient::restore`
 brings back the full MLS state but an **empty** map of open conversations — that
 map was only ever filled by creating a group or accepting a Welcome. Without the
-`otworzZnaneRozmowy` call on both clients, a restarted client has everything on
+`otworzZnaneRozmowy` call on every client, a restarted client has everything on
 disk and can neither send nor receive: every call fails with "nie ma takiej
 rozmowy w tym kliencie", and incoming envelopes match nothing and are dropped in
 silence. Conversation ids come from local history; `Conversation::load` returns
@@ -673,9 +719,10 @@ not want to hand over.
 Encrypting the payload does not hide **when** an envelope moved. A receipt sent
 the instant something is read is readable from traffic alone. So clients batch
 receipts and send them after a **random** delay of up to 30 s
-(`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`) — random, not
+(`web/src/lib/potwierdzenia.ts`, `android/.../Potwierdzenia.kt`,
+`ios/Mekamb/Rdzen/Potwierdzenia.swift`) — random, not
 fixed, because a fixed delay only shifts the correlation instead of breaking it.
-Both platforms must keep the same bounds, or one leaks more than the other under
+All platforms must keep the same bounds, or one leaks more than the other under
 the same promise in the UI.
 
 The tick's own message id comes from the core: `sendText` returns
@@ -688,14 +735,18 @@ seeing others'. The protocol does not enforce it and cannot.
 
 ## Not implemented
 
-Push notifications (needs `google-services.json`). Camera-based QR scanning on
-Android — the code scanned by the system camera arrives through the `mekamb://`
-intent instead.
+Push notifications (needs `google-services.json` on Android, APNs on iOS).
+Camera-based QR scanning on Android — the code scanned by the system camera arrives
+through the `mekamb://` intent instead.
+
+iOS is mailbox-only for now (no direct UDP transport, like the web client), has no
+optical pairing, only shows received attachments as a file entry, and its calls ring
+only while the app is open (no CallKit yet). The open items live in `TODO.md`.
 
 Delivery receipts: the tick on an own bubble means "left this device", not
 "delivered" and not "read". The double-tick icon (`dostarczone`) exists in the
 set but nothing sets it yet — the mailbox would have to report the ack back to
 the sender.
 
-Previously listed here and since built: A/V calling on Android, search in the
-conversation list (both clients).
+Previously listed here and since built: A/V calling on Android and iOS, search in
+the conversation list (all clients), the native iOS client.

@@ -13,7 +13,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -390,6 +393,11 @@ private fun Zawartosc(
             Karta { Text(komunikat, style = MaterialTheme.typography.bodySmall) }
         }
 
+    Box(modifier = modifier) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Bez wiersza „bezpośrednio / przez serwer / brak połączenia" nad listą —
+        // stan połączenia ze skrzynką przy każdym spojrzeniu był szumem (decyzja
+        // użytkownika, tak samo na webie i iOS). Drogę mediów pokazuje ekran rozmowy A/V.
         when {
             // Rozmowa A/V przykrywa wszystko: gdy trwa, jest jedyną rzeczą,
             // którą użytkownik chce widzieć.
@@ -496,7 +504,8 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .imePadding(),
+            .imePadding()
+            .padding(horizontal = Odstep.l, vertical = Odstep.m),
         verticalArrangement = Arrangement.spacedBy(Odstep.l),
     ) {
         NaglowekEkranu(t("Drugi składnik", "Second factor"))
@@ -506,17 +515,17 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
         // a przepisanie sekretu działa zawsze i jest ostatnią deską ratunku.
         stan.otpauthUri?.let { uri ->
             Text(
-                "Zeskanuj aplikacją authenticator:",
+                t("Zeskanuj aplikacją authenticator:", "Scan with your authenticator app:"),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Nocturne.kolory.tekstDrugi,
             )
             KodQr(
                 tresc = uri,
-                opis = "Kod QR do dodania konta w aplikacji authenticator",
+                opis = t("Kod QR do dodania konta w aplikacji authenticator", "QR code to add the account to your authenticator app"),
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
 
-            PrzyciskDrugi("Otwórz w aplikacji na tym telefonie") {
+            PrzyciskObrys(t("Otwórz w aplikacji na tym telefonie", "Open in an app on this phone")) {
                 runCatching {
                     kontekst.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
                 }
@@ -525,17 +534,24 @@ private fun PotwierdzenieTotp(model: ChatViewModel) {
 
         stan.sekretTotp?.let { sekret ->
             Text(
-                "Albo wpisz ten sekret ręcznie:",
+                t("Albo wpisz ten sekret ręcznie:", "Or enter this secret manually:"),
                 style = MaterialTheme.typography.labelMedium,
                 color = Nocturne.kolory.tekstDrugi,
             )
-            Karta { Text(sekret, style = MaterialTheme.typography.bodyMedium) }
+            Text(
+                sekret,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Nocturne.kolory.wglebienie, RoundedCornerShape(Promien.s))
+                    .padding(Odstep.m),
+            )
         }
 
-        Pole("Kod z authenticatora · Code", kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
+        Pole(t("Kod z authenticatora", "Authenticator code"), kod, { kod = it.filter(Char::isDigit).take(6) }, cyfry = true)
 
         PrzyciskGlowny(
-            if (stanZajety(model)) "Potwierdzam…" else "Potwierdź · Confirm",
+            if (stanZajety(model)) t("Potwierdzam…", "Confirming…") else t("Potwierdź", "Confirm"),
             wlaczony = !stanZajety(model) && kod.length == 6,
         ) {
             model.potwierdzRejestracje(kod)

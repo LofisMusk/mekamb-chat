@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Ikona } from "./Ikony";
+import { Ikona, type NazwaIkony } from "./Ikony";
+import { Awatar } from "./components/ui/avatar";
+import { cn } from "./components/ui/cn";
+import { t } from "./lib/jezyk";
 import { Call } from "./lib/calls";
 import type { CallState, PeerState } from "./lib/calls";
 import type { ZapisRozmowy } from "./lib/historia";
@@ -441,7 +444,10 @@ export function Rozmowa({
 
   if (przychodzace) {
     return (
-      <section className="ekran-rozmowy dzwoni" aria-label="Rozmowa przychodząca">
+      <section
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-md"
+        aria-label={t("Rozmowa przychodząca", "Incoming call")}
+      >
         {/*
           Karta na środku, reszta ekranu przygaszona i rozmyta.
 
@@ -449,44 +455,35 @@ export function Rozmowa({
           tylko pytanie „odebrać?". Rozmyte tło zostawia kontekst tego, co
           robiłeś, zamiast wymazywać go czernią na pełny ekran.
         */}
-        <div className="panel-dzwonienia">
-          <div className="rozmowa-kto">
-            <span className="awatar duzy" aria-hidden="true">
-              {przychodzace.nadawca.slice(0, 1)}
+        <div className="dark flex w-full max-w-sm flex-col items-center gap-8 rounded-l border border-white/10 bg-[#0a0a0a] px-6 pb-8 pt-10 text-white shadow-2xl">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Awatar nazwa={przychodzace.nadawca} rozmiar="xl" className="mb-2" />
+            <strong className="text-[22px] font-semibold tracking-[-0.02em]">{przychodzace.nadawca}</strong>
+            <span className="text-tresc text-white/70">{t("dzwoni…", "is calling…")}</span>
+            <span className="flex items-center gap-1.5 text-podpis text-white/50">
+              <Ikona nazwa="blokada" rozmiar={12} />
+              {t("szyfrowane end-to-end", "end-to-end encrypted")}
             </span>
-            <strong>{przychodzace.nadawca}</strong>
-            <span className="rozmowa-podpis">dzwoni</span>
           </div>
 
           {/* Okrągłe przyciski z podpisem pod spodem — kształt niesie akcję,
-              podpis ją nazywa. */}
-          <div className="dzwoni-akcje">
-            <span className="akcja-dzwonienia">
-              <button className="okragly niszczacy" aria-label="Odrzuć" onClick={odrzuc}>
-                <Ikona nazwa="rozlacz" rozmiar={22} />
-              </button>
-              <span>Odrzuć</span>
-            </span>
-            <span className="akcja-dzwonienia">
-              <button
-                className="okragly przyjmij"
-                aria-label="Odbierz z obrazem"
-                onClick={() => void odbierz(true)}
-              >
-                <Ikona nazwa="kamera" rozmiar={22} />
-              </button>
-              <span>Z obrazem</span>
-            </span>
-            <span className="akcja-dzwonienia">
-              <button
-                className="okragly przyjmij"
-                aria-label="Odbierz"
-                onClick={() => void odbierz(false)}
-              >
-                <Ikona nazwa="sluchawka" rozmiar={22} />
-              </button>
-              <span>Odbierz</span>
-            </span>
+              podpis ją nazywa. Zielone i czerwone wypełnienie to jedyne plamy
+              koloru pod akcją w całej aplikacji: „zielone odbiera, czerwone
+              odrzuca" rozpoznaje się bez czytania, w pośpiechu. */}
+          <div className="flex w-full items-start justify-between px-2">
+            <AkcjaDzwonienia ikona="rozlacz" podpis={t("Odrzuć", "Decline")} kolor="czerwony" onClick={odrzuc} />
+            <AkcjaDzwonienia
+              ikona="kamera"
+              podpis={t("Z obrazem", "With video")}
+              kolor="zielony"
+              onClick={() => void odbierz(true)}
+            />
+            <AkcjaDzwonienia
+              ikona="sluchawka"
+              podpis={t("Odbierz", "Accept")}
+              kolor="zielony"
+              onClick={() => void odbierz(false)}
+            />
           </div>
         </div>
       </section>
@@ -526,31 +523,27 @@ export function Rozmowa({
    *
    * Pasek doklejony nad wiadomościami stawiał obok siebie dwie rzeczy o różnej
    * pilności: rozmowę, która dzieje się TERAZ, i historię, która poczeka.
-   * Wygrywała ta, która zajmowała więcej miejsca — czyli historia. Przyciski
-   * rozmowy ściskały się w jednym rzędzie u góry, a przy otwartej klawiaturze
-   * potrafiły wyjechać poza widok razem z całym wątkiem.
-   *
    * Ekran zabiera cały układ (patrz `Czat`) i ma jedno zadanie. Wyjście z niego
    * jest jedno: rozłączenie.
+   *
+   * Zawsze ciemny, jak na iOS i Androidzie: jasne tło przy wideo świeci w twarz
+   * i wypłukuje obraz rozmówcy.
    */
   return (
-    <section className="ekran-rozmowy" aria-label="Trwająca rozmowa">
-      <div className="rozmowa-naglowek">
-        <Ikona nazwa={maObraz ? "kamera" : "sluchawka"} rozmiar={17} />
-
-        <span className="rozmowa-stan">
-          <strong>{opisRozmowy(uczestnicy)}</strong>
-          <span className="czas">{trwanie(sekundy)}</span>
-        </span>
+    <section
+      className="dark fixed inset-0 z-50 flex flex-col gap-3 bg-[#0a0a0a] p-3 pt-[calc(var(--bezpiecznie-gora)+12px)] pb-[calc(var(--bezpiecznie-dol)+16px)] text-white"
+      aria-label={t("Trwająca rozmowa", "Call in progress")}
+    >
+      <div className="flex items-center justify-center gap-2 py-1 text-tresc">
+        <Ikona nazwa={maObraz ? "kamera" : "sluchawka"} rozmiar={16} />
+        <strong className="font-semibold">{opisRozmowy(uczestnicy)}</strong>
+        <span className="tabular-nums text-white/60">{trwanie(sekundy)}</span>
       </div>
 
       {/*
-        Kafelki: ja i wszyscy, z którymi rozmawiam, w jednej siatce.
-
-        Wcześniej były dwie osobne rzeczy — lista nazwisk i siatka obrazów bez
-        podpisów — więc nie dało się powiedzieć, czyj obraz się właśnie widzi,
-        a własnego podglądu nie było wcale. Kafelek łączy jedno z drugim:
-        obraz albo awatar, nazwa i droga połączenia w jednym miejscu.
+        Kafelki: ja i wszyscy, z którymi rozmawiam, w jednej siatce. Obraz albo
+        awatar, nazwa i droga połączenia w jednym miejscu — żeby było wiadomo,
+        czyj obraz się właśnie widzi.
 
         Droga połączenia ZOSTAJE przy każdej osobie z osobna. „Bezpośrednio" to
         zdanie o tym, że ta osoba zna Twój adres IP, a w rozmowie mesh każda
@@ -558,12 +551,7 @@ export function Rozmowa({
         wobec połowy uczestników.
       */}
       <div className="siatka-kafelkow" data-ilu={Math.min(uczestnicy.length + 1, 4)}>
-        <Kafelek
-          nazwa="Ty"
-          stream={call.strumienLokalny()}
-          wlasny
-          obrazWlaczony={maObraz && obraz}
-        />
+        <Kafelek nazwa={t("Ty", "You")} stream={call.strumienLokalny()} wlasny obrazWlaczony={maObraz && obraz} />
 
         {uczestnicy.map((uczestnik) => (
           <Kafelek
@@ -577,62 +565,109 @@ export function Rozmowa({
       </div>
 
       {zerwane > 0 && (
-        <p className="wskazowka">
-          Połączenie z {zerwane === 1 ? "jedną osobą" : `${zerwane} osobami`} zostało zerwane,
-          bo certyfikat nie zgadzał się z odciskiem przysłanym zaszyfrowanym kanałem. Rozmowa
-          z pozostałymi trwa dalej.
+        <p className="mx-auto max-w-md text-center text-podpis text-alarm">
+          {t(
+            `Połączenie z ${zerwane === 1 ? "jedną osobą" : `${zerwane} osobami`} zostało zerwane, bo certyfikat nie zgadzał się z odciskiem przysłanym zaszyfrowanym kanałem. Rozmowa z pozostałymi trwa dalej.`,
+            `The connection with ${zerwane === 1 ? "one person" : `${zerwane} people`} was dropped because their certificate didn't match the fingerprint sent over the encrypted channel. The call with everyone else continues.`,
+          )}
         </p>
       )}
 
       {/*
-        Przyciski POD obrazem, nie nad nim.
-
-        Kciuk sięga dołu ekranu, a „Rozłącz" jest tu jedynym wyjściem — więc
-        stoi tam, gdzie w każdym innym telefonie. Nad obrazem, w rzędzie razem
-        z nazwą rozmówcy, były trzema małymi celami obok siebie, z których
-        jedna kończyła rozmowę.
+        Przyciski POD obrazem, nie nad nim: kciuk sięga dołu ekranu, a
+        „Rozłącz" jest tu jedynym wyjściem — więc stoi tam, gdzie w każdym
+        innym telefonie.
       */}
-      <div className="rozmowa-przyciski">
-        <button
-          className={mikrofon ? "ikonowy" : "ikonowy aktywny"}
-          title={mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
-          aria-pressed={!mikrofon}
+      <div className="flex items-center justify-center gap-4 pt-2">
+        <PrzyciskRozmowy
+          ikona={mikrofon ? "mikrofon" : "mikrofonWyciszony"}
+          opis={mikrofon ? t("Wycisz mikrofon", "Mute") : t("Włącz mikrofon", "Unmute")}
+          zaznaczony={!mikrofon}
           onClick={() => {
             przelacz("audio", !mikrofon);
             setMikrofon((m) => !m);
           }}
-        >
-          <Ikona nazwa={mikrofon ? "mikrofon" : "mikrofonWyciszony"} rozmiar={20} />
-          <span className="tylko-dla-czytnika">
-            {mikrofon ? "Wycisz mikrofon" : "Włącz mikrofon"}
-          </span>
-        </button>
-
+        />
         {/*
-          Przycisk kamery jest ZAWSZE, także w rozmowie głosowej.
-
-          Wcześniej pojawiał się tylko wtedy, gdy rozmowa zaczęła się z obrazem —
-          czyli decyzja podjęta w chwili dzwonienia była ostateczna, mimo że
-          sprzęt pozwala ją zmienić w każdej sekundzie.
+          Przycisk kamery jest ZAWSZE, także w rozmowie głosowej — decyzja
+          podjęta w chwili dzwonienia nie jest ostateczna.
         */}
-        <button
-          className={maObraz ? "ikonowy" : "ikonowy aktywny"}
-          title={maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
-          aria-pressed={!maObraz}
+        <PrzyciskRozmowy
+          ikona={maObraz ? "kamera" : "kameraWylaczona"}
+          opis={maObraz ? t("Wyłącz obraz", "Turn camera off") : t("Włącz kamerę", "Turn camera on")}
+          zaznaczony={maObraz}
           onClick={() => void przelaczKamere()}
+        />
+        <button
+          type="button"
+          title={t("Rozłącz", "Hang up")}
+          aria-label={t("Rozłącz", "Hang up")}
+          onClick={() => rozlacz()}
+          className="flex size-16 items-center justify-center rounded-full bg-[#dc2626] text-white transition-opacity hover:opacity-90"
         >
-          <Ikona nazwa={maObraz ? "kamera" : "kameraWylaczona"} rozmiar={20} />
-          <span className="tylko-dla-czytnika">
-            {maObraz ? "Wyłącz obraz" : "Włącz kamerę"}
-          </span>
-        </button>
-
-        <button className="rozlacz" title="Rozłącz" onClick={() => rozlacz()}>
-          <Ikona nazwa="rozlacz" rozmiar={20} />
-          <span className="tylko-dla-czytnika">Rozłącz</span>
+          <Ikona nazwa="rozlacz" rozmiar={30} />
         </button>
       </div>
     </section>
+  );
+}
+
+/** Okrągły przycisk sterowania rozmową. Zaznaczony = biała plama, jak w systemowym telefonie. */
+function PrzyciskRozmowy({
+  ikona,
+  opis,
+  zaznaczony,
+  onClick,
+}: {
+  ikona: NazwaIkony;
+  opis: string;
+  zaznaczony: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={opis}
+      aria-label={opis}
+      aria-pressed={zaznaczony}
+      onClick={onClick}
+      className={cn(
+        "flex size-14 items-center justify-center rounded-full transition-colors",
+        zaznaczony ? "bg-white text-black" : "bg-white/15 text-white hover:bg-white/25",
+      )}
+    >
+      <Ikona nazwa={ikona} rozmiar={22} />
+    </button>
+  );
+}
+
+/** Duży okrągły przycisk z podpisem — odbierz/odrzuć. */
+function AkcjaDzwonienia({
+  ikona,
+  podpis,
+  kolor,
+  onClick,
+}: {
+  ikona: NazwaIkony;
+  podpis: string;
+  kolor: "zielony" | "czerwony";
+  onClick: () => void;
+}) {
+  return (
+    <span className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        aria-label={podpis}
+        onClick={onClick}
+        className={cn(
+          "flex size-16 items-center justify-center rounded-full text-white transition-opacity hover:opacity-90",
+          kolor === "zielony" ? "bg-[#16a34a]" : "bg-[#dc2626]",
+        )}
+      >
+        <Ikona nazwa={ikona} rozmiar={26} />
+      </button>
+      <span className="text-meta text-white/80">{podpis}</span>
+    </span>
   );
 }
 
@@ -642,7 +677,7 @@ function StanUczestnika({ uczestnik }: { uczestnik: PeerState }) {
     return (
       <span className="tryb uwaga">
         <Ikona nazwa="ostrzezenie" rozmiar={12} />
-        obcy certyfikat
+        {t("obcy certyfikat", "unknown certificate")}
       </span>
     );
   }
@@ -651,7 +686,7 @@ function StanUczestnika({ uczestnik }: { uczestnik: PeerState }) {
     return (
       <span className="tryb">
         <Ikona nazwa="zegar" rozmiar={12} />
-        łączę…
+        {t("łączę…", "connecting…")}
       </span>
     );
   }
@@ -660,7 +695,7 @@ function StanUczestnika({ uczestnik }: { uczestnik: PeerState }) {
     return (
       <span className="tryb">
         <Ikona nazwa="brakSieci" rozmiar={12} />
-        rozłączony
+        {t("rozłączony", "disconnected")}
       </span>
     );
   }
@@ -672,12 +707,12 @@ function StanUczestnika({ uczestnik }: { uczestnik: PeerState }) {
       className="tryb"
       title={
         przekaznik
-          ? "Media idą przez serwer TURN — to on zna oba adresy IP."
-          : "Media idą wprost — ta osoba zna Twój adres IP."
+          ? t("Media idą przez serwer TURN — to on zna oba adresy IP.", "Media goes through the TURN server — it knows both IP addresses.")
+          : t("Media idą wprost — ta osoba zna Twój adres IP.", "Media goes direct — this person knows your IP address.")
       }
     >
       <Ikona nazwa={przekaznik ? "przezSerwer" : "bezposrednio"} rozmiar={12} />
-      {przekaznik ? "przez przekaźnik" : "bezpośrednio"}
+      {przekaznik ? t("przez przekaźnik", "via relay") : t("bezpośrednio", "direct")}
     </span>
   );
 }
@@ -740,7 +775,12 @@ function Kafelek({
   const widacObraz = maSciezke && obrazWlaczony;
 
   return (
-    <div className={widacObraz ? "kafelek z-obrazem" : "kafelek"}>
+    <div
+      className={cn(
+        "relative flex min-h-0 items-center justify-center overflow-hidden rounded-l bg-white/[0.06]",
+        widacObraz && "z-obrazem",
+      )}
+    >
       <video
         ref={ref}
         autoPlay
@@ -749,19 +789,14 @@ function Kafelek({
         // i rozmowa staje się nie do prowadzenia.
         muted={wlasny}
         // Lustrzany tylko własny: tak wygląda odbicie w lustrze, do którego
-        // wszyscy są przyzwyczajeni. Obraz rozmówcy odbity byłby po prostu
-        // odwrócony — z napisami czytanymi od tyłu włącznie.
-        className={wlasny ? "obraz-kafelka odbity" : "obraz-kafelka"}
+        // wszyscy są przyzwyczajeni.
+        className={cn("obraz-kafelka absolute inset-0 size-full object-cover", wlasny && "odbity")}
       />
 
-      {!widacObraz && (
-        <span className="awatar" aria-hidden="true">
-          {nazwa.slice(0, 1)}
-        </span>
-      )}
+      {!widacObraz && <Awatar nazwa={nazwa} rozmiar="xl" />}
 
-      <span className="podpis-kafelka">
-        <span className="kto">{nazwa}</span>
+      <span className="podpis-kafelka absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 p-3 text-meta">
+        <span className="font-medium">{nazwa}</span>
         {uczestnik && <StanUczestnika uczestnik={uczestnik} />}
       </span>
     </div>
@@ -772,9 +807,9 @@ function Kafelek({
 function opisRozmowy(uczestnicy: CallState["uczestnicy"]): string {
   const trwa = uczestnicy.filter((u) => u.faza === "trwa" && !u.odrzuconyOdcisk);
 
-  if (trwa.length === 0) return "Łączę…";
-  if (trwa.length === 1) return `Rozmowa z ${trwa[0]?.username}`;
-  return `Rozmowa · ${trwa.length} osób`;
+  if (trwa.length === 0) return t("Łączę…", "Connecting…");
+  if (trwa.length === 1) return t(`Rozmowa z ${trwa[0]?.username}`, `Call with ${trwa[0]?.username}`);
+  return t(`Rozmowa · ${trwa.length} osób`, `Call · ${trwa.length} people`);
 }
 
 /*

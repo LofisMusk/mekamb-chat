@@ -102,6 +102,18 @@ export interface Env {
 
   /** Nazwa wyświetlana użytkownikowi przy tworzeniu passkeya. */
   WEBAUTHN_RP_NAME: string;
+
+  /**
+   * Tryb deweloperski: rozluźnia zabezpieczenia dla wygody testów. Domyślnie OFF.
+   *
+   * `"true"` włącza obejścia z `src/dev.ts`: pominięcie 2FA, wyłączenie limitów
+   * prób, aktywację kont od razu i endpoint siewu kont testowych. Ustawiane
+   * WYŁĄCZNIE w środowisku `dev` wrangler (osobny Worker, osobna baza D1) —
+   * produkcja go nie ustawia, więc te furtki są tam martwe nawet gdyby kod tam
+   * trafił. Nie osłabia szyfrowania wiadomości: ich klucze i tak nie przechodzą
+   * przez serwer. Patrz komentarz w `src/dev.ts`.
+   */
+  TRYB_DEWELOPERSKI?: string;
 }
 
 /** Ile dni koperta czeka w skrzynce, zanim zostanie usunięta. */

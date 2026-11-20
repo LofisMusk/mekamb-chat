@@ -12,6 +12,7 @@ import type {
   PasskeyRegistrationOptions,
   PasskeyRegistrationResponse,
 } from "./passkey";
+import { t } from "./jezyk";
 
 /**
  * Rejestracja i logowanie po stronie przeglądarki.
@@ -139,7 +140,7 @@ export async function loginStart(username: string, password: string): Promise<Lo
   } catch {
     // To samo dla złego hasła i nieistniejącego konta — serwer celowo nie
     // pozwala ich odróżnić, więc komunikat też nie może.
-    throw new Error("nieprawidłowa nazwa użytkownika lub hasło");
+    throw new Error(t("nieprawidłowa nazwa użytkownika lub hasło", "wrong username or password"));
   }
 
   await api.post("/auth/login/finish", {

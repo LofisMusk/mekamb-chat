@@ -1,137 +1,133 @@
-# mekamb-chat — klient Android
+# mekamb-chat — Android client
 
-Kotlin + Jetpack Compose. Rdzeń kryptograficzny i transport pochodzą z Rusta
-przez UniFFI — ten sam kod, którego używa klient webowy.
+Kotlin + Jetpack Compose. The cryptographic core and the transport come from Rust
+through UniFFI — the same code the web and iOS clients use.
 
-## Czym różni się od klienta webowego
+## How it differs from the web client
 
-**Tu P2P działa naprawdę.** Android przebija NAT i łączy się wprost z drugim
-urządzeniem; skrzynka na serwerze wchodzi do gry dopiero, gdy odbiorcy nie da
-się osiągnąć. W przeglądarce pośrednik jest zawsze, bo sandbox nie pozwala na
-połączenia przychodzące.
+**P2P actually works here.** Android punches through NAT and connects straight to
+the other device; the server mailbox only comes into play when the recipient
+can't be reached. In the browser there's always an intermediary, because the
+sandbox doesn't allow incoming connections. Android also reads the mailbox, since
+messages from web and iOS peers exist only there.
 
-Interfejs pokazuje tryb połączenia („bezpośrednie" / „przez serwer"), żeby nie
-sugerować P2P tam, gdzie go nie ma.
+## Requirements
 
-## Wymagania
-
-- Android Studio z SDK (platforma 36)
-- **NDK** — Settings → SDK Manager → SDK Tools → zaznacz *NDK (Side by side)*
+- Android Studio with the SDK (platform 36)
+- **NDK** — Settings → SDK Manager → SDK Tools → tick *NDK (Side by side)*
 - `cargo-ndk`:
 
 ```bash
 cargo install cargo-ndk && rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 ```
 
-## Budowanie
+## Building
 
-Gradle sam buduje rdzeń w Rust i generuje wiązania Kotlina — nie ma osobnego
-kroku do zapamiętania:
+Gradle builds the Rust core and generates the Kotlin bindings itself — there's no
+separate step to remember:
 
 ```bash
 cd android && ./gradlew assembleDebug
 ```
 
-Wiązania powstają z **metadanych zbudowanej biblioteki**, a nie z osobnego
-pliku opisu, więc nie mają jak rozjechać się z kodem Rusta.
+The bindings are generated from the **metadata of the built library**, not from a
+separate description file, so they can't drift from the Rust code.
 
-Domyślny adres backendu to `http://10.0.2.2:8787` — tak emulator widzi
-`wrangler dev` na hoście. Dla fizycznego urządzenia zmień `API_URL`
-w `app/build.gradle.kts`.
+The default backend address is `http://10.0.2.2:8787` — that's how the emulator
+sees `wrangler dev` on the host. Override it with `-PapiUrl=https://…`.
 
-## Pułapki, na które natknął się ten build
+The emulator needs `-gpu swiftshader_indirect`; the default GPU path fails with a
+context error on some hosts.
 
-Zapisane, bo każda kosztowała osobne podejście:
+## Pitfalls this build ran into
 
-- **AGP 9 ma wbudowaną obsługę Kotlina.** Osobna wtyczka `kotlin.android` jest
-  nie tylko zbędna — build ją odrzuca.
-- **Metadanych UniFFI nie da się odczytać z artefaktu androidowego.** Profil
-  `release` usuwa je przy strippingu, więc bindingi generujemy z osobnej
-  biblioteki dla hosta. Obie powstają z tego samego źródła w jednym przebiegu.
-- **`close()` koliduje z `AutoCloseable`.** UniFFI generuje własne `close()` do
-  zwalniania uchwytu natywnego; własna metoda o tej nazwie tworzy niejednoznaczne
-  przeciążenie. Nasza nazywa się `shutdown`.
-- **Konstruktory drugorzędne trafiają do companion object.** `MekambTransport`
-  tworzy się przez `MekambTransport.start(...)`, a nie przez konstruktor klasy.
+Written down because each one cost a separate attempt:
 
-## Historia: dlaczego transport jest własny
+- **AGP 9 has built-in Kotlin support.** The separate `kotlin.android` plugin
+  isn't just redundant — the build rejects it.
+- **UniFFI metadata can't be read from the Android artifact.** The `release`
+  profile strips it, so the bindings are generated from a separate host library.
+  Both come from the same source in one pass.
+- **`close()` clashes with `AutoCloseable`.** UniFFI generates its own `close()`
+  to release the native handle; our own method with that name creates an
+  ambiguous overload. Ours is called `shutdown`.
+- **Secondary constructors end up in the companion object.** `MekambTransport` is
+  created with `MekambTransport.start(...)`, not the class constructor.
 
-Pierwsza wersja opierała się na iroh. Logowanie działało, ale proces ginął
-zaraz po nim przez natywne `abort()`:
+## History: why the transport is our own
+
+The first version was built on iroh. Sign-in worked, but the process died right
+after it with a native `abort()`:
 
 ```
 signal 6 (SIGABRT)
 Abort message: 'android context was not initialized'
 ```
 
-`rustls-platform-verifier` — wciągany przez `reqwest`, którego iroh używa do
-relayów — wymaga na Androidzie inicjalizacji przez JNI i bez niej **przerywa
-proces**. Nie dało się tego wyłączyć flagą, bo zależność jest twarda.
+`rustls-platform-verifier` — pulled in by `reqwest`, which iroh uses for relays —
+requires JNI initialisation on Android and **aborts the process** without it. It
+couldn't be turned off with a feature flag, because the dependency is hard.
 
-Zamiast wchodzić w JNI i vendorowanie cudzego komponentu Kotlina spoza Mavena,
-transport został napisany od nowa: UDP, STUN i Noise. Ani `reqwest`, ani
-`rustls-platform-verifier` nie występują już w drzewie zależności.
+Instead of going into JNI and vendoring someone else's Kotlin component from
+outside Maven, the transport was rewritten: UDP, STUN and Noise. Neither `reqwest`
+nor `rustls-platform-verifier` is in the dependency tree any more.
 
-## Czego jeszcze nie ma
+## What's still missing
 
-- **Push (FCM).** Warstwa gotowa do dopisania; wymaga `google-services.json`
-  z projektu Firebase. Ładunek ma być wyłącznie budzący — bez nadawcy i treści.
-- **Rozmów audio/wideo.** Klient webowy je ma; Android wymaga osobnej
-  integracji z WebRTC.
-- **Działającego transportu.** Patrz sekcja o blokerze powyżej.
+- **Push (FCM).** The layer is ready to be added; it needs `google-services.json`
+  from a Firebase project. The payload must be wake-up only — no sender, no content.
+- **Camera QR scanning in the app.** A code scanned with the system camera arrives
+  through the `mekamb://` intent instead.
 
-## Klucz podpisu wydania
+## Release signing key
 
-APK bez podpisu nie da się zainstalować — Android odmawia. Klucz **nie leży
-w repozytorium**; workflow wydania czyta go z sekretów GitHuba i przerywa, gdy
-ich nie ma. Podpisywanie kluczem debugowym byłoby gorsze niż brak podpisu: plik
-dałoby się zainstalować, więc nikt by nie zauważył, że komunikator „szyfrowany
-end-to-end" jest sygnowany kluczem, który każdy ma na dysku.
+An unsigned APK can't be installed — Android refuses. The key **is not in the
+repository**; the release workflow reads it from GitHub secrets and stops if they're
+missing. Signing with the debug key would be worse than not signing: the file would
+install, so nobody would notice that an "end-to-end encrypted" messenger is signed
+with a key everyone has on disk.
 
-Klucz tworzy się raz:
+The key is created once:
 
 ```bash
 keytool -genkeypair -v -keystore wydanie.jks -alias mekamb -keyalg RSA -keysize 4096 -validity 10950
 ```
 
-Potem cztery sekrety w repozytorium (`Settings → Secrets and variables →
-Actions`):
+Then four repository secrets (`Settings → Secrets and variables → Actions`):
 
-| Sekret | Zawartość |
+| Secret | Contents |
 | --- | --- |
 | `ANDROID_KEYSTORE_BASE64` | `base64 -i wydanie.jks \| tr -d '\n'` |
-| `ANDROID_KEYSTORE_PASSWORD` | hasło magazynu |
-| `ANDROID_KEY_ALIAS` | alias klucza (`mekamb`) |
-| `ANDROID_KEY_PASSWORD` | hasło klucza |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias (`mekamb`) |
+| `ANDROID_KEY_PASSWORD` | key password |
 
-**Plik `wydanie.jks` trzeba zachować poza repozytorium.** Sekretów GitHuba nie
-da się odczytać po zapisaniu, więc kopia z dysku jest jedyną. Bez tego klucza
-nie da się już wydać aktualizacji — Android odmawia instalacji aktualizacji
-podpisanej innym kluczem i jedynym wyjściem byłoby odinstalowanie aplikacji
-przez każdego użytkownika, co kasuje klucze i całą historię rozmów.
+**Keep the `wydanie.jks` file outside the repository.** GitHub secrets can't be
+read back once saved, so the copy on disk is the only one. Without this key no
+further updates can be released — Android refuses to install an update signed with
+a different key, and the only way out would be for every user to uninstall the
+app, which wipes the keys and the entire chat history.
 
-Katalog `android/keystore/` jest w `.gitignore` i jest wygodnym miejscem na tę
-kopię — ale to nadal tylko jeden dysk.
+The `android/keystore/` directory is in `.gitignore` and is a convenient place for
+that copy — but it's still just one disk.
 
-## Rozmiar APK
+## APK size
 
-Wydanie pakuje wyłącznie `arm64-v8a` i `armeabi-v7a`. Sterowana tym jest
-właściwość `-Pabi`, ta sama, która decyduje o tym, co buduje cargo-ndk —
-jedna lista, bo rozjazd dałby albo APK bez biblioteki dla zadeklarowanej
-architektury (aplikacja wywala się przy starcie), albo bibliotekę zbudowaną
-na darmo.
+The release packages only `arm64-v8a` and `armeabi-v7a`. This is driven by the
+`-Pabi` property, the same one that decides what cargo-ndk builds — one list,
+because a mismatch would give either an APK without the library for a declared
+architecture (the app crashes on start) or a library built for nothing.
 
-Lokalnie domyślnie dochodzi `x86_64`, bo bez niego nie ruszy emulator:
+Locally `x86_64` is added by default, because the emulator won't start without it:
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-Filtr ABI odcina też architektury dorzucane przez JNA — `mips`, `mips64`
-i `armeabi` zostały wycofane z NDK w 2018 roku i nie działają na żadnym
-dzisiejszym urządzeniu.
+The ABI filter also cuts architectures added by JNA — `mips`, `mips64` and
+`armeabi` were removed from the NDK in 2018 and don't run on any current device.
 
-Uwaga na `jniLibs/`: cargo-ndk tylko dokłada tam pliki, więc zadanie budujące
-czyści katalog przed każdym przebiegiem. Bez tego biblioteka po usuniętej
-zależności zostawała na dysku i trafiała do APK zbudowanego lokalnie —
-w CI tego nie widać, bo checkout jest czysty.
+Watch out for `jniLibs/`: cargo-ndk only adds files there, so the build task
+clears the directory before every run. Without that, the library of a removed
+dependency stayed on disk and ended up in a locally built APK — CI doesn't show
+it, because its checkout is clean.

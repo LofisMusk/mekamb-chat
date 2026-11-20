@@ -39,6 +39,7 @@
  * więc deklaracje są powtórzone. Rozjazdu między kopiami pilnuje test
  * `src/lib/motyw.test.ts`, bo różnicy jednego odcienia nikt nie zauważy okiem.
  */
+@custom-variant dark (&:where([data-motyw="ciemny"], [data-motyw="ciemny"] *));
 
 /* --- Motyw jasny: domyślny ------------------------------------------------ */
 
@@ -191,97 +192,145 @@
   --promien-pole: 10px;
   --promien-przycisk: 12px;
   --promien-l: 14px;
+  --promien-arkusz: 16px;
+  --promien-pole: 20px;
 
   /*
    * Dymek jest pigułką, nie kartą.
    *
    * 18 px to połowa wysokości dymka jednowierszowego, więc krótkie zdanie
-   * wychodzi kapsułką, a długie — prostokątem o miękkich rogach. Jeden
-   * promień załatwia oba przypadki; osobne wartości dla „krótkiego"
-   * i „długiego" wymagałyby mierzenia treści.
+   * wychodzi kapsułką, a długie — prostokątem o miękkich rogach. Jeden promień
+   * załatwia oba przypadki; osobne wartości wymagałyby mierzenia treści.
    */
   --promien-babel: 18px;
 
-  /* Cele dotyku z projektu — powyżej minimum systemowego. */
-  --dotyk: 3rem;
-  --dotyk-ikona: 2.75rem;
+  --dotyk: 44px;
+
+  /* Kolumny układu z projektu: szyna 64 · lista 320 · szczegóły 360. */
+  --kol-szyna: 64px;
+  --kol-lista: 320px;
+  --kol-szczegoly: 360px;
+
+  /* Margines treści: 16 na telefonie, 24 na desktopie (niżej, w `@media`). */
+  --margines-tresci: 16px;
 
   /*
    * Wysokość widoku, z klawiaturą włącznie.
    *
-   * `100dvh` to wysokość po schowaniu paska adresu — i o klawiaturze nie wie
-   * nic. Na iPhonie po jej otwarciu widok kurczy się o połowę, a `100dvh`
-   * zostaje takie samo, więc pole pisania ląduje pod klawiaturą.
-   *
+   * `100dvh` nie wie nic o klawiaturze: na iPhonie po jej otwarciu widok kurczy
+   * się o połowę, a `100dvh` zostaje, więc pole pisania ląduje pod klawiaturą.
    * Prawdziwą liczbę zna `visualViewport` i to ona ląduje w tym tokenie
-   * (`src/lib/okno.ts`). `100dvh` zostaje jako wartość na czas przed startem
-   * skryptu i dla przeglądarek bez `visualViewport` — jest przybliżeniem,
-   * ale nigdy nie jest większe niż ekran.
+   * (`src/lib/okno.ts`); `100dvh` jest wartością na czas przed startem skryptu.
    */
   --wysokosc-okna: 100dvh;
 
-  /*
-   * Wcięcia bezpieczne, spięte z marginesem treści.
-   *
-   * `max()`, a nie suma: na telefonie bez wcięcia w ekranie zostaje zwykły
-   * margines, a na iPhonie wygrywa wcięcie. Dodawanie jednego do drugiego
-   * dawało na telefonach z wcięciem podwójną ramkę.
-   */
   --bezpiecznie-gora: env(safe-area-inset-top, 0px);
   --bezpiecznie-dol: env(safe-area-inset-bottom, 0px);
   --bezpiecznie-lewo: env(safe-area-inset-left, 0px);
   --bezpiecznie-prawo: env(safe-area-inset-right, 0px);
 
-  /*
-   * Margines treści, mierzony SZEROKOŚCIĄ EKRANU, a nie stałą liczbą.
-   *
-   * # Dlaczego nie stała
-   *
-   * Bo „dobrze wyglądający margines" na iPhonie 15 Pro Max jest tą samą liczbą
-   * pikseli co połowa rozsądnego marginesu na SE — a te dwa telefony różnią się
-   * szerokością o jedną trzecią. Stała była ustawiana pod jeden z nich i na
-   * drugim wychodziła albo ciasno, albo tak szeroko, że dymki zaczynały się
-   * w połowie ekranu.
-   *
-   * `vw` to rozdzielczość, o którą chodzi: przeglądarka podaje ją sama, w tych
-   * samych jednostkach, w których liczy resztę układu. Pytanie systemu o model
-   * telefonu dawałoby tę samą liczbę okrężną drogą — i wymagałoby tablicy
-   * modeli, którą trzeba by dopisywać przy każdym nowym.
-   *
-   * `clamp()` domyka oba końce: na wąskim ekranie margines nie schodzi poniżej
-   * czytelności, na monitorze nie rośnie w nieskończoność razem z oknem.
-   */
-  --margines-tresci: clamp(.6rem, 3.2vw, 1.05rem);
-
-  /* Jeden czas dla wszystkiego, co reaguje na kursor. */
-  --szybko: .12s;
-  --wolno: .22s;
+  /* Ruch: 150 ms dla stanów, 250 ms dla wejść, krzywa z Vaul. */
+  --szybko: 150ms;
+  --wejscie: 250ms;
+  --krzywa: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* --- Podstawa ------------------------------------------------------------ */
-
-* { box-sizing: border-box; }
+@media (min-width: 64rem) {
+  :root { --margines-tresci: 24px; }
+}
 
 /*
- * Dokument NIE PRZEWIJA SIĘ. Przewija się zawartość w środku.
+ * Aliasy dla Tailwinda i shadcn/ui.
  *
- * `height: 100%` samo w sobie tego nie załatwia: dokument dalej jest
- * przewijalny, a Safari na iPhonie robi z tego trzy rzeczy naraz —
- * odbija stronę sprężynowo na krańcu, chowa i pokazuje pasek adresu
- * (co przy każdym ruchu zmienia wysokość widoku), i ciągnie za sobą
- * wszystko, co jest `position: fixed`. Stąd pasek nawigacji zjeżdżający
- * na dół i przewijanie w miejscach, w których nie ma czego przewijać.
- *
- * `overscroll-behavior: none` tego nie naprawia i to była poprzednia pomyłka:
- * ono zatrzymuje ŁAŃCUCH przewijania (żeby przewinięcie listy nie ruszyło
- * strony pod spodem), ale własnego odbicia dokumentu nie dotyczy.
- *
- * Dlatego `body` jest przypięty do widoku i nie ma czego przewijać. Wszystko,
- * co ma się przewijać, robi to we własnym pudełku — lista rozmów, wątek,
- * panel konta. Dzięki temu pasek dolny może być zwykłym elementem układu,
- * a nie `position: fixed`, i nie ma fizycznej możliwości, żeby odjechał.
+ * `inline`, bo wartością jest odwołanie do roli, a nie odcień: bez tego
+ * Tailwind wpisałby wartość z chwili budowania i motyw przestałby działać.
  */
-html { height: 100%; }
+@theme inline {
+  /* Nazwy shadcn/ui → role. */
+  --color-background: var(--tlo);
+  --color-foreground: var(--tekst);
+  --color-card: var(--karta);
+  --color-card-foreground: var(--tekst);
+  --color-popover: var(--karta);
+  --color-popover-foreground: var(--tekst);
+  --color-primary: var(--glowny);
+  --color-primary-foreground: var(--glowny-tekst);
+  --color-secondary: var(--wglebienie);
+  --color-secondary-foreground: var(--tekst);
+  --color-muted: var(--wglebienie);
+  --color-muted-foreground: var(--tekst-drugi);
+  --color-accent: var(--wglebienie);
+  --color-accent-foreground: var(--tekst);
+  --color-destructive: var(--alarm);
+  --color-border: var(--linia);
+  --color-input: var(--linia-mocna);
+  --color-ring: var(--pierscien);
+
+  /* Role po polsku — tymi pisze się własne znaczniki (`bg-wglebienie`). */
+  --color-tlo: var(--tlo);
+  --color-karta: var(--karta);
+  --color-wglebienie: var(--wglebienie);
+  --color-wglebienie-mocne: var(--wglebienie-mocne);
+  --color-tekst: var(--tekst);
+  --color-tekst-drugi: var(--tekst-drugi);
+  --color-tekst-trzeci: var(--tekst-trzeci);
+  --color-linia: var(--linia);
+  --color-linia-mocna: var(--linia-mocna);
+  --color-pierscien: var(--pierscien);
+  --color-glowny: var(--glowny);
+  --color-glowny-tekst: var(--glowny-tekst);
+  --color-alarm: var(--alarm);
+  --color-alarm-tlo: var(--alarm-tlo);
+  --color-sukces: var(--sukces);
+  --color-ostrzezenie: var(--ostrzezenie);
+  --color-nakladka: var(--nakladka);
+
+  --radius-sm: var(--promien-s);
+  --radius-md: var(--promien-m);
+  --radius-lg: var(--promien-l);
+  --radius-xl: var(--promien-arkusz);
+  --radius-pole: var(--promien-pole);
+  --radius-babel: var(--promien-babel);
+
+  --shadow-cien: var(--cien);
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Skala ze specyfikacji: 12 · 13 · 15 · 17 · 22 · 28. */
+  --text-podpis: 12px;
+  --text-podpis--line-height: 1.35;
+  --text-meta: 13px;
+  --text-meta--line-height: 1.4;
+  --text-tresc: 15px;
+  --text-tresc--line-height: 1.4;
+  --text-sekcja: 17px;
+  --text-sekcja--line-height: 1.3;
+  --text-tytul: 22px;
+  --text-tytul--line-height: 1.2;
+  --text-powitanie: 28px;
+  --text-powitanie--line-height: 1.15;
+
+  --ease-vaul: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --animate-migotanie: migotanie 1.6s var(--krzywa) infinite;
+
+    @keyframes migotanie {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+  }
+
+  /* Animacja wpadania wiadomości — dymek wchodzi z dołu. */
+  @keyframes przychodzacy-dymek {
+    from { transform: translateY(8px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+}
+
+/* --- Podstawa ----------------------------------------------------------- */
+
+@layer base {
+  *, ::before, ::after { border-color: var(--linia); }
 
 /*
  * Wcięć bezpiecznych NIE ma na `<body>`.
@@ -316,23 +365,36 @@ body {
   transition: background-color var(--wolno), color var(--wolno);
 }
 
-/*
- * Przełączenie motywu nie ma być pokazem.
- *
- * Płynne przejście tła jest miłe, ale gdyby animować wszystko, przy zmianie
- * motywu ruszałaby cała strona naraz — a to wygląda jak usterka renderowania.
- * Animujemy więc tylko tło i tekst korzenia; reszta zmienia się natychmiast.
- */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
-    scroll-behavior: auto !important;
+  /*
+   * Dokument NIE PRZEWIJA SIĘ. Przewija się zawartość w środku.
+   *
+   * Przewijalny dokument Safari na iPhonie odbija sprężynowo, chowa i pokazuje
+   * pasek adresu (co zmienia wysokość widoku przy każdym ruchu) i ciągnie za
+   * sobą wszystko, co jest `position: fixed`. `body` przypięty do widoku nie ma
+   * czego przewijać — lista, wątek i ustawienia przewijają się we własnych
+   * pudełkach, a dolny pasek jest zwykłym elementem układu, który nie odjedzie.
+   *
+   * Wcięć bezpiecznych NIE ma na `<body>`: bierze je powłoka (`.aplikacja`)
+   * wewnątrz swojej wysokości. Liczone tu i tam jednocześnie dawały stronę
+   * wyższą od ekranu o wysokość wcięcia — pole pisania lądowało pod krawędzią.
+   */
+  body {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    margin: 0;
+    background: var(--tlo);
+    color: var(--tekst);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+    font-feature-settings: "ss01" off;
   }
-}
 
-::selection { background: color-mix(in srgb, var(--akcent) 32%, transparent); }
+  ::selection { background: color-mix(in srgb, var(--tekst) 18%, transparent); }
 
 /* --- Typografia ---------------------------------------------------------- */
 
@@ -346,97 +408,151 @@ h1 { font-size: 1.375rem; }
 h2 { font-size: 1.0625rem; }
 h3 { font-size: .9375rem; }
 
-.podtytul {
-  color: var(--tekst-drugi);
-  font-size: .875rem;
-  margin: var(--odstep-1) 0 0;
+  h1, h2, h3 { font-weight: 600; letter-spacing: -.02em; }
+
+  /*
+   * Etykieta pola: podpis nad polem, nie obok.
+   *
+   * Podpis obok pola na telefonie zabiera połowę szerokości temu, co się
+   * wpisuje. Klasa `przelacznik` odwraca to dla przełączników, gdzie podpis
+   * jest zdaniem, a kontrolka — jego końcem.
+   */
+  label:not(.przelacznik) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--tekst-drugi);
+  }
+
+  /*
+   * Cienkie paski przewijania bez tła.
+   *
+   * Domyślny pasek w motywie ciemnym jest jasną kreską przez cały ekran, a przy
+   * trzech przewijanych kolumnach naraz rysuje trzy linie, których nikt nie
+   * zamawiał.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--linia-mocna) transparent;
+  }
 }
 
-.wskazowka {
-  color: var(--tekst-drugi);
-  font-size: .8125rem;
-  line-height: 1.45;
-  margin: 0;
-}
-.wskazowka a { color: var(--akcent-tekst); }
+/* --- Wzorce ------------------------------------------------------------- */
 
-/* Wskazówka z ikoną — dla zdań o tym, co dzieje się z kluczami i danymi. */
-.wskazowka-ikona {
-  display: flex;
-  gap: var(--odstep-3);
-  align-items: flex-start;
-  color: var(--tekst-drugi);
-  font-size: .8125rem;
-  line-height: 1.45;
-  margin: 0;
-}
-.wskazowka-ikona .ikona { flex: none; margin-top: .12rem; color: var(--tekst-trzeci); }
+@layer components {
+  /*
+   * Karta — pudełko na jedną decyzję w ustawieniach i na ekranach wejścia.
+   *
+   * Cień tylko w jasnym (token `--cien`); w ciemnym głębię niesie obrys.
+   */
+  .karta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--odstep-3);
+    padding: var(--odstep-4) calc(var(--odstep-4) + 4px);
+    background: var(--karta);
+    border: 1px solid var(--linia);
+    border-radius: var(--promien-l);
+    box-shadow: var(--cien);
+  }
+  .karta > strong, .karta > h3 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
 
-/* Treść wyłącznie dla czytników ekranu — sama ikona nie mówi nic. */
-.tylko-dla-czytnika {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
+  .wskazowka {
+    margin: 0;
+    color: var(--tekst-drugi);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .wskazowka a { color: var(--tekst); text-decoration: underline; text-underline-offset: 2px; }
+  .wskazowka.uwaga { color: var(--alarm); }
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-ligatures: none;
-}
+  /* Wskazówka z ikoną — dla zdań o tym, co dzieje się z kluczami i danymi. */
+  .wskazowka-ikona {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin: 0;
+    color: var(--tekst-drugi);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .wskazowka-ikona .ikona { margin-top: 2px; color: var(--tekst-trzeci); }
 
-/* --- Ikony --------------------------------------------------------------- */
+  .tylko-dla-czytnika {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 
-/*
- * Ikona bierze kolor z tekstu obok (`currentColor` w komponencie).
- *
- * Dzięki temu stan niesie JEDNA decyzja — kolor rodzica — a nie dwie, które
- * mogą się rozjechać. Ikona pomalowana osobno zawsze w końcu zostaje w starym
- * kolorze po zmianie stanu przycisku.
- */
-.ikona { flex: none; display: block; }
+  /* Ikona bierze kolor z tekstu obok — stan niesie JEDNA decyzja, kolor rodzica. */
+  .ikona { flex: none; display: block; }
+  .ikona.obrocona { transform: rotate(180deg); transition: transform var(--szybko); }
+  strong > .ikona { display: inline-block; vertical-align: -.12em; }
 
-/* Chevron sekcji: obrócony znaczy „rozłożona". Jeden kształt, dwa stany. */
-.ikona.obrocona { transform: rotate(180deg); transition: transform var(--szybko); }
+  /* Etykieta stanu — mała, obrysowana, bez koloru dopóki nic się nie dzieje. */
+  .tryb {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--linia);
+    border-radius: 999px;
+    color: var(--tekst-drugi);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .tryb.uwaga { border-color: color-mix(in srgb, var(--alarm) 45%, transparent); color: var(--alarm); }
+  .tryb.dobrze { border-color: color-mix(in srgb, var(--sukces) 45%, transparent); color: var(--sukces); }
 
-/*
- * Ikona w linii tekstu — wyrównana do wysokości liter, nie do kratki wiersza.
- *
- * Tylko w `strong`, czyli tam, gdzie ikona naprawdę stoi w zdaniu. Wcześniej
- * reguła obejmowała też stopkę dymka i `.naglowek-sekcji`, które są
- * kontenerami elastycznymi — a w takim `vertical-align` nie robi nic, za to
- * `display: inline-block` psuje wyśrodkowanie robione przez `align-items`.
- * Stąd ptaszki stanu siedzące o pół piksela za nisko względem godziny.
- */
-strong > .ikona {
-  display: inline-block;
-  vertical-align: -.12em;
-}
+  .sekret, .safety-kod {
+    display: block;
+    padding: var(--odstep-3);
+    background: var(--wglebienie);
+    border-radius: var(--promien-m);
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    word-break: break-all;
+  }
+  .sekret { font-size: 13px; letter-spacing: .04em; }
 
-/*
- * Pole kontrolki będącej samą ikoną ma być KWADRATOWE i wyśrodkowane układem.
- *
- * Wysokość wiersza dziedziczona z `body` (1,5) dokłada do ikony kilka pikseli
- * u góry i u dołu — przy ikonie 18 px w polu 44 px to widoczne przesunięcie
- * w dół, tym większe, im mniejsza ikona. Kontrolka z samą ikoną nie ma wiersza
- * do trzymania, więc go zeruje; kontrolka z tekstem zostaje bez zmian, bo tam
- * wysokość wiersza jest potrzebna, gdy etykieta się łamie.
- */
-button.ikonowy, .dolacz-plik, .marka-znak, .wybor-motywu button {
-  line-height: 0;
-}
+  /* Kod bezpieczeństwa: grupy cyfr rozstawione tak, żeby czytać je na głos. */
+  .safety-kod {
+    font-size: 15px;
+    line-height: 1.8;
+    letter-spacing: .04em;
+    word-spacing: .35em;
+    text-align: center;
+    word-break: normal;
+  }
 
-/* --- Pola ---------------------------------------------------------------- */
+  .sekret-recznie summary { color: var(--tekst-drugi); font-size: 13px; cursor: pointer; }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-2);
-  font-size: .8125rem;
-  color: var(--tekst-drugi);
-}
+  .kod-qr {
+    /* Szerokość ograniczona, żeby na telefonie kod mieścił się w kadrze aparatu
+       drugiego urządzenia bez przewijania. */
+    width: 100%;
+    max-width: 15rem;
+    height: auto;
+    align-self: center;
+    padding: var(--odstep-3);
+    border-radius: var(--promien-m);
+    /* Białe tło niezależnie od motywu — czytniki opierają się na kontraście
+       modułów, nie na tym, co uznaliśmy za tło aplikacji. */
+    background: #fff;
+  }
+
+  .podglad-aparatu {
+    width: 100%;
+    max-width: 20rem;
+    align-self: center;
+    border-radius: var(--promien-m);
+    background: #000;
+  }
 
 input, textarea {
   background: var(--karta-hover);
@@ -452,46 +568,51 @@ input, textarea {
 input:hover, textarea:hover { border-color: var(--linia-mocna); }
 input::placeholder, textarea::placeholder { color: var(--tekst-trzeci); }
 
-/*
- * Obrys skupienia tylko dla klawiatury.
- *
- * `:focus-visible`, nie `:focus` — obrys pojawiający się po kliknięciu myszą
- * czyta się jak usterka, a bez obrysu w ogóle nie da się przejść aplikacji
- * z klawiatury.
- */
-:where(input, textarea, button, a, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--akcent);
-  outline-offset: 2px;
-}
+  /*
+   * Shimmer przy ładowaniu (wzorzec z Magic UI, przyciszony).
+   *
+   * Pas `--tekst` o 6% przesuwa się po `--wglebienie`. Prostokąt, który się
+   * nie rusza, wygląda na zepsuty; prostokąt, który mruga całą powierzchnią,
+   * krzyczy. Przesuwający się pas mówi „pracuję" i nic więcej.
+   */
+  .migotanie {
+    position: relative;
+    overflow: hidden;
+    background: var(--wglebienie);
+    border-radius: var(--promien-m);
+  }
+  .migotanie::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--tekst) 6%, transparent),
+      transparent
+    );
+    animation: var(--animate-migotanie);
+  }
 
-/*
- * Siła hasła: trzy kreski i zdanie, ile brakuje.
- *
- * Świadomie nie udaje pomiaru entropii — jedyne, co naprawdę sprawdzamy, to
- * dwanaście znaków. Pasek mówiący „średnie" przy haśle „aaaaaaaaaaaa" byłby
- * wprowadzaniem w błąd. Ta sama postać co na Androidzie.
- */
-.sila-hasla {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-2);
-}
-.sila-hasla .kreska {
-  flex: 1;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--linia);
-  transition: background-color var(--szybko);
-}
-.sila-hasla .kreska.pelna { background: var(--akcent); }
-.sila-hasla .opis {
-  flex: none;
-  font-size: .6875rem;
-  color: var(--tekst-drugi);
-}
-.sila-hasla .opis.wystarczy { color: var(--akcent-tekst); }
+  /* --- Powłoka -------------------------------------------------------- */
 
-/* --- Przyciski ----------------------------------------------------------- */
+  /*
+   * Ekran wejścia PRZEWIJA się, ekran czatu NIE.
+   *
+   * Formularz z otwartą klawiaturą musi dać się przewinąć do pola, które jest
+   * akurat wypełniane. Czat odwrotnie: pole pisania ma być widoczne ZAWSZE, więc
+   * powłoka dostaje twardą wysokość widoku i nic z niej nie wystaje.
+   */
+  .wejscie {
+    position: relative;
+    height: var(--wysokosc-okna);
+    overflow-y: auto;
+    padding:
+      calc(var(--odstep-4) + var(--bezpiecznie-gora))
+      calc(var(--margines-tresci) + var(--bezpiecznie-prawo))
+      calc(var(--odstep-8) + var(--bezpiecznie-dol))
+      calc(var(--margines-tresci) + var(--bezpiecznie-lewo));
+  }
 
 /*
  * Przyciski są ZALANE kolorem, nie obrysowane.
@@ -566,10 +687,21 @@ button.ikonowy.aktywny {
 }
 button.ikonowy.aktywny:hover { background: var(--segment); }
 
-.rzad-przyciskow { display: flex; gap: var(--odstep-3); flex-wrap: wrap; }
-.rzad-przyciskow button { flex: 1; min-width: 8rem; }
+  .panel-listy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-right: 1px solid var(--linia);
+  }
 
-/* --- Karty i komunikaty -------------------------------------------------- */
+  .ekran {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
 
 .karta {
   background: var(--karta);
@@ -627,17 +759,7 @@ button.ikonowy.aktywny:hover { background: var(--segment); }
 .ostrzezenie p { margin: 0; color: var(--tekst-drugi); font-size: .8125rem; }
 .ostrzezenie button { align-self: flex-start; }
 
-.sekret {
-  display: block;
-  background: var(--wglebienie);
-  border: 1px solid var(--linia);
-  padding: var(--odstep-4);
-  border-radius: var(--promien-s);
-  word-break: break-all;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .875rem;
-  letter-spacing: .05em;
-}
+  /* --- Wątek ---------------------------------------------------------- */
 
 /*
  * Znacznik nieprzeczytanych.
@@ -692,22 +814,45 @@ button.ikonowy.aktywny:hover { background: var(--segment); }
   font-weight: 500;
   text-transform: uppercase;
   /*
-   * `line-height: 1`, inaczej litera siedzi za wysoko.
+   * `:not(…)` z LISTĄ, nie kilka `:not` po kolei.
    *
-   * `place-items: center` centruje PUDEŁKO WIERSZA, a nie literę. Pudełko
-   * dziedziczy z `body` wysokość 1,5em, więc ma sporo powietrza pod spodem
-   * (miejsce na ogonki „g", „ą"), a wielka litera zajmuje tylko górną część.
-   * Wyśrodkowane pudełko z literą przy jego górnej krawędzi daje literę
-   * widocznie powyżej środka kółka — dokładnie to widać na awatarze.
+   * Specyficzność `:not()` to specyficzność jego najcięższego argumentu, więc
+   * wersja z listą waży tyle, co jedna klasa. Kilka `:not` obok siebie SUMUJE
+   * się i podnosi tę regułę ponad `.wiadomosci li.wlasna` — własne wiadomości
+   * dostają wtedy wyrównanie i tło cudzych. Pilnuje tego `lib/dymki.test.ts`.
    *
-   * Przy 1 pudełko jest wysokie mniej więcej tyle co litera, więc środek
-   * pudełka i środek litery to prawie to samo miejsce.
+   * Na liście są wszystkie pozycje wątku, które dymkiem NIE są: rozdzielacz
+   * czasu, ślad po rozmowie A/V, wiersz stanu wysyłki i pusty stan.
    */
-  line-height: 1;
-}
-.awatar.maly { width: 1.75rem; height: 1.75rem; font-size: .7rem; }
+  .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: min(76%, 34rem);
+    padding: 7px 12px;
+    background: var(--babel);
+    color: var(--babel-tekst);
+    border-radius: var(--promien-babel);
+    align-self: flex-start;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  .wiadomosci li.wlasna {
+    background: var(--babel-wlasny);
+    color: var(--babel-wlasny-tekst);
+    align-self: flex-end;
+  }
 
-/* --- Powłoka aplikacji --------------------------------------------------- */
+  /*
+   * Nowy blok odsuwa się od poprzedniego; ciąg zostaje przy swoim.
+   *
+   * Odstęp jest JEDYNYM znakiem podziału na wypowiedzi — promień mają wszystkie
+   * dymki taki sam, więc różnica 2 px / 12 px musi być wyraźna.
+   */
+  .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku, .ciag) {
+    margin-top: var(--odstep-3);
+  }
 
 /*
  * Ekrany wejścia są wąskie, widok zalogowany bierze całą szerokość.
@@ -2006,37 +2151,29 @@ button.okragly.niszczacy:hover { opacity: .86; }
   flex: 1;
   min-height: 0;
   /*
-   * Rzędy dzielą wysokość po równo i NIE wylewają się poza siatkę.
+   * Ogon — wyłącznie przy OSTATNIM dymku bloku.
    *
-   * Bez tego przy trzech–czterech osobach (dwa rzędy) kafle liczyły wysokość
-   * z własnej szerokości i rosły ponad miejsce, które siatka dostała — dolny
-   * rząd wchodził pod przyciski mikrofonu/kamery/rozłączenia. `minmax(0, 1fr)`
-   * każe rzędom zmieścić się w siatce, a `overflow: hidden` przycina resztę,
-   * więc kontrolki na dole zawsze stoją na czystym tle.
+   * Ogon znaczy „ktoś to powiedział". Przy każdym dymku serii daje trzy ogony
+   * pod rzędem i seria rozpada się na trzy wypowiedzi; przy ostatnim domyka
+   * blok jak kropka zdanie. `::before` w kolorze dymka wystaje poza krawędź,
+   * `::after` w kolorze TŁA wycina z niego łuk — stąd twarde `var(--tlo)`:
+   * wątek stoi na tle strony i wycięcie musi mieć dokładnie ten kolor.
    */
-  grid-auto-rows: minmax(0, 1fr);
-  overflow: hidden;
-}
-/*
- * Dwie kolumny dopiero wtedy, gdy okno jest szersze niż wysokie.
- *
- * Wcześniej trójka i czwórka dostawały `1fr 1fr` na każdej szerokości. Przy
- * trzech kafelkach dawało to układ 2×2 z jedną pustą komórką: dwa kafelki
- * jeden pod drugim w lewej kolumnie i jeden rozciągnięty na całą wysokość po
- * prawej — dokładnie ten rozjazd, który widać na wąskim ekranie. Wąsko więc
- * jedna kolumna w pionie (reguła bazowa), a dwie kolumny dopiero od `34rem`.
- */
-@media (min-width: 34rem) {
-  .siatka-kafelkow[data-ilu="2"],
-  .siatka-kafelkow[data-ilu="3"],
-  .siatka-kafelkow[data-ilu="4"] {
-    grid-template-columns: 1fr 1fr;
+  .wiadomosci li.ogon::before,
+  .wiadomosci li.ogon::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    height: 17px;
+    pointer-events: none;
   }
+  .wiadomosci li.ogon::before { width: 20px; }
+  .wiadomosci li.ogon::after { width: 11px; background: var(--tlo); }
 
-  /* Trójka: dwa u góry, trzeci na całą szerokość pod nimi. Symetrycznie i bez
-     pustej komórki, którą zostawiał układ 2×2. */
-  .siatka-kafelkow[data-ilu="3"] > :last-child {
-    grid-column: 1 / -1;
+  .wiadomosci li.ogon:not(.wlasna)::before {
+    left: -7px;
+    background: var(--babel);
+    border-bottom-right-radius: 16px 14px;
   }
 }
 
@@ -2345,431 +2482,268 @@ button.okragly.niszczacy:hover { opacity: .86; }
   cursor: pointer;
 }
 
-.podglad-aparatu {
-  width: 100%;
-  max-width: 20rem;
-  align-self: center;
-  border-radius: var(--promien-m);
-  background: #000;
-}
-
-/* --- Szerokości ---------------------------------------------------------- */
-
-/*
- * Poniżej 78rem inspektor nie ma gdzie stanąć — otwiera się jako panel nad
- * wątkiem. Cztery kolumny wymagają 14 + 21 + 24 + 19 rem; ściśnięte niżej dają
- * cztery nieczytelne paski zamiast czterech paneli.
- */
-@media (max-width: 78rem) {
-  .uklad:has(.inspektor.otwarty) { grid-template-columns: 14rem 21rem minmax(0, 1fr); }
-
-  .inspektor {
-    position: fixed;
-    inset: 0 0 0 auto;
-    width: min(22rem, 100%);
-    background: var(--tlo);
-    border-left: 1px solid var(--linia);
-    box-shadow: var(--cien-panelu);
-    /* Panel sięga krawędzi ekranu, więc wcięcia bezpieczne są jego sprawą —
-       powłoka kończy się przed nim. */
-    padding:
-      calc(var(--odstep-6) + var(--bezpiecznie-gora))
-      calc(var(--odstep-6) + var(--bezpiecznie-prawo))
-      calc(var(--odstep-6) + var(--bezpiecznie-dol))
-      var(--odstep-6);
-    z-index: 20;
+  .wiadomosci li.ogon.wlasna::before {
+    right: -7px;
+    background: var(--babel-wlasny);
+    border-bottom-left-radius: 16px 14px;
   }
-}
+  .wiadomosci li.ogon.wlasna::after { right: -11px; border-bottom-left-radius: 12px; }
 
-/*
- * Poniżej 60rem lista i wątek nie mieszczą się obok siebie.
- *
- * Zostaje pasek nawigacji i JEDEN panel: lista albo rozmowa. Ściśnięcie obu do
- * 23rem daje listę, w której nie widać ostatniej wiadomości, i wątek, w którym
- * dymek łamie się co trzy słowa.
- *
- * Który panel widać, decyduje klasa na układzie — a nie warunek w kodzie:
- * szerokość okna zmienia się bez udziału Reacta (obrót telefonu, podzielony
- * ekran), a stan komponentu musiałby za nią nadążać.
- */
-@media (max-width: 60rem) {
-  .uklad, .uklad:has(.inspektor.otwarty) { grid-template-columns: 14rem minmax(0, 1fr); }
+  .wiadomosci .autor { font-size: 12px; font-weight: 600; color: var(--tekst-drugi); }
+  .wiadomosci .tresc { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  .uklad.rozmowa-otwarta .panel-listy { display: none; }
-  .panel-listy { border-right: none; padding-right: 0; }
+  /* Wiadomość w locie: przygaszona, dopóki nie ma potwierdzenia. */
+  .wiadomosci li.w-locie { opacity: .6; }
+  /* Nieudana dostaje obrys błędu — `box-shadow`, nie `border`, bo obramowanie
+     przesunęłoby treść o piksel w chwili, w której wysyłka zawodzi. */
+  .wiadomosci li.nieudana { box-shadow: inset 0 0 0 1px var(--alarm); }
 
   /*
-   * Bez otwartej rozmowy ekran wątku schodzi — ale tylko wtedy, gdy jest lista,
-   * którą można w zamian pokazać. W gałęzi Kontakty i Konto listy nie ma
-   * i ukrycie ekranu zostawiłoby sam pasek nawigacji.
+   * Stan wysyłki SŁOWEM, pod ostatnim własnym dymkiem.
+   *
+   * „Dostarczono" i „przeczytano" to różnica, którą trzeba ZROZUMIEĆ, a nie
+   * rozpoznać — dwa odcienie tego samego ptaszka wymagały pamiętania, który
+   * jest który. Stany, z którymi trzeba coś zrobić, stoją przy każdej
+   * wiadomości, której dotyczą.
    */
-  .uklad:has(.panel-listy):not(.rozmowa-otwarta) .ekran { display: none; }
-}
-
-/*
- * Wąski ekran: jeden panel naraz.
- *
- * Poniżej 46rem lista i wątek układałyby się jeden POD drugim — kliknięcie
- * rozmowy wyglądało, jakby pozycja listy się rozwinęła, i nie było jak wrócić.
- * Telefon ma na to jedno rozwiązanie: ekran pokazuje albo listę, albo rozmowę,
- * a między nimi chodzi się „wstecz".
- *
- * Robi to arkusz stylów, a nie warunek w kodzie: szerokość okna zmienia się bez
- * udziału Reacta (obrót telefonu, podzielony ekran), a stan komponentu musiałby
- * za nią nadążać i gubiłby się przy każdej takiej zmianie.
- */
-@media (max-width: 46rem) {
-  /*
-   * Na telefonie powłoka NIE MA marginesu — ma tylko wcięcia bezpieczne.
-   *
-   * # Dlaczego margines zszedł z powłoki na panele
-   *
-   * Bo powłoka trzyma także tła: pasek zakładek, nagłówek wątku, pole pisania.
-   * Margines na niej odsuwał od krawędzi ekranu WSZYSTKO naraz, więc wokół
-   * całej aplikacji szła ramka w kolorze tła — na wąskim ekranie widoczna
-   * i kosztowna, bo zabierała szerokość dokładnie tam, gdzie jest jej najmniej.
-   * To jest ten „za duży margines": nie jedna wartość za duża, tylko margines
-   * postawiony o jeden poziom za wysoko.
-   *
-   * Teraz tła sięgają krawędzi, tak jak w każdym innym komunikatorze, a odsunięty
-   * jest sam TEKST — o `--margines-tresci`, czyli o tyle, ile wynika
-   * z szerokości ekranu tego konkretnego telefonu.
-   *
-   * Wcięcia bezpieczne zostają na powłoce, bo dotyczą całości: pod wcięciem
-   * w ekranie nie ma prawa znaleźć się ani tekst, ani tło paska.
-   *
-   * Na dole zero: pasek nawigacji jest ostatnim wierszem układu i sam dokłada
-   * sobie wcięcie. Margines powłoki byłby drugim.
-   */
-  .aplikacja:has(.uklad) {
-    padding:
-      var(--bezpiecznie-gora)
-      var(--bezpiecznie-prawo)
-      0
-      var(--bezpiecznie-lewo);
+  .wiadomosci .stan-wysylki {
+    align-self: flex-end;
+    margin: 4px 4px var(--odstep-2);
+    font-size: 12px;
+    color: var(--tekst-drugi);
   }
+  .wiadomosci .stan-wysylki.nieudany { color: var(--alarm); }
 
-  /* Margines wraca przy treści — osobno w każdym panelu, bo osobno się
-     przewijają i każdy ma własną krawędź. */
-  .panel-listy, .watek, .inspektor { padding-inline: var(--margines-tresci); }
+  .wiadomosci li.pusto-watku { flex: 1; align-self: stretch; display: flex; }
 
   /*
-   * Na telefonie układ jest KOLUMNĄ, nie siatką z pływającym paskiem.
+   * Rozdzielacz czasu — jedyne miejsce w wątku, które mówi „kiedy".
    *
-   * Pasek nawigacji był wcześniej `position: fixed` i to jest dokładnie ta
-   * decyzja, przez którą zjeżdżał: element przypięty do widoku jest na łasce
-   * tego, co Safari robi z widokiem przy przewijaniu. Teraz jest zwykłym
-   * ostatnim wierszem kolumny o twardej wysokości — nie ma się względem czego
-   * przesunąć, bo jest częścią układu, a nie czymś nałożonym na niego.
-   *
-   * Przy okazji znika kompensacja `padding-bottom` pod paskiem: skoro pasek
-   * zajmuje własne miejsce, nie trzeba zgadywać, ile go zasłania.
+   * Dzień wytłuszczony, godzina zwykła: jedno zdanie („Dziś 08:42"), nie dwie
+   * etykiety. Bez kresek po bokach — to ta sama rozmowa z przerwą, nie sekcje.
    */
-  .uklad, .uklad:has(.inspektor.otwarty) {
+  .wiadomosci .rozdzielacz {
+    align-self: center;
+    margin: var(--odstep-4) 0 var(--odstep-1);
+    color: var(--tekst-drugi);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .wiadomosci .rozdzielacz strong { font-weight: 600; }
+
+  /*
+   * Ślad po rozmowie A/V — na środku, jak rozdzielacz.
+   *
+   * Rozmowa się WYDARZYŁA, a nie została wysłana: nie ma nadawcy, więc nie ma
+   * strony, po której miałaby stanąć. Nieodebrana świeci alarmem, bo jako
+   * jedyna wymaga czegoś: oddzwonienia.
+   */
+  .wiadomosci li.zdarzenie {
+    align-self: center;
     display: flex;
-    flex-direction: column;
-    gap: 0;
+    align-items: center;
+    gap: 6px;
+    margin: var(--odstep-3) 0;
+    color: var(--tekst-drugi);
+    font-size: 12px;
   }
-
-  /* Treść pierwsza, nawigacja pod nią — mimo że w kodzie jest odwrotnie.
-     Kolejność w dokumencie jest właściwa dla czytnika ekranu i klawiatury:
-     nawigacja przed treścią. Wzrok na telefonie chce jej na dole, przy kciuku. */
-  .panel-listy, .ekran, .inspektor { order: 1; flex: 1; min-height: 0; }
-
-  .sidebar {
-    order: 2;
-    flex: none;
-    flex-direction: row;
-    justify-content: space-around;
-    gap: 0;
-    background: var(--tlo);
-    border-top: 1px solid var(--linia);
-    padding: var(--odstep-2) var(--odstep-2) calc(var(--odstep-2) + var(--bezpiecznie-dol));
-  }
-  .marka, .stopka-sidebara { display: none; }
-
-  /* Etykieta pod ikoną — pasek dolny czyta się pionowo, nie poziomo. */
-  .galaz {
-    /*
-     * `position: relative` jest tu KONIECZNE, nie kosmetyczne.
-     *
-     * Znacznik nieprzeczytanych jest pozycjonowany bezwzględnie. Bez ustalonego
-     * rodzica odnosił się do najbliższego przodka z pozycją — czyli do paska
-     * nawigacji przyklejonego do dołu ekranu. Wszystkie znaczniki lądowały
-     * w jednym miejscu w rogu paska, niezależnie od tego, której gałęzi
-     * dotyczyły, i wyglądało to jak losowo pływająca plamka.
-     */
-    position: relative;
-    flex-direction: column;
-    gap: 2px;
-    justify-content: center;
-    font-size: .6875rem;
-    min-height: 3.25rem;
-    padding-inline: var(--odstep-2);
-  }
-  .galaz.aktywna { border-color: transparent; }
-  .galaz .znacznik {
-    position: absolute;
-    top: .1rem;
-    left: 50%;
-    margin: 0;
-    transform: translateX(.4rem);
-  }
-
-  .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) { max-width: 82%; }
+  .wiadomosci li.zdarzenie .czas-zdarzenia { color: var(--tekst-trzeci); font-variant-numeric: tabular-nums; }
+  .wiadomosci li.zdarzenie.nieodebrane { color: var(--alarm); }
 
   /*
-   * Na telefonie tożsamość rozmówcy stoi na ŚRODKU paska, w kolumnie.
+   * Dymek z obrazem: obraz JEST dymkiem.
    *
-   * Pasek ma tu strzałkę powrotu po lewej i dwa przyciski rozmowy po prawej,
-   * więc nazwa dosunięta do lewej wypadałaby tuż przy strzałce — a strzałka
-   * jest o liście rozmów, nie o osobie. Środek jest jedynym miejscem, którego
-   * nikt inny nie zajmuje, i to na niego pada wzrok przy otwarciu wątku.
-   *
-   * Na szerokim ekranie odwrotnie: pasek jest szeroki, przyciski daleko,
-   * a wyśrodkowana nazwa gubi się w pustce — dlatego to reguła telefonu.
+   * Pełny padding dawał wokół zdjęcia ramkę koloru dymka, jak passe-partout.
+   * Zostają 4 px, tyle, żeby róg obrazu nie wyszedł poza róg dymka.
    */
-  .pasek-kto { flex-direction: column; align-items: center; gap: 1px; }
-  .pasek-kto .awatar { width: 1.75rem; height: 1.75rem; font-size: .7rem; }
-  .pasek-tozsamosc { align-items: center; flex: none; max-width: 100%; }
-  .pasek-nazwa { font-size: .8125rem; }
+  .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku):has(> .zalacznik-media) {
+    padding: 4px;
+  }
+  .wiadomosci li:has(> .zalacznik-media) > .tresc { padding: 2px 8px 6px; }
+  .wiadomosci li:has(> .zalacznik-media) > .autor { padding: 2px 8px 4px; }
+
+  .zalacznik {
+    display: block;
+    max-width: 100%;
+    max-height: 18rem;
+    border-radius: calc(var(--promien-babel) - 4px);
+    background: var(--wglebienie-mocne);
+  }
+
+  @media (max-width: 47.99rem) {
+    .wiadomosci li:not(.rozdzielacz, .zdarzenie, .stan-wysylki, .pusto-watku) { max-width: 84%; }
+  }
 
   /*
-   * Pasek jest tu wyższy, bo tożsamość stoi w kolumnie: awatar, nazwa, droga.
-   * Przy 3,25rem kolumna nie mieściła się i awatar wychodził poza górną
-   * krawędź ekranu — obcięty dokładnie tam, gdzie nikt nie szuka przyczyny.
+   * Pole pisania: `wglebienie`, promień 20, bez obramowania.
+   *
+   * Pierścień fokusu bierze CAŁE pole, nie samo `textarea` — obrys wokół pola
+   * tekstowego rysowałby się w środku pigułki jako prostokąt o kilka pikseli
+   * mniejszy od niej, czyli dokładnie tak, jak wygląda usterka.
    */
-  .pasek-watku { min-height: 4.5rem; padding-top: var(--odstep-2); }
+  .pole-pisania:has(textarea:focus-visible) {
+    outline: 2px solid var(--pierscien);
+    outline-offset: 2px;
+  }
 
-  /* Wcięcie pod pole pisania jest tu za drogie: zdanie łamie się na dwa
-     wiersze i wisi krzywo pod pigułką. Na środku mieści się i czyta jak
-     podpis pod listwą, którym jest. */
-  .wskazowka-plik { margin-left: 0; justify-content: center; text-align: center; }
-  .siatka-konta { grid-template-columns: minmax(0, 1fr); }
+  /* --- Rozmowa A/V ---------------------------------------------------- */
+
+  /*
+   * Siatka kafelków: liczba kolumn z liczby osób, nie z `auto-fit`.
+   *
+   * `auto-fit` dawał przy dwóch osobach układ zależny od szerokości okna, a nie
+   * od tego, ile osób rozmawia. Rzędy dzielą wysokość po równo i nie wylewają
+   * się pod przyciski (`minmax(0, 1fr)` + `overflow: hidden`).
+   */
+  .siatka-kafelkow {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(0, 1fr);
+    gap: var(--odstep-2);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  @media (min-width: 34rem) {
+    .siatka-kafelkow[data-ilu="2"],
+    .siatka-kafelkow[data-ilu="3"],
+    .siatka-kafelkow[data-ilu="4"] { grid-template-columns: 1fr 1fr; }
+
+    /* Trójka: dwa u góry, trzeci na całą szerokość — bez pustej komórki. */
+    .siatka-kafelkow[data-ilu="3"] > :last-child { grid-column: 1 / -1; }
+  }
+
+  /* Element wideo stoi zawsze — niesie dźwięk. Bez obrazu jest przezroczysty
+     i pokazuje awatar spod spodu, zamiast czarnego prostokąta. */
+  .obraz-kafelka { opacity: 0; transition: opacity var(--wejscie); }
+  .z-obrazem .obraz-kafelka { opacity: 1; }
+  .obraz-kafelka.odbity { transform: scaleX(-1); }
+
+  /* Etykieta drogi na obrazie potrzebuje własnego kontrastu — tokeny są
+     dobrane do tła aplikacji, nie do zdjęcia pod spodem. */
+  .z-obrazem .podpis-kafelka { color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / .6); }
+  .z-obrazem .podpis-kafelka .tryb { border-color: rgb(255 255 255 / .35); color: rgb(255 255 255 / .9); }
 }
 
-/* Strzałka wstecz ma sens tylko tam, gdzie lista schodzi z ekranu. */
-@media (min-width: 46.01rem) {
-  .pasek-watku .wstecz { display: none; }
+/* Animacja licznika nieprzeczytanych (NumberFlow-style) */
+@keyframes wlot {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
-/* --- Pola na dotyku ------------------------------------------------------ */
+.znacznik-nieprzeczytane {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--glowny);
+  color: var(--glowny-tekst);
+  font-size: 12px;
+  font-weight: 600;
+  animation: wlot 0.3s ease-out;
+}
+
+/* --- Ograniczenie ruchu ------------------------------------------------- */
+
+/*
+ * „Ogranicz ruch" wyłącza PRZESUNIĘCIA, nie przenikanie.
+ *
+ * Arkusz wjeżdżający od dołu i dialog rosnący ze środka to ruch przez ekran —
+ * dokładnie to, przed czym to ustawienie chroni. Przenikanie zostaje, bo bez
+ * niego okno pojawia się skokiem i trudno zauważyć, skąd się wzięło.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    scroll-behavior: auto !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+  }
+  [data-vaul-drawer] { animation: none !important; transition: none !important; }
+  .migotanie::after { animation: none; }
+}
 
 /*
  * Na dotyku pole ma co najmniej 16 px i to nie jest kwestia gustu.
  *
- * Safari na iPhonie PRZYBLIŻA stronę przy wejściu w pole, którego tekst jest
- * mniejszy niż 16 px — i sam z niej nie odjeżdża. To była przyczyna „aplikacja
- * sama się zoomuje": `.9375rem` to 15 px, czyli o jeden piksel za mało.
- *
- * Alternatywą było zablokowanie powiększania w `<meta viewport>`, ale to
- * odbiera je także tym, którzy naprawdę go potrzebują — czyli leczy objaw
- * cudzym kosztem. Gęstość przy myszy zostaje: warunek dotyczy wyłącznie
- * wskaźnika zgrubnego.
- *
- * Blok stoi na KOŃCU arkusza celowo. Pole z własnym rozmiarem (`.szukanie
- * input`) ma wyższą specyficzność niż sam `input`, więc reguła postawiona
- * wyżej przegrywałaby z nim — i to pole dalej powiększałoby ekran.
+ * Safari na iPhonie PRZYBLIŻA stronę przy wejściu w pole z tekstem mniejszym
+ * niż 16 px — i sam z niej nie odjeżdża. Blokada powiększania w `<meta
+ * viewport>` odebrałaby je tym, którzy go potrzebują. Reguła stoi POZA
+ * warstwami celowo: niewarstwowa wygrywa z każdą klasą narzędziową (`text-sm`)
+ * na polu, bez wyścigu specyficzności.
  */
-@media (pointer: coarse) {
-  input, textarea, select,
-  .szukanie input, .pisanie textarea {
-    font-size: 1rem;
-  }
-}
-
-/* --- Paski przewijania --------------------------------------------------- */
-
-/*
- * Cienkie i bez tła.
- *
- * Domyślny pasek w motywie ciemnym jest jasną kreską przez cały ekran i przy
- * trzech przewijanych panelach naraz rysuje trzy pionowe linie, których nikt
- * nie zamawiał.
- */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--linia-mocna) transparent;
-}
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--linia-mocna);
-  border-radius: 4px;
-}
-
-/*
- * Lista urządzeń w panelu konta.
- *
- * Identyfikator urządzenia jest techniczny i długi, więc łamie się jak każdy
- * inny napis bez spacji — bez `min-width: 0` rozpychałby kartę na szerokość
- * ekranu i wypychał przycisk poza widok.
- */
-.lista-urzadzen {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: .5rem;
-}
-
-.lista-urzadzen li {
+/* Paleta poleceń (cmdk) */
+[role="dialog"][data-radix-command] .cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--nakladka);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .5rem;
-  padding: .5rem 0;
-  border-top: 1px solid var(--linia);
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20vh;
+  z-index: 100;
 }
 
-.lista-urzadzen li > span:first-child {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
-  color: var(--tekst-drugi);
-}
-
-/* --- Zaczynanie rozmowy: „Nowy czat" i „Nowa grupa" ---------------------- */
-
-/*
- * Dwa wejścia na górze listy zamiast dawnej zakładki Kontakty. To akcje, więc
- * zostają OBRYSOWANE — akcent jest linią, nie plamą. „Nowy czat" prowadzi (obrys
- * akcentu), „Nowa grupa" jest cichszym rodzeństwem obok.
- */
-.zaczyn-rozmowy {
-  display: flex;
-  gap: var(--odstep-2);
-}
-.zaczyn-rozmowy > .glowny,
-.zaczyn-rozmowy > .nowy-czat {
-  flex: 1;
-  min-width: 0;
-}
-.grupa-przycisk { flex: none; }
-
-.nowy-czat {
-  display: flex;
-  gap: var(--odstep-2);
-  align-items: center;
-}
-.nowy-czat input {
-  flex: 1;
-  min-width: 0;
-  min-height: var(--dotyk-ikona);
-  font-size: .875rem;
-}
-
-/* --- Prośby o rozmowę ---------------------------------------------------- */
-
-/*
- * Prośby stoją nad rozmowami, w zwijanej sekcji z licznikiem — nieproszona
- * rozmowa nigdy nie miesza się z prawdziwymi. Licznik jest ZALANY, jak znacznik
- * nieprzeczytanych: odpowiada na „ktoś czeka", a nie „to jest przycisk".
- */
-.prosby {
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-2);
+[role="dialog"][data-radix-command] .cmdk-container {
+  width: 560px;
+  max-width: calc(100% - 32px);
+  background: var(--karta);
   border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
-  padding: var(--odstep-2);
-}
-.prosby-naglowek {
-  border-color: transparent;
-  justify-content: flex-start;
-  gap: var(--odstep-3);
-  min-height: var(--dotyk-ikona);
-  color: var(--tekst-drugi);
-}
-.prosby-naglowek:hover { color: var(--tekst); background: transparent; }
-.prosby-tytul { flex: 1; text-align: left; }
-
-.lista-prosb {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-2);
-}
-.prosba {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-3);
-  padding: var(--odstep-2);
-  border-radius: var(--promien-s);
-}
-.prosba-tresc { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.prosba-nazwa { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prosba-podglad {
-  font-size: .8125rem;
-  color: var(--tekst-drugi);
+  border-radius: var(--promien-l);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .4);
 }
-.prosba-akcje { flex: none; display: flex; gap: var(--odstep-2); }
 
-/* --- Nowa grupa (okno) --------------------------------------------------- */
-
-.modal-karta.nowa-grupa {
-  max-width: 26rem;
-  display: flex;
-  flex-direction: column;
-  gap: var(--odstep-4);
+[role="dialog"][data-radix-command] input {
+  width: 100%;
+  padding: var(--odstep-4) var(--odstep-6);
+  border: none;
+  border-bottom: 1px solid var(--linia);
+  background: transparent;
+  font-size: 15px;
+  outline: none;
 }
-.pole-nazwy-grupy,
-.pole-nicku,
-.dodaj-po-nazwie label { display: flex; flex-direction: column; gap: var(--odstep-2); }
 
-.wybor-osob {
-  border: 1px solid var(--linia);
-  border-radius: var(--promien-m);
-  padding: var(--odstep-3) var(--odstep-4);
-  margin: 0;
-  max-height: 14rem;
+[role="dialog"][data-radix-command] .cmdk-list {
+  max-height: 360px;
   overflow-y: auto;
 }
-.wybor-osob legend {
-  padding: 0 var(--odstep-2);
-  font-size: .8125rem;
+
+[role="dialog"][data-radix-command] .cmdk-group-heading {
+  padding: var(--odstep-2) var(--odstep-4);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--tekst-drugi);
 }
-.wybor-osob ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.osoba-wybor {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--odstep-3);
-  padding: var(--odstep-2) 0;
+
+[role="dialog"][data-radix-command] .cmdk-item {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--odstep-3) var(--odstep-4);
   cursor: pointer;
-}
-.osoba-wybor input { flex: none; width: auto; min-height: 0; }
-.osoba-wybor .kto { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.pole-z-przyciskiem { display: flex; gap: var(--odstep-2); align-items: center; }
-.pole-z-przyciskiem input { flex: 1; min-width: 0; }
-
-.dodani-po-nazwie {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--odstep-2);
-}
-.dodani-po-nazwie li {
-  display: flex;
-  align-items: center;
-  gap: var(--odstep-2);
-  border: 1px solid var(--linia);
-  border-radius: 999px;
-  padding: var(--odstep-1) var(--odstep-2) var(--odstep-1) var(--odstep-3);
-  font-size: .8125rem;
+  border-bottom: 1px solid var(--linia);
 }
 
-/* --- Edytor nazwy grupy w inspektorze ------------------------------------ */
+[role="dialog"][data-radix-command] .cmdk-item[data-highlighted],
+[role="dialog"][data-radix-command] .cmdk-item:hover {
+  background: var(--wglebienie);
+}
 
-.edytor-nazwy-grupy { display: flex; gap: var(--odstep-2); }
-.edytor-nazwy-grupy input { flex: 1; min-width: 0; font-size: .875rem; min-height: var(--dotyk-ikona); }
-.edytor-nazwy-grupy button { flex: none; width: var(--dotyk-ikona); height: var(--dotyk-ikona); min-height: 0; padding: 0; }
+[role="dialog"][data-radix-command] .cmdk-empty {
+  padding: var(--odstep-4) var(--odstep-6);
+  color: var(--tekst-drugi);
+  text-align: center;
+}
+
+.pole-polecenia-nazwa { font-weight: 500; }
+.pole-polecenia-ostatnie { font-size: 12px; color: var(--tekst-trzeci); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
+}

@@ -1,6 +1,6 @@
 [package]
 name = "mekamb-ffi"
-description = "Bindingi UniFFI rdzenia mekamb-chat dla klienta Android"
+description = "Bindingi UniFFI rdzenia mekamb-chat dla klientów Android i iOS"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-# `cdylib` dla Androida (.so ładowane przez JNI), `lib` żeby dało się to
-# testować zwykłym `cargo test`.
-crate-type = ["cdylib", "lib"]
+# `cdylib` dla Androida (.so ładowane przez JNI), `staticlib` dla iOS (App
+# Store nie przyjmuje własnych bibliotek dynamicznych poza frameworkami, a
+# statyczna linkuje się wprost do aplikacji przez XCFramework), `lib` żeby
+# dało się to testować zwykłym `cargo test`.
+crate-type = ["cdylib", "staticlib", "lib"]
 name = "mekamb_ffi"
 
 [dependencies]

@@ -1,6 +1,7 @@
 import { ownSdpFingerprint, verifySdpFingerprint } from "../wasm/mekamb_wasm";
 import { API_URL } from "./api";
 import type { Messenger } from "./messenger";
+import { t } from "./jezyk";
 
 /**
  * Rozmowy audio i wideo — dwuosobowe i grupowe.
@@ -269,8 +270,8 @@ class PeerLink {
       this.odrzuconyOdcisk = true;
       this.zamknij();
       throw new Error(
-        `odcisk certyfikatu od ${this.username} nie zgadza się z tym, który przyszedł ` +
-          "zaszyfrowanym kanałem — połączenie zerwane",
+        t(`odcisk certyfikatu od ${this.username} nie zgadza się z tym, który przyszedł `, `the certificate fingerprint from ${this.username} doesn't match the one that came over `) +
+          t("zaszyfrowanym kanałem — połączenie zerwane", "the encrypted channel — connection dropped"),
       );
     }
   }
@@ -346,8 +347,8 @@ export class Call {
 
     if (uczestnicy.length + 1 > MAX_UCZESTNIKOW) {
       throw new Error(
-        `rozmowa obsługuje najwyżej ${MAX_UCZESTNIKOW} osób — przy większej liczbie ` +
-          "każdy musiałby wysyłać tyle strumieni, ile jest pozostałych uczestników",
+        t(`rozmowa obsługuje najwyżej ${MAX_UCZESTNIKOW} osób — przy większej liczbie `, `a call supports at most ${MAX_UCZESTNIKOW} people — with more, `) +
+          t("każdy musiałby wysyłać tyle strumieni, ile jest pozostałych uczestników", "everyone would have to send as many streams as there are other participants"),
       );
     }
 

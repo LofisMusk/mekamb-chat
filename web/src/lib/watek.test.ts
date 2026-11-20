@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { ustawJezyk } from "./jezyk";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { Wiadomosc } from "./historia";
 import { PRZERWA_BLOKU_MS, PRZERWA_ROZDZIELACZA_MS, etykietaDnia, ulozWatek } from "./watek";
@@ -18,6 +19,10 @@ function dymki(uklad: ReturnType<typeof ulozWatek>) {
 function poludnie(rok: number, miesiac: number, dzien: number): number {
   return new Date(rok, miesiac - 1, dzien, 12, 0, 0).getTime();
 }
+
+// Komunikaty sprawdzamy po polsku — angielski jest domyślny, więc wybór wprost.
+beforeAll(() => ustawJezyk("pl"));
+afterAll(() => ustawJezyk("en"));
 
 describe("etykieta dnia", () => {
   const teraz = poludnie(2026, 8, 10);

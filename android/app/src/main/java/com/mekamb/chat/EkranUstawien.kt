@@ -77,8 +77,8 @@ fun EkranUstawien(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = Odstep.l),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+                .padding(start = Odstep.l, end = Odstep.l, bottom = Odstep.xl),
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Karta {
                 Row(
@@ -124,6 +124,27 @@ fun EkranUstawien(
                     style = MaterialTheme.typography.labelMedium,
                     color = Nocturne.kolory.tekstDrugi,
                 )
+                KontrolkaSegmentowa(
+                    opcje = Jezyk.entries,
+                    wybrana = jezyk,
+                    etykieta = { it.etykieta },
+                    onWybor = onJezyk,
+                )
+
+                // „Neutralny" jest pierwszy i domyślny — kolor to opcja, nie start.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        t("Akcja główna i Twoje dymki", "Primary action and your bubbles"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Nocturne.kolory.tekstDrugi,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        nazwaAkcentu(akcent),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Nocturne.kolory.tekst,
+                    )
+                }
                 WyborAkcentu(wybrany = akcent, onWybor = onAkcent)
             }
 

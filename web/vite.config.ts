@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
@@ -30,7 +31,9 @@ function cspConnectSrc() {
 export default defineConfig({
   // GitHub Pages serwuje projekt pod ścieżką repozytorium, nie w korzeniu domeny.
   base: process.env.GITHUB_PAGES === "true" ? "/mekamb-chat/" : "/",
-  plugins: [react(), cspConnectSrc()],
+  // Tailwind jako wtyczka Vite, nie PostCSS: arkusz składa się w tym samym
+  // przebiegu co reszta i do `dist` trafia wyłącznie to, czego kod używa.
+  plugins: [react(), tailwindcss(), cspConnectSrc()],
   build: {
     target: "es2022",
     // Kryptografia jako osobny fragment: zmiana interfejsu nie unieważnia

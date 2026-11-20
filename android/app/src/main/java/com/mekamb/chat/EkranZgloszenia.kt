@@ -76,8 +76,11 @@ fun EkranZgloszenia(
         PasekZPowrotem(t("Zgłoś błąd", "Report a problem"), onWstecz = onWstecz)
 
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(Odstep.l),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Odstep.l, end = Odstep.l, bottom = Odstep.xl),
+            verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Karta {
                 Row(

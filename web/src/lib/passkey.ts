@@ -1,3 +1,4 @@
+import { t } from "./jezyk";
 /**
  * Cienki wrapper na WebAuthn (`navigator.credentials`) — logowanie passkeyem.
  *
@@ -108,7 +109,7 @@ export async function createPasskey(
   })) as PublicKeyCredential | null;
 
   if (!credential) {
-    throw new Error("rejestracja passkeya została przerwana");
+    throw new Error(t("rejestracja passkeya została przerwana", "passkey registration was interrupted"));
   }
 
   const response = credential.response as AuthenticatorAttestationResponse;
@@ -140,7 +141,7 @@ export async function getPasskey(
   })) as PublicKeyCredential | null;
 
   if (!credential) {
-    throw new Error("logowanie passkeyem zostało przerwane");
+    throw new Error(t("logowanie passkeyem zostało przerwane", "passkey sign-in was interrupted"));
   }
 
   const response = credential.response as AuthenticatorAssertionResponse;

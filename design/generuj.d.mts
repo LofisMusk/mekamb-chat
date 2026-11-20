@@ -12,11 +12,17 @@ export declare const SCIEZKA_WEB: string;
 /** Ścieżka do wygenerowanego zestawu Androida. */
 export declare const SCIEZKA_ANDROID: string;
 
+/** Ścieżka do wygenerowanego zestawu iOS. */
+export declare const SCIEZKA_IOS: string;
+
 /** Treść, jaką generator wypisałby do `web/src/Ikony.tsx`. */
 export declare function zrodloWeb(): string;
 
 /** Treść, jaką generator wypisałby do `android/.../Ikony.kt`. */
 export declare function zrodloAndroid(): string;
+
+/** Treść, jaką generator wypisałby do `ios/Mekamb/Ikony.swift`. */
+export declare function zrodloIos(): string;
 
 /** Czy plik na dysku zgadza się z podaną treścią. */
 export declare function zgodne(sciezka: string, oczekiwane: string): boolean;

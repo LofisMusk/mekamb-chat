@@ -1,6 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { Ikona } from "./Ikony";
+import { Ikona, type NazwaIkony } from "./Ikony";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./components/ui/alert-dialog";
+import { Awatar } from "./components/ui/avatar";
+import { Button } from "./components/ui/button";
+import { cn } from "./components/ui/cn";
+import { Input, klasyPola } from "./components/ui/input";
+import { t } from "./lib/jezyk";
 import type { Messenger } from "./lib/messenger";
 import {
   JEDNOSTKI_ZNIKANIA,
@@ -83,7 +99,7 @@ export function Uczestnicy({
   const ja = messenger.account.userId;
 
   return (
-    <>
+    <div className="flex flex-col gap-6 p-4">
       {/*
         Nazwa grupy — edytowalna i WSPÓLDZIELONA (metadana MLS), nie lokalna
         etykieta. Tylko dla grup: DM nazywa się rozmówcą, nie da się go
@@ -91,39 +107,40 @@ export function Uczestnicy({
         uczestników.
       */}
       {grupa && (
-        <section className="sekcja-inspektora">
-          <h3 className="naglowek-sekcji">
-            <Ikona nazwa="info" rozmiar={13} />
-            Nazwa grupy
-          </h3>
+        <Sekcja ikona="info" tytul={t("Nazwa grupy", "Group name")}>
           <NazwaGrupy nazwa={nazwaGrupy} onZapisz={onZmienNazweGrupy} />
-        </section>
+        </Sekcja>
       )}
 
-      <section className="sekcja-inspektora">
-        <h3 className="naglowek-sekcji">
-          <Ikona nazwa="osoby" rozmiar={13} />
-          {osoby.length === 2 ? "Rozmowa prywatna" : `Grupa · ${osoby.length} osób`}
-        </h3>
-
-        <ul className="lista-osob">
+      <Sekcja
+        ikona="osoby"
+        tytul={
+          osoby.length === 2
+            ? t("Rozmowa prywatna", "Private conversation")
+            : t(`Grupa · ${osoby.length} osób`, `Group · ${osoby.length} people`)
+        }
+      >
+        <ul className="flex flex-col">
           {osoby.map((osoba) => {
             const jaTo = osoba === ja;
             const zablokowana = zablokowani.has(osoba);
             return (
-              <li key={osoba}>
-                <span className="awatar maly" aria-hidden="true">
-                  {nick(osoba).slice(0, 1)}
+              <li key={osoba} className="flex min-h-11 items-center gap-3">
+                <Awatar nazwa={nick(osoba)} rozmiar="sm" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-tresc">{nick(osoba)}</span>
+                  {nick(osoba) !== osoba && (
+                    <span className="block truncate text-podpis text-tekst-drugi">@{osoba}</span>
+                  )}
                 </span>
-                <span className="kto">{nick(osoba)}</span>
                 {jaTo ? (
-                  <span className="tryb">Ty</span>
+                  <span className="text-podpis text-tekst-drugi">{t("Ty", "You")}</span>
                 ) : (
                   <>
                     {zablokowana && (
-                      <span className="tryb uwaga">
+                      <span className="flex items-center gap-1 text-podpis text-alarm">
                         <Ikona nazwa="blokuj" rozmiar={12} />
-                        zablokowany
+                        {t("zablokowany", "blocked")}
                       </span>
                     )}
                     {/*
@@ -131,37 +148,39 @@ export function Uczestnicy({
                       to o tej osobie się decyduje. Blokujemy po NAZWIE
                       użytkownika (nie nicku) — to ona jest tożsamością.
                     */}
-                    <button
-                      type="button"
-                      className="ikonowy maly"
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={
-                        zablokowana ? `Odblokuj ${nick(osoba)}` : `Zablokuj ${nick(osoba)}`
+                        zablokowana
+                          ? t(`Odblokuj ${nick(osoba)}`, `Unblock ${nick(osoba)}`)
+                          : t(`Zablokuj ${nick(osoba)}`, `Block ${nick(osoba)}`)
                       }
-                      title={zablokowana ? "Odblokuj" : "Zablokuj"}
+                      title={zablokowana ? t("Odblokuj", "Unblock") : t("Zablokuj", "Block")}
                       onClick={() => (zablokowana ? onOdblokuj(osoba) : onZablokuj(osoba))}
                     >
                       <Ikona nazwa="blokuj" rozmiar={15} />
-                    </button>
+                    </Button>
                   </>
                 )}
               </li>
             );
           })}
         </ul>
-      </section>
 
-      {/*
-        Dodanie osoby do ISTNIEJĄCEJ rozmowy — rozbudowa grupy albo zamiana DM-a
-        w grupę. `addMember` dokłada wszystkie urządzenia osoby jednym commitem
-        (inwariant rdzenia), a kod bezpieczeństwa się przy tym zmienia — dlatego
-        po dodaniu odświeżamy skład.
-      */}
-      <DodajOsobe
-        onDodaj={async (username) => {
-          await onDodajOsobe(username);
-          setOdswiezenie((n) => n + 1);
-        }}
-      />
+        {/*
+          Dodanie osoby do ISTNIEJĄCEJ rozmowy — rozbudowa grupy albo zamiana DM-a
+          w grupę. `addMember` dokłada wszystkie urządzenia osoby jednym commitem
+          (inwariant rdzenia), a kod bezpieczeństwa się przy tym zmienia — dlatego
+          po dodaniu odświeżamy skład.
+        */}
+        <DodajOsobe
+          onDodaj={async (username) => {
+            await onDodajOsobe(username);
+            setOdswiezenie((n) => n + 1);
+          }}
+        />
+      </Sekcja>
 
       {/* Znikanie wiadomości — retencja lokalna tej rozmowy, domyślnie wyłączona. */}
       <Znikanie sekundy={znikanieSekundy} onZmien={onZnikanie} />
@@ -176,9 +195,24 @@ export function Uczestnicy({
         i z pytaniem.
       */}
       {grupa && <OpuscGrupe onOpusc={onOpuscGrupe} />}
-    </>
+    </div>
   );
 }
+
+/** Sekcja panelu: mały nagłówek z ikoną i treść pod nim. */
+function Sekcja({ ikona, tytul, children }: { ikona: NazwaIkony; tytul: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="flex items-center gap-1.5 text-podpis font-medium text-tekst-drugi">
+        <Ikona nazwa={ikona} rozmiar={13} />
+        {tytul}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+const WSKAZOWKA = "text-podpis leading-relaxed text-tekst-drugi";
 
 /**
  * Dodawanie osoby do istniejącej rozmowy.
@@ -211,43 +245,38 @@ function DodajOsobe({ onDodaj }: { onDodaj: (username: string) => Promise<void> 
 
   if (!otwarte) {
     return (
-      <section className="sekcja-inspektora">
-        <button type="button" className="cichy" onClick={() => setOtwarte(true)}>
-          <Ikona nazwa="dodaj" rozmiar={14} />
-          Dodaj osobę
-        </button>
-      </section>
+      <Button variant="ghost" size="sm" className="self-start" onClick={() => setOtwarte(true)}>
+        <Ikona nazwa="dodaj" rozmiar={14} />
+        {t("Dodaj osobę", "Add person")}
+      </Button>
     );
   }
 
   return (
-    <section className="sekcja-inspektora">
-      <h3 className="naglowek-sekcji">
-        <Ikona nazwa="dodaj" rozmiar={13} />
-        Dodaj osobę
-      </h3>
+    <div className="flex flex-col gap-2">
       <form
-        className="dodaj-osobe"
+        className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void dodaj();
         }}
       >
-        <input
+        <Input
           autoFocus
           value={nazwa}
           onChange={(e) => setNazwa(e.target.value)}
-          placeholder="Nazwa użytkownika"
-          aria-label="Nazwa użytkownika do dodania"
+          placeholder={t("Nazwa użytkownika", "Username")}
+          aria-label={t("Nazwa użytkownika do dodania", "Username to add")}
           disabled={pracuje}
         />
-        <button className="ikonowy glowny" disabled={!nazwa.trim() || pracuje} aria-label="Dodaj">
+        <Button size="icon" disabled={!nazwa.trim() || pracuje} aria-label={t("Dodaj", "Add")}>
           <Ikona nazwa={pracuje ? "zegar" : "wyslij"} rozmiar={16} />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="ikonowy"
-          aria-label="Anuluj"
+          variant="ghost"
+          size="icon"
+          aria-label={t("Anuluj", "Cancel")}
           disabled={pracuje}
           onClick={() => {
             setNazwa("");
@@ -255,13 +284,15 @@ function DodajOsobe({ onDodaj }: { onDodaj: (username: string) => Promise<void> 
           }}
         >
           <Ikona nazwa="zamknij" rozmiar={16} />
-        </button>
+        </Button>
       </form>
-      <p className="wskazowka">
-        Dołączą wszystkie urządzenia tej osoby. Kod bezpieczeństwa się zmieni — to
-        oczekiwane przy każdej zmianie składu.
+      <p className={WSKAZOWKA}>
+        {t(
+          "Dołączą wszystkie urządzenia tej osoby. Kod bezpieczeństwa się zmieni — to oczekiwane przy każdej zmianie składu.",
+          "All of this person's devices will join. The safety number will change — that's expected whenever members change.",
+        )}
       </p>
-    </section>
+    </div>
   );
 }
 
@@ -295,65 +326,75 @@ function Znikanie({
     setWlasny(false);
   };
 
-  return (
-    <section className="sekcja-inspektora">
-      <h3 className="naglowek-sekcji">
-        <Ikona nazwa="zegar" rozmiar={13} />
-        Znikające wiadomości
-      </h3>
+  const chip = (aktywny: boolean) =>
+    cn(
+      "h-8 rounded-full border px-3 text-meta transition-colors",
+      aktywny
+        ? "border-glowny bg-glowny text-glowny-tekst"
+        : "border-linia-mocna text-tekst hover:bg-wglebienie",
+    );
 
-      <p className="wskazowka">
+  return (
+    <Sekcja ikona="zegar" tytul={t("Znikające wiadomości", "Disappearing messages")}>
+      <p className={WSKAZOWKA}>
         {sekundy
-          ? `Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}.`
-          : "Wyłączone — wiadomości zostają, dopóki ich nie usuniesz."}
+          ? t(
+              `Wiadomości znikają z tego urządzenia po: ${opisZnikania(sekundy)}. U rozmówcy zostają.`,
+              `Messages disappear from this device after ${opisZnikania(sekundy)}. They stay on the other person's device.`,
+            )
+          : t(
+              "Wyłączone — wiadomości zostają, dopóki ich nie usuniesz.",
+              "Off — messages stay until you delete them.",
+            )}
       </p>
 
-      <div className="wybor-znikania">
+      <div className="flex flex-wrap gap-1.5">
         {PRESETY_ZNIKANIA.map((p) => (
           <button
             key={p.sekundy}
             type="button"
-            className={sekundy === p.sekundy ? "chip aktywny" : "chip"}
+            className={chip(sekundy === p.sekundy)}
             aria-pressed={sekundy === p.sekundy}
             onClick={() => onZmien(p.sekundy)}
           >
             {p.etykieta}
           </button>
         ))}
-        <button
-          type="button"
-          className={wlasny ? "chip aktywny" : "chip"}
-          aria-pressed={wlasny}
-          onClick={() => setWlasny((w) => !w)}
-        >
-          Własny…
+        <button type="button" className={chip(wlasny)} aria-pressed={wlasny} onClick={() => setWlasny((w) => !w)}>
+          {t("Własny…", "Custom…")}
         </button>
         {sekundy !== null && (
-          <button type="button" className="chip niszczacy-chip" onClick={() => onZmien(null)}>
-            Wyłącz
+          <button
+            type="button"
+            className="h-8 rounded-full border border-alarm/45 px-3 text-meta text-alarm hover:bg-alarm-tlo"
+            onClick={() => onZmien(null)}
+          >
+            {t("Wyłącz", "Turn off")}
           </button>
         )}
       </div>
 
       {wlasny && (
         <form
-          className="wlasny-czas"
+          className="flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             zastosujWlasny();
           }}
         >
-          <input
+          <Input
             type="number"
             min={1}
             value={ile}
             onChange={(e) => setIle(e.target.value)}
-            aria-label="Ile"
+            aria-label={t("Ile", "Amount")}
+            className="w-20"
           />
           <select
             value={jednostka}
             onChange={(e) => setJednostka(Number(e.target.value))}
-            aria-label="Jednostka czasu"
+            aria-label={t("Jednostka czasu", "Time unit")}
+            className={cn(klasyPola, "w-auto")}
           >
             {JEDNOSTKI_ZNIKANIA.map((j) => (
               <option key={j.mnoznik} value={j.mnoznik}>
@@ -361,75 +402,46 @@ function Znikanie({
               </option>
             ))}
           </select>
-          <button className="glowny" type="submit">
-            Ustaw
-          </button>
+          <Button type="submit">{t("Ustaw", "Set")}</Button>
         </form>
       )}
-    </section>
+    </Sekcja>
   );
 }
 
 /**
  * Przycisk opuszczenia grupy z potwierdzeniem.
  *
- * Za linią i w kolorze alarmu jako linia (reguła Nocturne), bo to wyjście
- * nieodwracalne: żeby wrócić, ktoś z grupy musi zaprosić ponownie. Pytanie
- * przed, nie po — po fakcie nie ma już czego cofać.
+ * Za linią i w kolorze alarmu jako obrys, bo to wyjście nieodwracalne: żeby
+ * wrócić, ktoś z grupy musi zaprosić ponownie. Pytanie przed, nie po — po
+ * fakcie nie ma już czego cofać.
  */
 function OpuscGrupe({ onOpusc }: { onOpusc: () => void }) {
-  const [pyta, setPyta] = useState(false);
-
-  useEffect(() => {
-    if (!pyta) return;
-    const naKlawisz = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPyta(false);
-    };
-    window.addEventListener("keydown", naKlawisz);
-    return () => window.removeEventListener("keydown", naKlawisz);
-  }, [pyta]);
-
   return (
-    <section className="strefa-opuszczenia">
-      <button type="button" className="niszczacy" onClick={() => setPyta(true)}>
-        <Ikona nazwa="opusc" rozmiar={16} />
-        Opuść grupę
-      </button>
-
-      {pyta && (
-        <div
-          className="nakladka-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Opuścić grupę"
-          onClick={() => setPyta(false)}
-        >
-          <div className="modal-karta" onClick={(e) => e.stopPropagation()}>
-            <h3>Opuścić tę grupę?</h3>
-            <p>
-              Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości.
-              Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.
-            </p>
-            <div className="modal-przyciski">
-              <button type="button" onClick={() => setPyta(false)}>
-                Anuluj
-              </button>
-              <button
-                type="button"
-                className="niszczacy"
-                autoFocus
-                onClick={() => {
-                  setPyta(false);
-                  onOpusc();
-                }}
-              >
-                <Ikona nazwa="opusc" rozmiar={16} />
-                Opuść
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+    <section className="border-t border-linia pt-4">
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant="destructive" className="w-full">
+            <Ikona nazwa="opusc" rozmiar={16} />
+            {t("Opuść grupę", "Leave group")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Opuścić tę grupę?", "Leave this group?")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "Wyjdziesz z grupy u wszystkich — przestaniesz dostawać jej wiadomości. Żeby wrócić, ktoś będzie musiał zaprosić Cię ponownie.",
+                "You'll leave the group for everyone and stop receiving its messages. To come back, someone will have to invite you again.",
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("Anuluj", "Cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={onOpusc}>{t("Opuść", "Leave")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -474,37 +486,35 @@ function KodBezpieczenstwa({
   if (!kod) return null;
 
   return (
-    <section className="sekcja-inspektora">
-      <h3 className="naglowek-sekcji">
-        <Ikona nazwa="odcisk" rozmiar={13} />
-        Kod bezpieczeństwa
-      </h3>
-
-      <button className="cichy" onClick={() => setPokazany((p) => !p)}>
+    <Sekcja ikona="odcisk" tytul={t("Kod bezpieczeństwa", "Safety number")}>
+      <Button variant="outline" size="sm" className="self-start" onClick={() => setPokazany((p) => !p)}>
         <Ikona nazwa="rozwin" rozmiar={14} klasa={pokazany ? "obrocona" : undefined} />
-        {pokazany ? "Ukryj kod" : "Pokaż kod"}
-      </button>
+        {pokazany ? t("Ukryj kod", "Hide number") : t("Pokaż kod", "Show number")}
+      </Button>
 
       {pokazany && (
         <>
           <code className="safety-kod">{kod}</code>
-          <p className="wskazowka">
-            Porównaj ten kod z rozmówcą <strong>innym kanałem</strong> — na żywo albo
-            telefonicznie. Jeśli się zgadza, nikt nie podstawił się w środek rozmowy.
-            Porównanie przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.
+          <p className={WSKAZOWKA}>
+            {t(
+              "Porównaj ten kod z rozmówcą innym kanałem — na żywo albo telefonicznie. Jeśli się zgadza, nikt nie podstawił się w środek rozmowy. Porównanie przez tę aplikację nic nie daje: to właśnie ten kanał sprawdzamy.",
+              "Compare this number with the other person over another channel — in person or by phone. If it matches, no one has slipped into the middle of the conversation. Comparing it through this app proves nothing: this app is exactly the channel being checked.",
+            )}
           </p>
-          <p className="wskazowka">
-            Kod zmienia się przy każdej zmianie składu rozmowy i przy dołączeniu nowego
-            urządzenia — wtedy trzeba porównać go ponownie.
+          <p className={WSKAZOWKA}>
+            {t(
+              "Kod zmienia się przy każdej zmianie składu rozmowy i przy dołączeniu nowego urządzenia — wtedy trzeba porównać go ponownie.",
+              "The number changes whenever members change or a new device joins — compare it again then.",
+            )}
           </p>
         </>
       )}
-    </section>
+    </Sekcja>
   );
 }
 
 /**
- * Edytor nazwy grupy w inspektorze.
+ * Edytor nazwy grupy w panelu.
  *
  * Zapis dopiero na „Zapisz" albo Enter, nie po każdym znaku — zmiana rozsyła
  * metadaną do całej grupy, więc nie ma jej wysyłać przy każdym naciśnięciu.
@@ -524,21 +534,21 @@ function NazwaGrupy({
 
   return (
     <form
-      className="edytor-nazwy-grupy"
+      className="flex items-center gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (zmienione) onZapisz(pole.trim());
       }}
     >
-      <input
+      <Input
         value={pole}
         onChange={(e) => setPole(e.target.value)}
-        placeholder="Nazwa grupy"
-        aria-label="Nazwa grupy"
+        placeholder={t("Nazwa grupy", "Group name")}
+        aria-label={t("Nazwa grupy", "Group name")}
       />
-      <button className="ikonowy glowny" disabled={!zmienione} aria-label="Zapisz nazwę" title="Zapisz">
+      <Button size="icon" disabled={!zmienione} aria-label={t("Zapisz nazwę", "Save name")} title={t("Zapisz", "Save")}>
         <Ikona nazwa="wyslane" rozmiar={16} />
-      </button>
+      </Button>
     </form>
   );
 }

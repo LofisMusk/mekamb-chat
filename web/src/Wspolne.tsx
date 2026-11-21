@@ -2,8 +2,10 @@ import NumberFlow from "@number-flow/react";
 import { useEffect, useId, useState } from "react";
 
 import { Ikona, type NazwaIkony } from "./Ikony";
-import { PALETA_AKCENTOW, wczytajAkcent, zapiszAkcent, zastosujAkcent } from "./lib/akcent";
-import type { WyborJezyka } from "./lib/jezyk";
+import { cn } from "./components/ui/cn";
+import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
+import { Podpowiedz } from "./components/ui/tooltip";
+import { type Jezyk, t, ustawJezyk, useJezyk } from "./lib/jezyk";
 import {
   type WyborMotywu,
   pilnujMotywu,
@@ -22,10 +24,22 @@ import {
  * po pół roku jest drugą aplikacją.
  */
 
-/** Znak firmowy: ten sam znak co ikona aplikacji, w kółku akcentu. */
-export function ZnakMarki() {
+/**
+ * Znak firmowy: znak z ikony aplikacji w obrysie `linia`.
+ *
+ * Nie plama: znak nie jest akcją, a plama `glowny` na ekranie należy do akcji
+ * głównej. Wypełniony znak obok wypełnionego „Załóż konto" konkurowałby z nim
+ * o to, gdzie patrzeć najpierw.
+ */
+export function ZnakMarki({ className }: { className?: string }) {
   return (
-    <span className="marka-znak" aria-hidden="true">
+    <span
+      className={cn(
+        "grid size-9 shrink-0 place-items-center rounded-md border border-linia-mocna text-tekst",
+        className,
+      )}
+      aria-hidden="true"
+    >
       <Ikona nazwa="marka" rozmiar={18} />
     </span>
   );
@@ -196,66 +210,39 @@ export function WyborMotywuUI({ zEtykietami = false }: { zEtykietami?: boolean }
 }
 
 /**
- * Wybór koloru akcentu — osiem próbek, ten sam zestaw co `Akcent` na Androidzie.
+ * Przełącznik PL/EN. Ten sam wzorzec co motyw: segment, jedna decyzja.
  *
- * Kliknięcie zawsze WYBIERA, nie ma stanu „nic nie wybrane" do kliknięcia
- * z powrotem — kto chce niebieski z powrotem, klika próbkę niebieską. Jeden
- * jasny cel jest tu prostszy niż osobny przycisk „domyślny" obok ośmiu innych.
+ * Stoi też na ekranie powitania — osoba nieznająca angielskiego musi do
+ * polskiego dotrzeć przed zalogowaniem, a nie dopiero w ustawieniach.
  */
-export function WyborAkcentuUI() {
-  const [wybor, setWybor] = useState<string | null>(() => wczytajAkcent());
-
+export function WyborJezykaUI({ className }: { className?: string }) {
+  const biezacy = useJezyk();
   return (
-    <div className="paleta-akcentow" role="group" aria-label="Kolor akcentu">
-      {PALETA_AKCENTOW.map((akcent) => (
-        <button
-          key={akcent.id}
-          type="button"
-          className={wybor === akcent.id ? "probka-akcentu wybrana" : "probka-akcentu"}
-          aria-label={akcent.id}
-          aria-pressed={wybor === akcent.id}
-          style={{ background: akcent.probka }}
-          onClick={() => {
-            zapiszAkcent(akcent.id);
-            setWybor(akcent.id);
-            zastosujAkcent(akcent.id);
-          }}
-        />
-      ))}
-    </div>
+    <ToggleGroup
+      type="single"
+      value={biezacy}
+      aria-label={t("Język", "Language")}
+      className={className}
+      onValueChange={(wartosc) => {
+        if (wartosc) ustawJezyk(wartosc as Jezyk);
+      }}
+    >
+      <ToggleGroupItem value="en" aria-label="English">EN</ToggleGroupItem>
+      <ToggleGroupItem value="pl" aria-label="Polski">PL</ToggleGroupItem>
+    </ToggleGroup>
   );
 }
 
-const JEZYKI: { wybor: WyborJezyka; etykieta: string }[] = [
-  { wybor: "pl", etykieta: "PL" },
-  { wybor: "en", etykieta: "EN" },
-];
+const ZDARZENIE_MOTYWU = "mekamb:motyw";
 
 /**
- * Wybór języka chromu aplikacji — kontrolowany, bo w przeciwieństwie do motywu
- * i akcentu wynik trzeba przekazać w dół drzewa (nawigacja, lista, wątek),
- * a nie tylko wpisać w `<html>`. Stan i zapis do magazynu leżą u wywołującego
- * (`Czat.tsx`), ten komponent tylko rysuje wybór, tak samo jak `WyborMotywuUI`.
+ * Zapis, potem natychmiastowe zastosowanie i powiadomienie przełączników.
+ *
+ * Kolejność ma znaczenie: nasłuch zmian systemu czyta wybór z magazynu, więc
+ * bez zapisu najbliższe przełączenie motywu systemowego cofnęłoby ten wybór.
  */
-export function WyborJezykaUI({
-  jezyk,
-  onZmien,
-}: {
-  jezyk: WyborJezyka;
-  onZmien: (j: WyborJezyka) => void;
-}) {
-  return (
-    <div className="wybor-motywu" role="group" aria-label="Język interfejsu">
-      {JEZYKI.map((j) => (
-        <button
-          key={j.wybor}
-          className={jezyk === j.wybor ? "aktywny" : undefined}
-          aria-pressed={jezyk === j.wybor}
-          onClick={() => onZmien(j.wybor)}
-        >
-          {j.etykieta}
-        </button>
-      ))}
-    </div>
-  );
+export function ustawMotyw(wybor: WyborMotywu) {
+  zapiszWybor(wybor);
+  zastosuj(rozwin(wybor, systemJasny()));
+  window.dispatchEvent(new Event(ZDARZENIE_MOTYWU));
 }

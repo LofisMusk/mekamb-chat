@@ -116,9 +116,9 @@ fun EkranListy(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Nagłówek: duży tytuł + pigułka „Nowy czat" po prawej, jak w projekcie.
+        // Nagłówek: tytuł ekranu i jedyna akcja główna tego ekranu — „Nowy czat".
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.l, vertical = Odstep.m),
+            modifier = Modifier.fillMaxWidth().padding(start = Odstep.l, end = Odstep.l, top = Odstep.s, bottom = Odstep.m),
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
             Row(
@@ -126,12 +126,13 @@ fun EkranListy(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Odstep.m),
             ) {
-                Text(
-                    t("Rozmowy", "Chats"),
-                    style = MaterialTheme.typography.displaySmall,
-                    modifier = Modifier.weight(1f),
+                NaglowekEkranu(t("Rozmowy", "Chats"), Modifier.weight(1f))
+                PrzyciskGlowny(
+                    t("Nowy czat", "New chat"),
+                    ikona = Ikony.Dodaj,
+                    pelnaSzerokosc = false,
+                    onClick = onNowaRozmowa,
                 )
-                PigulkaNowyCzat(onClick = onNowaRozmowa)
             }
             PoleSzukania(
                 wartosc = szukanie,
@@ -141,7 +142,7 @@ fun EkranListy(
         }
 
         // Prośby ponad listą — sekcja z przyjmij/odrzuć. Widoczna tylko wtedy,
-        // gdy jest szukanie puste: prośba nie należy do wyników szukania rozmów.
+        // gdy szukanie jest puste: prośba nie należy do wyników szukania rozmów.
         if (prosby.isNotEmpty() && szukanie.isBlank()) {
             SekcjaProsb(
                 prosby = prosby,
@@ -188,38 +189,28 @@ fun EkranListy(
                     }
                 }
             } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(Odstep.xl),
-                    verticalArrangement = Arrangement.spacedBy(Odstep.m),
-                ) {
-                    // Pusto z powodu szukania to co innego niż brak rozmów.
-                    // Jedna wiadomość na oba stany kazałaby użytkownikowi
-                    // zgadywać, czy niczego nie ma, czy tylko nie znalazł.
-                    Text(
-                        if (szukanie.isBlank()) {
-                            t("Nie masz jeszcze żadnej rozmowy.", "You don't have any chats yet.")
-                        } else {
-                            t("Nic nie pasuje do tej nazwy.", "Nothing matches that name.")
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Nocturne.kolory.tekstDrugi,
-                    )
-                    Text(
-                        if (szukanie.isBlank()) {
-                            t(
-                                "Zacznij od kontaktu — wystarczy nazwa użytkownika.",
-                                "Start with a contact — a username is enough.",
-                            )
-                        } else {
-                            t(
-                                "Szukamy tylko w rozmowach zapisanych na tym urządzeniu.",
-                                "We only search chats stored on this device.",
-                            )
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Nocturne.kolory.tekstTrzeci,
-                    )
-                }
+                // Pusto z powodu szukania to co innego niż brak rozmów. Jedna
+                // wiadomość na oba stany kazałaby użytkownikowi zgadywać, czy
+                // niczego nie ma, czy tylko nie znalazł.
+                Pusto(
+                    ikona = if (szukanie.isBlank()) Ikony.Rozmowy else Ikony.Szukaj,
+                    tytul = if (szukanie.isBlank()) {
+                        t("Nie masz jeszcze żadnej rozmowy.", "You don't have any chats yet.")
+                    } else {
+                        t("Nic nie pasuje do tej nazwy.", "Nothing matches that name.")
+                    },
+                    wskazowka = if (szukanie.isBlank()) {
+                        t(
+                            "Zacznij od kontaktu — wystarczy nazwa użytkownika.",
+                            "Start with a contact — a username is enough.",
+                        )
+                    } else {
+                        t(
+                            "Szukamy tylko w rozmowach zapisanych na tym urządzeniu.",
+                            "We only search chats stored on this device.",
+                        )
+                    },
+                )
             }
 
             Spacer(Modifier.height(Odstep.l))
@@ -231,6 +222,7 @@ fun EkranListy(
                 Ikony.Klucz,
                 Modifier.padding(horizontal = Odstep.l),
             )
+            Spacer(Modifier.height(Odstep.l))
         }
 
         DolnaNawigacja(
@@ -243,67 +235,69 @@ fun EkranListy(
 }
 
 /**
- * Pigułka „Nowy czat" w nagłówku listy.
+ * Stan pusty: ikona w kółku, zdanie i wskazówka — wyśrodkowane.
  *
- * Wypełniona akcentem z „+" i podpisem — akcja główna ekranu, w projekcie stoi
- * po prawej stronie tytułu zamiast pełnej szerokości na dole.
+ * Tak samo jak `Pusto` na webie: pusta lista ma mówić, co to znaczy, a nie
+ * wyglądać jak lista, która się jeszcze nie wczytała.
  */
 @Composable
-private fun PigulkaNowyCzat(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .defaultMinSize(minHeight = 36.dp)
-            .background(Nocturne.kolory.akcent, RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick)
-            .padding(start = Odstep.l, end = Odstep.l, top = Odstep.s, bottom = Odstep.s),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Odstep.s),
+private fun Pusto(ikona: ImageVector, tytul: String, wskazowka: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Odstep.xl, vertical = Odstep.xxl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Odstep.s),
     ) {
-        Icon(Ikony.Dodaj, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(18.dp))
+        Box(
+            Modifier.size(48.dp).background(Nocturne.kolory.wglebienie, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(ikona, contentDescription = null, tint = Nocturne.kolory.tekstDrugi, modifier = Modifier.size(22.dp))
+        }
+        Text(tytul, style = MaterialTheme.typography.titleSmall, textAlign = TextAlign.Center)
         Text(
-            t("Nowy czat", "New chat"),
-            style = MaterialTheme.typography.titleSmall,
-            color = androidx.compose.ui.graphics.Color.White,
+            wskazowka,
+            style = MaterialTheme.typography.bodySmall,
+            color = Nocturne.kolory.tekstDrugi,
+            textAlign = TextAlign.Center,
         )
     }
 }
 
 /**
- * Pole szukania na liście — zawsze widoczne, jak w projekcie.
+ * Pole szukania na liście — zawsze widoczne (cmdk na webie, tu pole u góry).
  *
- * Niski pasek z lupą i (gdy jest tekst) krzyżykiem do wyczyszczenia. Tło `pole`,
- * bez ramki — na liście szukanie jest jej częścią, a nie osobnym formularzem.
+ * Tło `wglebienie`, bez ramki — na liście szukanie jest jej częścią, a nie
+ * osobnym formularzem. Krzyżyk pojawia się dopiero, gdy jest co czyścić.
  */
 @Composable
 private fun PoleSzukania(wartosc: String, onZmiana: (String) -> Unit, onWyczysc: () -> Unit) {
+    val k = Nocturne.kolory
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 36.dp)
-            .background(Nocturne.kolory.pole, RoundedCornerShape(10.dp))
-            .padding(horizontal = Odstep.m),
+            .defaultMinSize(minHeight = 40.dp)
+            .background(k.wglebienie, RoundedCornerShape(Promien.m))
+            .padding(start = Odstep.m),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.s),
     ) {
-        Icon(Ikony.Szukaj, contentDescription = null, tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(16.dp))
-        androidx.compose.foundation.text.BasicTextField(
+        Icon(Ikony.Szukaj, contentDescription = null, tint = k.tekstDrugi, modifier = Modifier.size(16.dp))
+        BasicTextField(
             value = wartosc,
             onValueChange = onZmiana,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Nocturne.kolory.tekst),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(Nocturne.kolory.akcentTekst),
-            modifier = Modifier.weight(1f),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = k.tekst),
+            cursorBrush = SolidColor(k.tekst),
+            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
             decorationBox = { pole ->
                 if (wartosc.isEmpty()) {
-                    Text(t("Szukaj", "Search"), style = MaterialTheme.typography.bodyLarge, color = Nocturne.kolory.tekstTrzeci)
+                    Text(t("Szukaj rozmów", "Search chats"), style = MaterialTheme.typography.bodyLarge, color = k.tekstTrzeci)
                 }
                 pole()
             },
         )
         if (wartosc.isNotEmpty()) {
-            IconButton(onClick = onWyczysc, modifier = Modifier.size(24.dp)) {
-                Icon(Ikony.Zamknij, contentDescription = t("Wyczyść", "Clear"), tint = Nocturne.kolory.tekstTrzeci, modifier = Modifier.size(14.dp))
-            }
+            PrzyciskIkona(Ikony.Zamknij, t("Wyczyść", "Clear"), onWyczysc, kolor = k.tekstDrugi)
         }
     }
 }
@@ -425,9 +419,9 @@ private fun TloUsuwania() {
 /**
  * Znacznik nieprzeczytanych — pigułka `glowny`.
  *
- * Wypełnione kółko akcentu — w odsłonie mobilnej akcent jest wypełnieniem.
- * Liczba, a nie kropka — „trzy" i „trzydzieści" to inna decyzja o tym, czy
- * zaglądać teraz.
+ * Wypełniony, bo odpowiada na pytanie „czy ktoś coś do mnie powiedział", a nie
+ * jest przyciskiem. Liczba, a nie kropka — „trzy" i „trzydzieści" to inna
+ * decyzja o tym, czy zaglądać teraz — i liczba przewija się, gdy rośnie.
  */
 @Composable
 private fun Znacznik(ile: Int) {
@@ -478,13 +472,9 @@ private fun SekcjaProsb(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(Ikony.Osoby, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(14.dp))
-            Text(t("Prośby", "Requests"), style = MaterialTheme.typography.labelLarge)
-            Text(
-                "· ${prosby.size}",
-                style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.kolory.tekstDrugi,
-            )
+            Icon(Ikony.Osoby, null, tint = Nocturne.kolory.tekstDrugi, modifier = Modifier.size(14.dp))
+            Text(t("Prośby", "Requests"), style = MaterialTheme.typography.labelMedium)
+            Licznik(prosby.size, kolor = Nocturne.kolory.tekstDrugi)
         }
 
         prosby.forEach { pozycja ->
@@ -512,29 +502,19 @@ private fun SekcjaProsb(
                     )
                 }
 
-                // Odrzuć: obrys błędu, bez wypełnienia. Przyjmij: obrys akcentu.
-                IconButton(
-                    onClick = { onOdrzuc(pozycja) },
-                    modifier = Modifier.size(Dotyk.ikonaWPasku),
-                ) {
-                    Icon(
-                        Ikony.Zamknij,
-                        contentDescription = t("Odrzuć prośbę", "Reject request"),
-                        tint = Nocturne.kolory.alarm,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                IconButton(
-                    onClick = { onPrzyjmij(pozycja) },
-                    modifier = Modifier.size(Dotyk.ikonaWPasku),
-                ) {
-                    Icon(
-                        Ikony.Wyslane,
-                        contentDescription = t("Przyjmij prośbę", "Accept request"),
-                        tint = Nocturne.kolory.akcentTekst,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                // Odrzuć: duch w kolorze alarmu. Przyjmij: duch w kolorze tekstu.
+                // Żadne nie jest plamą — prośba nie jest akcją główną listy.
+                PrzyciskIkona(
+                    Ikony.Zamknij,
+                    t("Odrzuć prośbę", "Reject request"),
+                    { onOdrzuc(pozycja) },
+                    kolor = Nocturne.kolory.alarm,
+                )
+                PrzyciskIkona(
+                    Ikony.Wyslane,
+                    t("Przyjmij prośbę", "Accept request"),
+                    { onPrzyjmij(pozycja) },
+                )
             }
         }
     }
@@ -604,12 +584,7 @@ private fun Zakladka(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
-            Icon(
-                ikona,
-                contentDescription = etykieta,
-                tint = if (aktywna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
-                modifier = Modifier.size(22.dp),
-            )
+            Icon(ikona, contentDescription = null, tint = kolor, modifier = Modifier.size(22.dp))
             if (nieprzeczytane > 0) {
                 Box(
                     Modifier
@@ -630,8 +605,10 @@ private fun Zakladka(
         }
         Text(
             etykieta,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (aktywna) Nocturne.kolory.akcentTekst else Nocturne.kolory.tekstTrzeci,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = if (aktywna) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
+            ),
+            color = kolor,
         )
     }
 }

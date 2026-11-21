@@ -65,7 +65,7 @@ fun EkranKonta(
                 .padding(horizontal = Odstep.l),
             verticalArrangement = Arrangement.spacedBy(Odstep.m),
         ) {
-            Text(t("Ustawienia", "Settings"), style = MaterialTheme.typography.displaySmall)
+            NaglowekEkranu(t("Ustawienia", "Settings"), Modifier.padding(top = Odstep.s))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -118,13 +118,7 @@ fun EkranKonta(
             }
 
             Karta {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Odstep.m),
-                ) {
-                    Icon(Ikony.Klucz, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(16.dp))
-                    Text(t("Gdy stracisz to urządzenie", "If you lose this device"), style = MaterialTheme.typography.labelLarge)
-                }
+                NaglowekKarty(t("Gdy stracisz to urządzenie", "If you lose this device"), Ikony.Klucz)
                 // Zdanie zostaje, bo niesie konsekwencję, a nie zapewnienie:
                 // po nim można zrobić coś inaczej — sparować drugie urządzenie
                 // zawczasu, żeby konto nie zależało od jednego telefonu.
@@ -197,8 +191,13 @@ private fun WierszMenu(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Odstep.m),
     ) {
-        Icon(ikona, null, tint = Nocturne.kolory.akcentTekst, modifier = Modifier.size(20.dp))
-        Column(Modifier.weight(1f)) {
+        Box(
+            Modifier.size(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(ikona, null, tint = Nocturne.kolory.tekst, modifier = Modifier.size(20.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(tytul, style = MaterialTheme.typography.bodyLarge)
             Text(opis, style = MaterialTheme.typography.labelSmall, color = Nocturne.kolory.tekstDrugi)
         }

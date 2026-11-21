@@ -173,13 +173,15 @@ fun EkranRozmowy(
             onRozmowa = onRozmowa,
         )
 
-        // Klucz ostatniej WŁASNEJ wiadomości ze stanem — stan pokazujemy słowem
-        // („dostarczono" / „przeczytano") tylko pod nią, jak w projekcie, a nie
-        // ptaszkiem w każdym dymku.
-        val kluczStanu = uklad
-            .filterIsInstance<PozycjaWatku.Dymek>()
-            .lastOrNull { it.wiadomosc.wlasna && it.wiadomosc.rozmowa == null && it.wiadomosc.stan != null }
-            ?.klucz
+        /*
+         * Wiadomości w locie stoją ZA ostatnią zapisaną — więc to one kończą
+         * serię. Ostatni zapisany dymek oddaje im wtedy ogon i słowo o stanie
+         * wysyłki: oba mówią „to koniec tego, co powiedziałem", a koniec jest
+         * już niżej.
+         */
+        val ostatniIndeks = uklad.lastIndex
+        val oddajeKoniec = wLocie.isNotEmpty() &&
+            (uklad.lastOrNull() as? PozycjaWatku.Dymek)?.let { it.wiadomosc.wlasna && it.wiadomosc.rozmowa == null } == true
 
         LazyColumn(
             state = lista,
@@ -190,25 +192,38 @@ fun EkranRozmowy(
         ) {
             itemsIndexed(uklad, key = { _, p -> p.klucz }) { i, pozycja ->
                 when (pozycja) {
-                    is PozycjaWatku.Dzien -> RozdzielaczDnia(pozycja.etykieta)
-                    is PozycjaWatku.Dymek ->
-                        // Ślad po rozmowie nie jest dymkiem — nikt go nie
-                        // powiedział, więc nie ma strony, po której miałby stanąć.
-                        pozycja.wiadomosc.rozmowa
-                            ?.let { ZdarzenieRozmowy(pozycja.wiadomosc, it) }
-                            ?: Babel(
-                                pozycja.wiadomosc,
-                                pozycja.ciag,
-                                stanSlowo = if (pozycja.klucz == kluczStanu) {
-                                    when (pozycja.wiadomosc.stan) {
-                                        StanWiadomosci.PRZECZYTANE -> t("przeczytano", "read")
-                                        StanWiadomosci.DOSTARCZONE -> t("dostarczono", "delivered")
-                                        else -> t("wysłano", "sent")
+                    is PozycjaWatku.Rozdzielacz -> Rozdzielacz(pozycja.etykieta, pozycja.czas, pierwszy = i == 0)
+                    is PozycjaWatku.Dymek -> {
+                        val wiadomosc = pozycja.wiadomosc
+                        val rozmowa = wiadomosc.rozmowa
+                        if (rozmowa != null) {
+                            // Ślad po rozmowie nie jest dymkiem — nikt go nie
+                            // powiedział, więc nie ma strony, po której miałby stanąć.
+                            ZdarzenieRozmowy(wiadomosc, rozmowa, pierwszy = i == 0)
+                        } else {
+                            val oddaje = oddajeKoniec && i == ostatniIndeks
+                            Babel(
+                                wiadomosc = wiadomosc,
+                                autor = model.nick(wiadomosc.autor),
+                                odstepNad = when {
+                                    i == 0 -> 0.dp
+                                    pozycja.ciag -> ODSTEP_W_SERII
+                                    else -> ODSTEP_MIEDZY_SERIAMI
+                                },
+                                ciag = pozycja.ciag,
+                                ogon = pozycja.ogon && !oddaje,
+                                stanSlowo = if (pozycja.ostatniaWlasna && !oddaje) {
+                                    when (wiadomosc.stan) {
+                                        StanWiadomosci.PRZECZYTANE -> t("Przeczytano", "Read")
+                                        StanWiadomosci.DOSTARCZONE -> t("Dostarczono", "Delivered")
+                                        else -> t("Wysłano", "Sent")
                                     }
                                 } else {
                                     null
                                 },
                             )
+                        }
+                    }
                 }
             }
 
@@ -251,47 +266,13 @@ fun EkranRozmowy(
  */
 @Composable
 private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Nocturne.kolory.zaslona)
-            .clickable(onClick = onZamknij),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Nocturne.kolory.karta, RoundedCornerShape(14.dp, 14.dp, 0.dp, 0.dp))
-                // Kliknięcie w sam arkusz nie może go zamykać — zamyka je
-                // dopiero kliknięcie w zasłonę obok.
-                .clickable(enabled = false) {}
-                .padding(Odstep.l),
-            verticalArrangement = Arrangement.spacedBy(Odstep.m),
-        ) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .size(width = 36.dp, height = 4.dp)
-                    .background(Nocturne.kolory.liniaMocna, RoundedCornerShape(2.dp)),
-            )
-
-            Text(t("Załącz", "Attach"), style = MaterialTheme.typography.titleMedium)
-
-            Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
-                KafelekZalacznika(t("Zdjęcie", "Photo"), Ikony.Aparat, Modifier.weight(1f)) {
-                    onWybierz("image/*")
-                }
-                KafelekZalacznika(t("Wideo", "Video"), Ikony.Kamera, Modifier.weight(1f)) {
-                    onWybierz("video/*")
-                }
+    Arkusz(onZamknij = onZamknij, tytul = t("Załącz", "Attach")) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
+            KafelekZalacznika(t("Zdjęcie", "Photo"), Ikony.Zdjecie, Modifier.weight(1f)) {
+                onWybierz("image/*")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
-                KafelekZalacznika(t("Dźwięk", "Audio"), Ikony.Dzwonek, Modifier.weight(1f)) {
-                    onWybierz("audio/*")
-                }
-                KafelekZalacznika(t("Plik", "File"), Ikony.Spinacz, Modifier.weight(1f)) {
-                    onWybierz("*/*")
-                }
+            KafelekZalacznika(t("Wideo", "Video"), Ikony.Film, Modifier.weight(1f)) {
+                onWybierz("video/*")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Odstep.s)) {
@@ -303,21 +284,18 @@ private fun ArkuszZalacznikow(onZamknij: () -> Unit, onWybierz: (String) -> Unit
             }
         }
 
-            // Zostaje, bo mówi o tym, co robimy z PLIKIEM, zanim go wyślemy —
-            // i o tym, że może się nie udać. To zmienia decyzję: przy takim
-            // ostrzeżeniu zdjęcie z lokalizacją można wysłać świadomie albo
-            // wcale. Zdanie o szyfrowaniu każdego pliku osobnym kluczem
-            // zniknęło — było zapewnieniem, po którym nic nie zależy.
-            Wskazowka(
-                t(
-                    "Lokalizację i dane urządzenia usuwamy PRZED wysłaniem. Gdy się nie uda, " +
-                        "napiszemy to przy wiadomości.",
-                    "We strip location and device data BEFORE sending. If that fails, we'll " +
-                        "say so on the message.",
-                ),
-                Ikony.Tarcza,
-            )
-        }
+        // Zostaje, bo mówi o tym, co robimy z PLIKIEM, zanim go wyślemy — i o tym,
+        // że może się nie udać. To zmienia decyzję: przy takim ostrzeżeniu
+        // zdjęcie z lokalizacją można wysłać świadomie albo wcale.
+        Wskazowka(
+            t(
+                "Lokalizację i dane urządzenia usuwamy PRZED wysłaniem. Gdy się nie uda, " +
+                    "napiszemy to przy wiadomości.",
+                "We strip location and device data BEFORE sending. If that fails, we'll " +
+                    "say so on the message.",
+            ),
+            Ikony.Tarcza,
+        )
     }
 }
 
@@ -360,45 +338,46 @@ private fun PasekRozmowy(
     onUczestnicy: () -> Unit,
     onRozmowa: (Boolean) -> Unit,
 ) {
-    // Nagłówek jak w projekcie: wstecz po lewej, wyśrodkowany awatar + nazwa
-    // (dotknięcie otwiera kod bezpieczeństwa), połączenie i wideo po prawej.
-    // Droga dostarczania zeszła z nagłówka — jest przy ikonie na liście i w
-    // ustawieniach; tu zabierała miejsce nazwie i nie była akcją.
     Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Nocturne.kolory.pasek)
-                .padding(horizontal = Odstep.s, vertical = Odstep.s),
+                .background(Nocturne.kolory.tlo)
+                .padding(horizontal = Odstep.xs, vertical = Odstep.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onWstecz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Wstecz, contentDescription = t("Wróć", "Back"), tint = Nocturne.kolory.akcentTekst)
-            }
+            PrzyciskIkona(Ikony.Wstecz, t("Wróć", "Back"), onWstecz)
 
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    .clip(RoundedCornerShape(Promien.m))
                     .clickable(onClick = onUczestnicy)
-                    .padding(horizontal = Odstep.s),
+                    .padding(horizontal = Odstep.xs, vertical = Odstep.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Odstep.s, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(Odstep.s),
             ) {
-                Awatar(nazwa, rozmiar = 30.dp)
-                Text(
-                    nazwa,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Awatar(nazwa, rozmiar = 36.dp)
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        nazwa,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        t("szyfrowane end-to-end", "end-to-end encrypted"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Nocturne.kolory.tekstDrugi,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
 
-            IconButton(onClick = { onRozmowa(false) }, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Sluchawka, contentDescription = t("Zadzwoń", "Call"), tint = Nocturne.kolory.akcentTekst)
-            }
-            IconButton(onClick = { onRozmowa(true) }, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Kamera, contentDescription = t("Wideo", "Video"), tint = Nocturne.kolory.akcentTekst)
-            }
+            PrzyciskIkona(Ikony.Sluchawka, t("Zadzwoń", "Call"), { onRozmowa(false) })
+            PrzyciskIkona(Ikony.Kamera, t("Wideo", "Video"), { onRozmowa(true) })
+            PrzyciskIkona(Ikony.Info, t("Szczegóły rozmowy", "Chat details"), onUczestnicy)
         }
 
         Linia()
@@ -421,7 +400,7 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy, pierws
 
     val opis = when {
         odbyta -> {
-            val s = rozmowa.sekundy ?: 0L
+            val s = rozmowa.sekundy
             val rodzaj = if (rozmowa.wideo) t("Rozmowa wideo", "Video call") else t("Rozmowa głosowa", "Voice call")
             "%s · %d:%02d".format(rodzaj, s / 60, s % 60)
         }
@@ -465,19 +444,87 @@ private fun ZdarzenieRozmowy(wiadomosc: Wiadomosc, rozmowa: ZapisRozmowy, pierws
     }
 }
 
-@Composable
-private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean, stanSlowo: String? = null) {
-    val wlasna = wiadomosc.wlasna
+/**
+ * Kształt dymka: jeden promień 18 i — na ostatnim dymku serii — ogon.
+ *
+ * Ogon to ten sam rysunek co na webie (`.wiadomosci li.ogon` w `styles.css`):
+ * prostokąt w kolorze dymka wystaje 7 dp poza jego krawędź, a drugi, z łukiem
+ * w rogu, wycina z niego zakrzywiony róg. Na webie wycięcie jest malowane
+ * kolorem tła; tu jest odejmowaniem ścieżek, więc nie zależy od tego, na czym
+ * dymek leży.
+ */
+private class KsztaltDymka(private val wlasna: Boolean, private val ogon: Boolean) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        fun px(dp: Float) = with(density) { dp.dp.toPx() }
+        val w = size.width
+        val h = size.height
+        val r = px(PROMIEN_BABLA.value).coerceAtMost(minOf(w, h) / 2f)
+
+        val dymek = Path().apply { addRoundRect(RoundRect(0f, 0f, w, h, CornerRadius(r))) }
+        if (!ogon) return Outline.Generic(dymek)
+
+        val gora = h - px(17f)
+        val wypelnienie = Path()
+        val wyciecie = Path()
+        if (wlasna) {
+            wypelnienie.addRoundRect(
+                RoundRect(
+                    left = w - px(13f), top = gora, right = w + px(7f), bottom = h,
+                    bottomLeftCornerRadius = CornerRadius(px(16f), px(14f)),
+                ),
+            )
+            wyciecie.addRoundRect(
+                RoundRect(
+                    left = w, top = gora, right = w + px(11f), bottom = h,
+                    bottomLeftCornerRadius = CornerRadius(px(11f)),
+                ),
+            )
+        } else {
+            wypelnienie.addRoundRect(
+                RoundRect(
+                    left = -px(7f), top = gora, right = px(13f), bottom = h,
+                    bottomRightCornerRadius = CornerRadius(px(16f), px(14f)),
+                ),
+            )
+            wyciecie.addRoundRect(
+                RoundRect(
+                    left = -px(11f), top = gora, right = 0f, bottom = h,
+                    bottomRightCornerRadius = CornerRadius(px(11f)),
+                ),
+            )
+        }
 
         val zOgonem = Path().apply { op(dymek, wypelnienie, PathOperation.Union) }
         return Outline.Generic(Path().apply { op(zOgonem, wyciecie, PathOperation.Difference) })
     }
 }
 
+/**
+ * Dymek wiadomości.
+ *
+ * Godziny w dymku nie ma — niesie ją rozdzielacz. Dokładny czas jednej
+ * wiadomości nie przepadł: długie przytrzymanie pokazuje go pod dymkiem (na
+ * webie to `title`). Stan wysyłki słowem pod ostatnią własną wiadomością:
+ * „dostarczono" i „przeczytano" to różnica, którą trzeba zrozumieć, a nie
+ * odcień ptaszka do rozpoznania.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Babel(
+    wiadomosc: Wiadomosc,
+    autor: String,
+    odstepNad: Dp,
+    ciag: Boolean,
+    ogon: Boolean,
+    stanSlowo: String?,
+) {
+    val wlasna = wiadomosc.wlasna
+    val k = Nocturne.kolory
+    var pokazGodzine by remember { mutableStateOf(false) }
+
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(top = odstepNad),
         horizontalAlignment = if (wlasna) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(Odstep.xs),
     ) {
         Column(
             modifier = Modifier
@@ -512,35 +559,13 @@ private fun Babel(wiadomosc: Wiadomosc, ciag: Boolean, stanSlowo: String? = null
                 PodgladZalacznika(zalacznik, wlasna)
             }
 
-            Text(
-                wiadomosc.tresc,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (wlasna) Nocturne.kolory.babelWlasnyTekst else Nocturne.kolory.tekst,
-            )
-
-            // Godzina zostaje w dymku (świadoma różnica Androida wobec webu,
-            // gdzie zegar zszedł na rozdzielacz). Stan dostawy nie jest już
-            // ptaszkiem obok niej — jest słowem pod ostatnią własną wiadomością.
-            Text(
-                GODZINA.format(Date(wiadomosc.czas)),
-                modifier = Modifier.align(Alignment.End),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (wlasna) Nocturne.kolory.babelWlasnyMeta else Nocturne.kolory.tekstTrzeci,
-            )
-        }
-
-        /*
-         * Stan dostawy słowem, jak w projekcie: „dostarczono" i „przeczytano" to
-         * różnica, którą trzeba zrozumieć, a nie odcień ptaszka do rozpoznania.
-         * Tylko pod ostatnią własną wiadomością — [stanSlowo] jest tam niepuste.
-         */
-        if (stanSlowo != null) {
-            Text(
-                stanSlowo,
-                modifier = Modifier.padding(horizontal = Odstep.xs),
-                style = MaterialTheme.typography.labelSmall,
-                color = Nocturne.kolory.tekstTrzeci,
-            )
+            if (wiadomosc.tresc.isNotEmpty()) {
+                Text(
+                    wiadomosc.tresc,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (wlasna) k.babelWlasnyTekst else k.tekst,
+                )
+            }
         }
 
         val podpis = listOfNotNull(
@@ -723,25 +748,7 @@ private fun BabelWLocie(w: WLocie, odstepNad: Dp, ogon: Boolean) {
                 .then(if (w.blad) Modifier.border(1.dp, k.alarm, RoundedCornerShape(PROMIEN_BABLA)) else Modifier)
                 .padding(horizontal = Odstep.m, vertical = Odstep.s),
         ) {
-            Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = Nocturne.kolory.babelWlasnyTekst)
-
-            Row(
-                modifier = Modifier.align(Alignment.End),
-                horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (w.blad) Ikony.Niepowodzenie else Ikony.Zegar,
-                    contentDescription = null,
-                    tint = if (w.blad) Nocturne.kolory.alarm else Nocturne.kolory.babelWlasnyMeta,
-                    modifier = Modifier.size(13.dp),
-                )
-                Text(
-                    if (w.blad) t("nie wysłano", "not sent") else t("wysyłam…", "sending…"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (w.blad) Nocturne.kolory.alarm else Nocturne.kolory.babelWlasnyMeta,
-                )
-            }
+            Text(w.tresc, style = MaterialTheme.typography.bodyLarge, color = k.babelWlasnyTekst)
         }
         Text(
             if (w.blad) t("Nie wysłano", "Not sent") else t("Wysyłam…", "Sending…"),
@@ -800,23 +807,33 @@ private fun PoleWysylki(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(Odstep.xs),
         ) {
-            IconButton(onClick = onZalacz, modifier = Modifier.size(Dotyk.ikonaWPasku)) {
-                Icon(Ikony.Spinacz, contentDescription = t("Załącz", "Attach"), tint = Nocturne.kolory.tekstDrugi)
-            }
+            PrzyciskIkona(Ikony.Spinacz, t("Załącz", "Attach"), onZalacz, kolor = k.tekstDrugi)
 
             BasicTextField(
                 value = tresc,
                 onValueChange = onZmiana,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(t("Napisz wiadomość", "Message"), color = Nocturne.kolory.tekstTrzeci) },
-                shape = RoundedCornerShape(18.dp),
-                maxLines = 4,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Nocturne.kolory.akcentTekst,
-                    unfocusedBorderColor = Nocturne.kolory.linia,
-                    focusedContainerColor = Nocturne.kolory.pole,
-                    unfocusedContainerColor = Nocturne.kolory.pole,
-                ),
+                maxLines = 5,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = k.tekst),
+                cursorBrush = SolidColor(k.tekst),
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 40.dp)
+                    .padding(vertical = 2.dp),
+                decorationBox = { pole ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 40.dp)
+                            .background(k.wglebienie, RoundedCornerShape(20.dp))
+                            .padding(horizontal = Odstep.l, vertical = 10.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (tresc.isEmpty()) {
+                            Text(t("Napisz wiadomość", "Message"), style = MaterialTheme.typography.bodyLarge, color = k.tekstTrzeci)
+                        }
+                        pole()
+                    }
+                },
             )
 
             val aktywny = wlaczone && tresc.isNotBlank()
@@ -836,7 +853,7 @@ private fun PoleWysylki(
                     Icon(
                         Ikony.Wyslij,
                         contentDescription = t("Wyślij", "Send"),
-                        tint = if (aktywny) androidx.compose.ui.graphics.Color.White else Nocturne.kolory.tekstTrzeci,
+                        tint = k.glownyTekst,
                         modifier = Modifier.size(18.dp),
                     )
                 }
